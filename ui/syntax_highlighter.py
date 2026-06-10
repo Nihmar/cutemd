@@ -52,9 +52,9 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     STATE_FENCE = 1
     STATE_MATH = 2
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._theme = "dark"  # default
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)  # type: ignore[arg-type]
+        self._theme = "dark"
         self._build_formats()
 
     # ------------------------------------------------------------------

@@ -64,7 +64,7 @@ class EditorTab(QWidget):
         self.editor.cursorPositionChanged.connect(self._emit_status)
 
         self._highlighter = MarkdownHighlighter(self.editor.document())
-        self._highlighter.set_theme(theme)
+        self._highlighter.set_theme(theme)  # type: ignore[attr-defined]
 
         # --- Preview ---
         self.preview = QTextBrowser()
@@ -114,7 +114,7 @@ class EditorTab(QWidget):
         """Update highlighter theme and re-render preview."""
         if theme != self._theme:
             self._theme = theme
-            self._highlighter.set_theme(theme)
+            self._highlighter.set_theme(theme)  # type: ignore[attr-defined]
             self._update_preview()
         # Pygments style for code blocks — updated via global in highlight_code
 
@@ -207,6 +207,11 @@ class EditorTab(QWidget):
     # Preview & scroll sync
     # ------------------------------------------------------------------
     def _render_with_anchors(self, text: str) -> str:
+        """Render HTML with <a name='bN'> anchors at each block start.
+
+        Anchors are used by scrollToAnchor() in the scroll-sync logic
+        to keep the preview in exact lockstep with the editor viewport.
+        """
         tokens = self._md.parse(text)
         new_tokens: list[Token] = []
         anchor_idx = 0
@@ -222,6 +227,12 @@ class EditorTab(QWidget):
         return self._md.renderer.render(new_tokens, self._md.options, {})
 
     def _build_line_anchor_map(self, text: str) -> list[int]:
+        """Return a per-line array that maps editor line number → anchor index.
+
+        For each source line we pick the narrowest (most specific)
+        block-level token that contains it, so list items and
+        multi-paragraph blocks resolve to the correct anchor.
+        """
         tokens = self._md.parse(text)
         entries: list[tuple[int, int, int]] = []
         anchor_idx = 0
@@ -305,6 +316,12 @@ class EditorTab(QWidget):
         self._sync_preview_scroll()
 
     def _sync_preview_scroll(self) -> None:
+        """Scroll the preview to the cached anchor, retrying if layout is not ready.
+
+        Called after setHtml() — the scrollbar may not have its final
+        range yet, so we retry on subsequent event-loop ticks up to
+        10 times.
+        """
         if self._syncing_scroll:
             return
         anchor = self._pending_sync_anchor
@@ -325,6 +342,12 @@ class EditorTab(QWidget):
                 self._sync_retries = 0
 
     def _on_editor_scrolled(self, _value: int = 0) -> None:
+        """Scroll the preview to match the block at the top of the editor.
+
+        Uses the cached line→anchor map to find which anchor corresponds
+        to the first visible line in the editor, then calls
+        scrollToAnchor() on the preview.
+        """
         if self._syncing_scroll or not self._preview_visible:
             return
         line_map = self._line_anchor_map

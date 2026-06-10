@@ -1,6 +1,6 @@
 """Settings dialog — currently only theme selection."""
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -14,6 +14,11 @@ from ui.themes import ALL_THEMES, get_theme
 
 
 class SettingsDialog(QDialog):
+    """A dialog for adjusting application settings.
+
+    Currently only provides a theme picker with a live preview.
+    """
+
     def __init__(self, current_theme_id: str, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Settings")
@@ -57,6 +62,7 @@ class SettingsDialog(QDialog):
         return self._theme_combo.currentData()
 
     def _update_preview(self) -> None:
+        """Refresh the preview label with the currently selected theme colours."""
         theme = get_theme(self._theme_combo.currentData())
         self._preview.setText(f"This is a preview of {theme.name}")
         self._preview.setStyleSheet(
