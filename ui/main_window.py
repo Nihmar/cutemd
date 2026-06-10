@@ -1,18 +1,12 @@
 """Main window for the Markdown editor."""
 
-import re
 from pathlib import Path
 
-from latex2mathml.converter import convert as _tex2mathml
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from mdit_py_plugins.dollarmath import dollarmath_plugin
-from pygments import highlight
-from pygments.formatters import HtmlFormatter
-from pygments.lexers import get_lexer_by_name, guess_lexer
-from pygments.util import ClassNotFound
 from PySide6.QtCore import QSettings, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette, QTextCursor
+from PySide6.QtGui import QAction, QFont, QKeySequence, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -29,166 +23,22 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from file_tree_panel import FileTreePanel
-from syntax_highlighter import MarkdownHighlighter
+from markdown.math_renderers import (
+    render_math_block,
+    render_math_block_label,
+    render_math_inline,
+    render_math_inline_double,
+)
+from markdown.tools import BLOCK_OPEN_TYPES, add_heading_ids, highlight_code
+from ui import theme
+from ui.file_tree_panel import FileTreePanel
+from ui.syntax_highlighter import MarkdownHighlighter
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
 _PROJECT_DIR = Path(__file__).resolve().parent
 _CSS_PATH = _PROJECT_DIR / "preview_styles.css"
-
-# Module-level Pygments style name, updated by MainWindow._apply_theme()
-_PYGMENTS_STYLE: str = "monokai"
-
-
-# ---------------------------------------------------------------------------
-# Math -> MathML renderers for dollarmath plugin
-# ---------------------------------------------------------------------------
-def _render_math_inline(tokens, idx, options, env):
-    """Render inline math $...$ as MathML."""
-    content = tokens[idx].content
-    try:
-        return _tex2mathml(content, display="inline")
-    except Exception:
-        escaped = (
-            content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        )
-        return f'<span class="math-inline">${escaped}$</span>'
-
-
-def _render_math_inline_double(tokens, idx, options, env):
-    """Render inline double math $$...$$ as MathML."""
-    content = tokens[idx].content
-    try:
-        return _tex2mathml(content, display="inline")
-    except Exception:
-        escaped = (
-            content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        )
-        return f'<span class="math-inline">$${escaped}$$</span>'
-
-
-def _render_math_block(tokens, idx, options, env):
-    """Render display math $$...$$ as a MathML block."""
-    content = tokens[idx].content.strip()
-    try:
-        mathml = _tex2mathml(content, display="block")
-        return f'<div class="math-block">{mathml}</div>'
-    except Exception:
-        escaped = (
-            content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        )
-        return f'<pre class="math-block">$$\n{escaped}\n$$</pre>'
-
-
-def _render_math_block_label(tokens, idx, options, env):
-    """Render labeled display math as a MathML block."""
-    content = tokens[idx].content.strip()
-    try:
-        mathml = _tex2mathml(content, display="block")
-        return f'<div class="math-block">{mathml}</div>'
-    except Exception:
-        escaped = (
-            content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        )
-        return f'<pre class="math-block">$$\n{escaped}\n$$</pre>'
-
-
-# ---------------------------------------------------------------------------
-# Themes (QPalette)
-# ---------------------------------------------------------------------------
-def _dark_palette() -> QPalette:
-    p = QPalette()
-    p.setColor(QPalette.ColorRole.Window, QColor(30, 30, 30))
-    p.setColor(QPalette.ColorRole.WindowText, QColor(208, 208, 208))
-    p.setColor(QPalette.ColorRole.Base, QColor(25, 25, 25))
-    p.setColor(QPalette.ColorRole.AlternateBase, QColor(35, 35, 35))
-    p.setColor(QPalette.ColorRole.ToolTipBase, QColor(208, 208, 208))
-    p.setColor(QPalette.ColorRole.ToolTipText, QColor(208, 208, 208))
-    p.setColor(QPalette.ColorRole.Text, QColor(208, 208, 208))
-    p.setColor(QPalette.ColorRole.Button, QColor(45, 45, 45))
-    p.setColor(QPalette.ColorRole.ButtonText, QColor(208, 208, 208))
-    p.setColor(QPalette.ColorRole.BrightText, QColor(255, 0, 0))
-    p.setColor(QPalette.ColorRole.Link, QColor(42, 130, 218))
-    p.setColor(QPalette.ColorRole.Highlight, QColor(42, 130, 218))
-    p.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
-    return p
-
-
-def _light_palette() -> QPalette:
-    """Return the default (light) system palette."""
-    return QApplication.style().standardPalette()
-
-
-# ---------------------------------------------------------------------------
-# Markdown -> HTML helpers
-# ---------------------------------------------------------------------------
-def _highlight_code(code: str, lang: str, _attrs: str) -> str:
-    """markdown-it-py highlight callback using Pygments with inline styles."""
-    lexer = None
-    if lang:
-        try:
-            lexer = get_lexer_by_name(lang, stripall=True)
-        except ClassNotFound:
-            pass
-    if lexer is None:
-        try:
-            lexer = guess_lexer(code)
-        except ClassNotFound:
-            lexer = get_lexer_by_name("text", stripall=True)
-
-    formatter = HtmlFormatter(style=_PYGMENTS_STYLE, noclasses=True, nowrap=True)
-    return highlight(code, lexer, formatter)
-
-
-def _slugify(text: str) -> str:
-    """Generate an HTML anchor slug from heading text."""
-    text = text.lower()
-    text = re.sub(r"[^\w\s-]", "", text)
-    text = re.sub(r"\s+", "-", text)
-    text = re.sub(r"-+", "-", text)
-    return text.strip("-")
-
-
-_HEADING_TAG_RE = re.compile(r"<(h[1-6])>(.*?)</\1>", re.DOTALL)
-
-
-def _add_heading_ids(html: str) -> str:
-    """Post-process HTML to add id attributes on heading tags."""
-
-    def _replacer(m: re.Match) -> str:
-        tag = m.group(1)
-        inner = m.group(2)
-        plain = re.sub(r"<[^>]+>", "", inner)
-        return f'<{tag} id="{_slugify(plain)}">{inner}</{tag}>'
-
-    return _HEADING_TAG_RE.sub(_replacer, html)
-
-
-_HEADING_LINE_RE = re.compile(r"^#{1,6}\s+(.+)$")
-
-
-# ---------------------------------------------------------------------------
-# Token types that start a visible block-level element in the rendered HTML.
-# We inject an <a name='bN'> anchor before each of these so the preview can
-# be scrolled to the exact corresponding content.
-# ---------------------------------------------------------------------------
-_BLOCK_OPEN_TYPES = frozenset(
-    {
-        "heading_open",
-        "paragraph_open",
-        "fence",
-        "blockquote_open",
-        "bullet_list_open",
-        "ordered_list_open",
-        "table_open",
-        "hr",
-        "math_block",
-        "math_block_label",
-        "html_block",
-    }
-)
 
 
 # ---------------------------------------------------------------------------
@@ -211,15 +61,15 @@ class MainWindow(QMainWindow):
 
         # --- Markdown parser (with dollarmath plugin for $...$ / $$...$$) ---
         self._md = (
-            MarkdownIt("commonmark", {"highlight": _highlight_code})
+            MarkdownIt("commonmark", {"highlight": highlight_code})
             .enable(["table", "strikethrough"])
             .use(dollarmath_plugin)
         )
         # Override math token renderers to produce MathML (instead of raw spans)
-        self._md.renderer.rules["math_inline"] = _render_math_inline  # pyright: ignore[reportAttributeAccessIssue]
-        self._md.renderer.rules["math_inline_double"] = _render_math_inline_double  # pyright: ignore[reportAttributeAccessIssue]
-        self._md.renderer.rules["math_block"] = _render_math_block  # pyright: ignore[reportAttributeAccessIssue]
-        self._md.renderer.rules["math_block_label"] = _render_math_block_label  # pyright: ignore[reportAttributeAccessIssue]
+        self._md.renderer.rules["math_inline"] = render_math_inline  # pyright: ignore[reportAttributeAccessIssue]
+        self._md.renderer.rules["math_inline_double"] = render_math_inline_double  # pyright: ignore[reportAttributeAccessIssue]
+        self._md.renderer.rules["math_block"] = render_math_block  # pyright: ignore[reportAttributeAccessIssue]
+        self._md.renderer.rules["math_block_label"] = render_math_block_label  # pyright: ignore[reportAttributeAccessIssue]
 
         # --- UI ---
         self.setWindowTitle("CuteMD - Markdown Editor")
@@ -245,14 +95,14 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _setup_actions(self) -> None:
         # File
-        self.act_open_folder = QAction("Open &Folder…", self)
+        self.act_open_folder = QAction("Open &Folder\u2026", self)
         self.act_open_folder.setShortcut(QKeySequence.StandardKey.Open)
         self.act_open_folder.triggered.connect(self._on_open_folder)
 
         self.act_close_folder = QAction("Close Folder", self)
         self.act_close_folder.triggered.connect(self._on_close_folder)
 
-        self.act_new = QAction("&New File…", self)
+        self.act_new = QAction("&New File\u2026", self)
         self.act_new.setShortcut(QKeySequence.StandardKey.New)
         self.act_new.triggered.connect(self._on_new)
 
@@ -260,7 +110,7 @@ class MainWindow(QMainWindow):
         self.act_save.setShortcut(QKeySequence.StandardKey.Save)
         self.act_save.triggered.connect(self._on_save)
 
-        self.act_save_as = QAction("Save &As...", self)
+        self.act_save_as = QAction("Save &As\u2026", self)
         self.act_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
         self.act_save_as.triggered.connect(self._on_save_as)
 
@@ -520,13 +370,12 @@ class MainWindow(QMainWindow):
     # Theme
     # ------------------------------------------------------------------
     def _apply_theme(self) -> None:
-        global _PYGMENTS_STYLE
         if self._theme == "dark":
-            QApplication.instance().setPalette(_dark_palette())  # type: ignore[union-attr]
-            _PYGMENTS_STYLE = "monokai"
+            QApplication.instance().setPalette(theme.dark_palette())  # type: ignore[union-attr]
+            theme.PYGMENTS_STYLE = "monokai"
         else:
-            QApplication.instance().setPalette(_light_palette())  # type: ignore[union-attr]
-            _PYGMENTS_STYLE = "default"
+            QApplication.instance().setPalette(theme.light_palette())  # type: ignore[union-attr]
+            theme.PYGMENTS_STYLE = "default"
 
         self._highlighter.set_theme(self._theme)
         self._update_preview()
@@ -539,7 +388,7 @@ class MainWindow(QMainWindow):
     # Split orientation
     # ------------------------------------------------------------------
     def _toggle_split(self) -> None:
-        # Find the inner splitter (editor|preview) — it's the last child
+        # Find the inner splitter (editor|preview) - it's the last child
         inner = self._splitter.widget(1)
         if isinstance(inner, QSplitter):
             cur = inner.orientation()
@@ -635,7 +484,7 @@ class MainWindow(QMainWindow):
     def _on_new(self) -> None:
         """Create a new markdown file in the current folder."""
         if not self._folder_path:
-            # No folder open — just clear the editor
+            # No folder open - just clear the editor
             if not self._maybe_save():
                 return
             self._current_file = None
@@ -710,11 +559,10 @@ class MainWindow(QMainWindow):
         else:
             display = "Untitled"
         mod = " *" if self._modified else ""
-        self.setWindowTitle(f"{display}{mod} – CuteMD")
+        self.setWindowTitle(f"{display}{mod} \u2013 CuteMD")
 
         # Status bar
         if self._folder_path:
-            folder_name = self._folder_path.name
             if self._current_file:
                 try:
                     rel = self._current_file.relative_to(self._folder_path)
@@ -722,7 +570,7 @@ class MainWindow(QMainWindow):
                 except ValueError:
                     self._status_file.setText(str(self._current_file))
             else:
-                self._status_file.setText(folder_name)
+                self._status_file.setText(self._folder_path.name)
         else:
             self._status_file.setText("No folder")
 
@@ -763,7 +611,7 @@ class MainWindow(QMainWindow):
         anchor_idx = 0
 
         for token in tokens:
-            if token.type in _BLOCK_OPEN_TYPES and token.map:
+            if token.type in BLOCK_OPEN_TYPES and token.map:
                 start, end = token.map
                 if start < end:
                     anchor = Token("html_inline", "", 0)
@@ -787,7 +635,7 @@ class MainWindow(QMainWindow):
         entries: list[tuple[int, int, int]] = []
         anchor_idx = 0
         for token in tokens:
-            if token.type in _BLOCK_OPEN_TYPES and token.map:
+            if token.type in BLOCK_OPEN_TYPES and token.map:
                 start, end = token.map
                 if start < end:
                     entries.append((start, end, anchor_idx))
@@ -843,7 +691,7 @@ class MainWindow(QMainWindow):
 
         # --- Render HTML with anchors ---
         try:
-            body_html = _add_heading_ids(self._render_with_anchors(text))
+            body_html = add_heading_ids(self._render_with_anchors(text))
         except Exception:
             body_html = (
                 "<pre>"
