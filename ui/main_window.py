@@ -3,13 +3,11 @@
 from pathlib import Path
 
 from markdown_it import MarkdownIt
-from markdown_it.token import Token
 from mdit_py_plugins.dollarmath import dollarmath_plugin
 from PySide6.QtCore import QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QColor,
-    QFont,
     QIcon,
     QKeySequence,
     QPainter,
@@ -24,10 +22,10 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMessageBox,
+    QMenu,
     QPlainTextEdit,
     QSplitter,
-    QTextBrowser,
+    QTabWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -39,16 +37,17 @@ from markdown.math_renderers import (
     render_math_inline,
     render_math_inline_double,
 )
-from markdown.tools import BLOCK_OPEN_TYPES, add_heading_ids, highlight_code
+from markdown.tools import highlight_code
 from ui import theme
+from ui.editor_tab import EditorTab
 from ui.file_tree_panel import FileTreePanel
-from ui.syntax_highlighter import MarkdownHighlighter
+from ui.themes import get_theme, system_theme
 
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-_PROJECT_DIR = Path(__file__).resolve().parent
-_CSS_PATH = _PROJECT_DIR / "preview_styles.css"
+_PROJECT_DIR = Path(__file__).resolve().parent.parent
+_CSS_PATH = _PROJECT_DIR / "ui" / "preview_styles.css"
 
 
 # ---------------------------------------------------------------------------
@@ -58,24 +57,24 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._folder_path: Path | None = None
-        self._current_file: Path | None = None
-        self._modified = False
-        self._theme = "dark"
-        self._syncing_scroll = False  # guard against scroll feedback loops
-        self._last_anchor: str = ""  # track the last anchor name scrolled to
-        self._line_anchor_map: list[int] = []  # line->anchor_idx cache
-        self._line_anchor_map_hash: int = 0  # cache validity key
+        self._preview_visible = True
+
+        # Restore saved theme (default: system)
+        settings = QSettings("cutemd", "cutemd")
+        self._theme_id = str(settings.value("theme", "system"))
+        self._current_theme = (
+            system_theme() if self._theme_id == "system" else get_theme(self._theme_id)
+        )
 
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
 
-        # --- Markdown parser (with dollarmath plugin for $...$ / $$...$$) ---
+        # --- Markdown parser (shared across all tabs) ---
         self._md = (
             MarkdownIt("commonmark", {"highlight": highlight_code})
             .enable(["table", "strikethrough"])
             .use(dollarmath_plugin)
         )
-        # Override math token renderers to produce MathML (instead of raw spans)
         self._md.renderer.rules["math_inline"] = render_math_inline  # pyright: ignore[reportAttributeAccessIssue]
         self._md.renderer.rules["math_inline_double"] = render_math_inline_double  # pyright: ignore[reportAttributeAccessIssue]
         self._md.renderer.rules["math_block"] = render_math_block  # pyright: ignore[reportAttributeAccessIssue]
@@ -87,15 +86,9 @@ class MainWindow(QMainWindow):
 
         self._setup_actions()
         self._setup_menubar()
-        self._setup_central()
         self._setup_statusbar()
+        self._setup_central()
         self._apply_theme()
-
-        # Debounce timer for preview updates
-        self._preview_timer = QTimer(self)
-        self._preview_timer.setSingleShot(True)
-        self._preview_timer.setInterval(300)
-        self._preview_timer.timeout.connect(self._update_preview)
 
         # Restore last folder (or prompt on first run)
         QTimer.singleShot(0, self._restore_last_folder)
@@ -124,6 +117,10 @@ class MainWindow(QMainWindow):
         self.act_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
         self.act_save_as.triggered.connect(self._on_save_as)
 
+        self.act_close_tab = QAction("Close Tab", self)
+        self.act_close_tab.setShortcut(QKeySequence.StandardKey.Close)
+        self.act_close_tab.triggered.connect(self._on_close_tab)
+
         self.act_exit = QAction("E&xit", self)
         self.act_exit.setShortcut(QKeySequence.StandardKey.Quit)
         self.act_exit.triggered.connect(self.close)
@@ -136,11 +133,16 @@ class MainWindow(QMainWindow):
         self.act_redo.setShortcut(QKeySequence.StandardKey.Redo)
 
         # View
+        self.act_toggle_preview = QAction("Toggle &Preview", self)
+        self.act_toggle_preview.setCheckable(True)
+        self.act_toggle_preview.setChecked(True)
+        self.act_toggle_preview.toggled.connect(self._on_toggle_preview)
+
         self.act_toggle_split = QAction("Toggle Split &Orientation", self)
         self.act_toggle_split.triggered.connect(self._toggle_split)
 
-        self.act_toggle_theme = QAction("Toggle &Dark/Light Theme", self)
-        self.act_toggle_theme.triggered.connect(self._toggle_theme)
+        self.act_settings = QAction("&Settings…", self)
+        self.act_settings.triggered.connect(self._on_settings)
 
     # ------------------------------------------------------------------
     # Menubar
@@ -153,9 +155,10 @@ class MainWindow(QMainWindow):
         file_menu.addAction(self.act_close_folder)
         file_menu.addSeparator()
         file_menu.addAction(self.act_new)
-        file_menu.addSeparator()
         file_menu.addAction(self.act_save)
         file_menu.addAction(self.act_save_as)
+        file_menu.addSeparator()
+        file_menu.addAction(self.act_close_tab)
         file_menu.addSeparator()
         file_menu.addAction(self.act_exit)
 
@@ -164,8 +167,11 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(self.act_redo)
 
         view_menu = mb.addMenu("&View")
+        view_menu.addAction(self.act_toggle_preview)
         view_menu.addAction(self.act_toggle_split)
-        view_menu.addAction(self.act_toggle_theme)
+
+        settings_menu = mb.addMenu("&Settings")
+        settings_menu.addAction(self.act_settings)
 
     # ------------------------------------------------------------------
     # Central widget
@@ -174,60 +180,118 @@ class MainWindow(QMainWindow):
         # --- File tree panel (left sidebar) ---
         self._tree_panel = FileTreePanel()
         self._tree_panel.file_activated.connect(self._on_tree_file_activated)
+        self._tree_panel.file_open_new_tab.connect(self._on_tree_file_new_tab)
 
-        # --- Editor ---
-        self._editor = QPlainTextEdit()
-        self._editor.setFont(QFont("monospace", 11))
-        self._editor.setTabStopDistance(40)  # 4 spaces
-        self._editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        self._editor.textChanged.connect(self._on_text_changed)
-        self._editor.cursorPositionChanged.connect(self._update_status)
+        # --- Tabs ---
+        self._tabs = QTabWidget()
+        self._tabs.setTabsClosable(True)
+        self._tabs.setMovable(True)
+        self._tabs.tabCloseRequested.connect(self._on_tab_close_requested)
+        self._tabs.currentChanged.connect(self._on_tab_changed)
 
-        # Syntax highlighter
-        self._highlighter = MarkdownHighlighter(self._editor.document())
-        self._highlighter.set_theme(self._theme)
-
-        # Connect undo/redo to editor
-        self.act_undo.triggered.connect(self._editor.undo)
-        self.act_redo.triggered.connect(self._editor.redo)
-
-        # --- Editor toolbar (above the editor only) ---
+        # --- Editor toolbar (acts on the active tab) ---
         editor_toolbar = self._make_editor_toolbar()
 
-        # --- Editor pane (toolbar + editor) ---
+        # --- Editor pane (toolbar + tabs) ---
         editor_pane = QWidget()
         editor_layout = QVBoxLayout(editor_pane)
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(0)
         editor_layout.addWidget(editor_toolbar)
-        editor_layout.addWidget(self._editor)
+        editor_layout.addWidget(self._tabs)
 
-        # --- Preview ---
-        self._preview = QTextBrowser()
-        self._preview.setReadOnly(True)
-        self._preview.setOpenExternalLinks(True)
-
-        # Synchronized scrolling (editor -> preview only)
-        self._editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
-
-        # Splitter: tree | [editor+toolbar | preview]
-        inner_splitter = QSplitter(Qt.Orientation.Horizontal)
-        inner_splitter.addWidget(editor_pane)
-        inner_splitter.addWidget(self._preview)
-
+        # Splitter: tree | [toolbar+tabs]
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
         self._splitter.addWidget(self._tree_panel)
-        self._splitter.addWidget(inner_splitter)
+        self._splitter.addWidget(editor_pane)
         self._splitter.setSizes([220, 980])
 
         self.setCentralWidget(self._splitter)
+
+        # Open with one empty tab
+        self._add_tab()
+
+    # ------------------------------------------------------------------
+    # Tab management
+    # ------------------------------------------------------------------
+    def _add_tab(self) -> EditorTab:
+        tab = EditorTab(
+            self._md,
+            self._preview_css,
+            "dark" if self._current_theme.is_dark else "light",
+        )
+        tab.modified_changed.connect(self._on_tab_modified)
+        tab.status_changed.connect(self._on_tab_status)
+        tab.title_changed.connect(lambda: self._refresh_tab_title(tab))
+
+        # Right-click context menu on the editor
+        tab.editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        tab.editor.customContextMenuRequested.connect(self._on_editor_context_menu)
+
+        idx = self._tabs.addTab(tab, tab.display_name())
+        self._tabs.setTabToolTip(idx, tab.tooltip())
+        self._tabs.setCurrentIndex(idx)
+        self._connect_edit_actions(tab)
+        return tab
+
+    def _current_tab(self) -> EditorTab | None:
+        return self._tabs.currentWidget()  # type: ignore[return-value]
+
+    def _find_tab_for_file(self, path: Path) -> int:
+        """Return the tab index containing *path*, or -1."""
+        resolved = path.resolve()
+        for i in range(self._tabs.count()):
+            tab = self._tabs.widget(i)
+            if isinstance(tab, EditorTab) and tab.file_path:
+                if tab.file_path.resolve() == resolved:
+                    return i
+        return -1
+
+    def _refresh_tab_title(self, tab: EditorTab) -> None:
+        for i in range(self._tabs.count()):
+            if self._tabs.widget(i) is tab:
+                self._tabs.setTabText(i, tab.display_name())
+                self._tabs.setTabToolTip(i, tab.tooltip())
+                break
+
+    def _connect_edit_actions(self, tab: EditorTab) -> None:
+        # Connect window-level undo/redo to this tab's editor
+        self.act_undo.triggered.connect(tab.editor.undo)
+        self.act_redo.triggered.connect(tab.editor.redo)
+
+    def _on_tab_changed(self, index: int) -> None:
+        tab = self._current_tab()
+        if tab:
+            self._connect_edit_actions(tab)
+            tab._emit_status()
+            self._update_window_title()
+
+    def _on_tab_modified(self, _modified: bool) -> None:
+        self._update_window_title()
+
+    def _on_tab_status(self, cursor: str, words: str) -> None:
+        self._status_cursor.setText(cursor)
+        self._status_words.setText(words)
+
+    def _on_tab_close_requested(self, index: int) -> None:
+        tab = self._tabs.widget(index)
+        if isinstance(tab, EditorTab) and not tab.maybe_save():
+            return
+        self._tabs.removeTab(index)
+        if self._tabs.count() == 0:
+            self._add_tab()
+        self._update_window_title()
+
+    def _on_close_tab(self) -> None:
+        idx = self._tabs.currentIndex()
+        if idx >= 0:
+            self._on_tab_close_requested(idx)
 
     # ------------------------------------------------------------------
     # Editor toolbar
     # ------------------------------------------------------------------
     def _make_colored_icon(self, name: str, color: QColor, size: int = 18) -> QIcon:
-        """Render an SVG icon from *name* recoloured with *color*."""
-        path = str(_PROJECT_DIR / "icons" / f"{name}.svg")
+        path = str(_PROJECT_DIR / "ui" / "icons" / f"{name}.svg")
         renderer = QSvgRenderer(path)
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.GlobalColor.transparent)
@@ -235,7 +299,6 @@ class MainWindow(QMainWindow):
         renderer.render(painter)
         painter.end()
 
-        # Compose over a solid-colour background to replace currentColor
         coloured = QPixmap(size, size)
         coloured.fill(color)
         painter = QPainter(coloured)
@@ -247,12 +310,7 @@ class MainWindow(QMainWindow):
         return QIcon(coloured)
 
     def _make_editor_toolbar(self) -> QWidget:
-        """Return a QOwnNotes-style toolbar with SVG icons."""
-        # Pick icon colour based on theme
-        icon_color = (
-            QColor(208, 208, 208) if self._theme == "dark" else QColor(48, 48, 48)
-        )
-
+        icon_color = self._current_theme.icon_color
         self._toolbar_buttons: list[tuple[QToolButton, str]] = []
 
         tb = QWidget()
@@ -260,6 +318,12 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(tb)
         layout.setContentsMargins(6, 3, 6, 3)
         layout.setSpacing(1)
+
+        def _sep() -> None:
+            s = QWidget()
+            s.setObjectName("toolbarSep")
+            s.setFixedWidth(1)
+            layout.addWidget(s)
 
         def _btn(icon_name: str, syntax: str, tip: str) -> None:
             b = QToolButton()
@@ -271,12 +335,6 @@ class MainWindow(QMainWindow):
             b.clicked.connect(lambda checked=False, s=syntax: self._insert_md(s))
             layout.addWidget(b)
             self._toolbar_buttons.append((b, icon_name))
-
-        def _sep() -> None:
-            s = QWidget()
-            s.setObjectName("toolbarSep")
-            s.setFixedWidth(1)
-            layout.addWidget(s)
 
         # --- Heading dropdown ---
         heading_combo = QComboBox()
@@ -321,56 +379,72 @@ class MainWindow(QMainWindow):
         return tb
 
     def _recolor_toolbar_icons(self) -> None:
-        """Refresh toolbar icon colours after a theme change."""
-        icon_color = (
-            QColor(208, 208, 208) if self._theme == "dark" else QColor(48, 48, 48)
-        )
+        icon_color = self._current_theme.icon_color
         for button, name in getattr(self, "_toolbar_buttons", []):
             button.setIcon(self._make_colored_icon(name, icon_color))
 
     def _on_heading_combo(self, index: int) -> None:
-        """Handle heading dropdown selection."""
         if index <= 0:
             return
         prefix = "#" * index + " "
         self._insert_md(prefix)
-        # Reset to placeholder so the same level can be re-selected
         self.sender().setCurrentIndex(0)  # type: ignore[union-attr]
 
+    def _on_editor_context_menu(self, point) -> None:
+        """Right-click menu on the editor with formatting actions."""
+        menu = QMenu(self)
+
+        menu.addAction("Bold").triggered.connect(lambda: self._insert_md("**"))
+        menu.addAction("Italic").triggered.connect(lambda: self._insert_md("*"))
+        menu.addAction("Strikethrough").triggered.connect(lambda: self._insert_md("~~"))
+        menu.addAction("Inline code").triggered.connect(lambda: self._insert_md("`"))
+        menu.addSeparator()
+        menu.addAction("Unordered list").triggered.connect(
+            lambda: self._insert_md("- ")
+        )
+        menu.addAction("Ordered list").triggered.connect(lambda: self._insert_md("1. "))
+        menu.addAction("Task list").triggered.connect(lambda: self._insert_md("- [ ] "))
+        menu.addSeparator()
+        menu.addAction("Blockquote").triggered.connect(lambda: self._insert_md("> "))
+        menu.addAction("Code block").triggered.connect(lambda: self._insert_md("```"))
+        menu.addAction("Table").triggered.connect(
+            lambda: self._insert_md(
+                "\n| Col 1 | Col 2 |\n|------|------|\n|      |      |\n"
+            )
+        )
+        menu.addAction("Horizontal rule").triggered.connect(
+            lambda: self._insert_md("---\n")
+        )
+        menu.addSeparator()
+        menu.addAction("Insert link").triggered.connect(lambda: self._insert_md("[]()"))
+        menu.addAction("Insert image").triggered.connect(
+            lambda: self._insert_md("![]()")
+        )
+
+        sender = self.sender()
+        if isinstance(sender, QPlainTextEdit):
+            menu.exec(sender.viewport().mapToGlobal(point))
+
     def _insert_md(self, syntax: str) -> None:
-        """Insert markdown syntax at cursor position.
+        tab = self._current_tab()
+        if tab is None:
+            return
+        cursor = tab.editor.textCursor()
 
-        Behaviour depends on the syntax type:
-        - Wrapping syntax (**, *, ~~, `) wraps the selection or inserts
-          paired markers with the cursor placed between them.
-        - Code block (```) inserts a fenced code block and places the
-          cursor on the blank line inside it.
-        - Link/Image syntax inserts the template and positions the cursor
-          between the brackets.
-        - Everything else (prefix syntax like headings, lists, blockquote,
-          horizontal rule) inserts at the start of the current line.
-        """
-        cursor = self._editor.textCursor()
-
-        # --- Wrapping syntax ---
         if syntax in ("**", "*", "~~", "`"):
             sel = cursor.selectedText()
             cursor.insertText(f"{syntax}{sel}{syntax}")
             if not sel:
-                # Place cursor between the markers
                 cursor.movePosition(
                     QTextCursor.MoveOperation.Left,
                     QTextCursor.MoveMode.MoveAnchor,
                     len(syntax),
                 )
-                self._editor.setTextCursor(cursor)
-
-        # --- Code block (fenced) ---
+                tab.editor.setTextCursor(cursor)
         elif syntax == "```":
             cursor.beginEditBlock()
             prefix = "" if cursor.atBlockStart() else "\n"
             cursor.insertText(f"{prefix}```\n\n```")
-            # Place cursor on the blank line between the fences
             cursor.movePosition(
                 QTextCursor.MoveOperation.PreviousBlock,
                 QTextCursor.MoveMode.MoveAnchor,
@@ -380,20 +454,15 @@ class MainWindow(QMainWindow):
                 QTextCursor.MoveMode.MoveAnchor,
             )
             cursor.endEditBlock()
-            self._editor.setTextCursor(cursor)
-
-        # --- Link / Image template ---
+            tab.editor.setTextCursor(cursor)
         elif syntax in ("[]()", "![]()"):
             cursor.insertText(syntax)
-            # Place cursor between the square brackets
             cursor.movePosition(
                 QTextCursor.MoveOperation.Left,
                 QTextCursor.MoveMode.MoveAnchor,
                 len(syntax) - 1,
             )
-            self._editor.setTextCursor(cursor)
-
-        # --- Prefix-style (headings, lists, blockquote, HR, etc.) ---
+            tab.editor.setTextCursor(cursor)
         else:
             if not cursor.atBlockStart():
                 cursor.movePosition(
@@ -401,8 +470,7 @@ class MainWindow(QMainWindow):
                     QTextCursor.MoveMode.MoveAnchor,
                 )
             cursor.insertText(syntax)
-
-        self._editor.setFocus()
+        tab.editor.setFocus()
 
     # ------------------------------------------------------------------
     # Status bar
@@ -421,30 +489,69 @@ class MainWindow(QMainWindow):
     # Theme
     # ------------------------------------------------------------------
     def _apply_theme(self) -> None:
-        if self._theme == "dark":
-            QApplication.instance().setPalette(theme.dark_palette())  # type: ignore[union-attr]
-            theme.PYGMENTS_STYLE = "monokai"
-        else:
-            QApplication.instance().setPalette(theme.light_palette())  # type: ignore[union-attr]
-            theme.PYGMENTS_STYLE = "default"
+        import ui.themes as themes_mod
 
-        self._highlighter.set_theme(self._theme)
+        themes_mod.PYGMENTS_STYLE = self._current_theme.pygments_style
+
+        pal = self._current_theme.build_palette()
+        QApplication.instance().setPalette(pal)  # type: ignore[union-attr]
+
+        # Re-generate QSS with the new palette
+        app = QApplication.instance()
+        if app:
+            app.setStyleSheet(theme.load_qss(pal))  # type: ignore[attr-defined]
+
         self._recolor_toolbar_icons()
-        self._update_preview()
+        for i in range(self._tabs.count()):
+            tab = self._tabs.widget(i)
+            if isinstance(tab, EditorTab):
+                tab.set_theme(
+                    "dark" if self._current_theme.is_dark else "light",
+                    self._current_theme.pygments_style,
+                )
 
-    def _toggle_theme(self) -> None:
-        self._theme = "light" if self._theme == "dark" else "dark"
+    def _on_settings(self) -> None:
+        from ui.settings_dialog import SettingsDialog
+
+        dlg = SettingsDialog(self._theme_id, self)
+        if dlg.exec() != SettingsDialog.DialogCode.Accepted:
+            return
+
+        new_id = dlg.selected_theme_id()
+        if new_id == self._theme_id:
+            return
+
+        self._theme_id = new_id
+        self._current_theme = (
+            system_theme() if new_id == "system" else get_theme(new_id)
+        )
+        QSettings("cutemd", "cutemd").setValue("theme", new_id)
         self._apply_theme()
+
+    def _on_toggle_preview(self, checked: bool) -> None:
+        self._preview_visible = checked
+        for i in range(self._tabs.count()):
+            tab = self._tabs.widget(i)
+            if isinstance(tab, EditorTab):
+                tab.set_preview_visible(checked)
 
     # ------------------------------------------------------------------
     # Split orientation
     # ------------------------------------------------------------------
     def _toggle_split(self) -> None:
-        # Find the inner splitter (editor|preview) - it's the last child
-        inner = self._splitter.widget(1)
-        if isinstance(inner, QSplitter):
-            cur = inner.orientation()
-            inner.setOrientation(
+        tab = self._current_tab()
+        if tab is None:
+            return
+        lt = tab.layout()
+        if lt is None:
+            return
+        splitter = lt.itemAt(0)
+        if splitter is None:
+            return
+        w = splitter.widget()
+        if isinstance(w, QSplitter):
+            cur = w.orientation()
+            w.setOrientation(
                 Qt.Orientation.Vertical
                 if cur == Qt.Orientation.Horizontal
                 else Qt.Orientation.Horizontal
@@ -453,42 +560,9 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # File operations
     # ------------------------------------------------------------------
-    def _maybe_save(self) -> bool:
-        """Ask to save unsaved changes.  Returns False if user cancels."""
-        if not self._modified:
-            return True
-        ret = QMessageBox.question(
-            self,
-            "Unsaved changes",
-            "The document has been modified.\nSave changes?",
-            QMessageBox.StandardButton.Save
-            | QMessageBox.StandardButton.Discard
-            | QMessageBox.StandardButton.Cancel,
-        )
-        if ret == QMessageBox.StandardButton.Save:
-            self._on_save()
-            return not self._modified  # False if save was cancelled
-        return ret != QMessageBox.StandardButton.Cancel
-
-    def _load_file(self, path: Path) -> None:
-        """Load the file at *path* into the editor."""
-        if not self._maybe_save():
-            return
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as e:
-            QMessageBox.critical(self, "Error", f"Could not open file:\n{e}")
-            return
-        self._editor.setPlainText(text)
-        self._current_file = path
-        self._modified = False
-        self._update_title()
-        self._update_status()
-        self._tree_panel.select_file(path)
-
     def _on_open_folder(self) -> None:
-        """Open a folder and populate the file tree."""
-        if not self._maybe_save():
+        tab = self._current_tab()
+        if tab and not tab.maybe_save():
             return
         folder = QFileDialog.getExistingDirectory(self, "Open Folder", "")
         if not folder:
@@ -496,19 +570,15 @@ class MainWindow(QMainWindow):
         self._set_folder(Path(folder))
 
     def _set_folder(self, path: Path) -> None:
-        """Set *path* as the working folder."""
         self._folder_path = path
-        self._current_file = None
-        self._editor.clear()
-        self._modified = False
+        for i in range(self._tabs.count() - 1, -1, -1):
+            self._tabs.removeTab(i)
+        self._add_tab()
         self._tree_panel.set_root_path(path)
-        self._update_title()
-        self._update_status()
-        # Persist the folder path
+        self._update_window_title()
         QSettings("cutemd", "cutemd").setValue("last_folder", str(path))
 
     def _restore_last_folder(self) -> None:
-        """On startup, reopen the last folder or prompt for one."""
         settings = QSettings("cutemd", "cutemd")
         last = str(settings.value("last_folder", ""))
         if last and Path(last).is_dir():
@@ -517,65 +587,69 @@ class MainWindow(QMainWindow):
             self._on_open_folder()
 
     def _on_close_folder(self) -> None:
-        """Close the current folder."""
-        if not self._maybe_save():
+        tab = self._current_tab()
+        if tab and not tab.maybe_save():
             return
         self._folder_path = None
-        self._current_file = None
-        self._editor.clear()
-        self._modified = False
+        for i in range(self._tabs.count() - 1, -1, -1):
+            self._tabs.removeTab(i)
+        self._add_tab()
         self._tree_panel.set_root_path("")
-        self._update_title()
-        self._update_status()
+        self._update_window_title()
         QSettings("cutemd", "cutemd").remove("last_folder")
 
     def _on_tree_file_activated(self, path: str) -> None:
-        """Handle a file being activated in the tree panel."""
-        self._load_file(Path(path))
+        p = Path(path)
+        idx = self._find_tab_for_file(p)
+        if idx >= 0:
+            self._tabs.setCurrentIndex(idx)
+            return
+
+        tab = self._current_tab()
+        # Reuse current tab if it is unmodified (empty or saved file)
+        if tab is not None and not tab.is_modified:
+            tab.load_file(p)
+            self._refresh_tab_title(tab)
+            self._update_window_title()
+            self._tree_panel.select_file(p)
+            return
+
+        # Current tab is modified — open in a new tab
+        tab = self._add_tab()
+        tab.load_file(p)
+        self._refresh_tab_title(tab)
+        self._update_window_title()
+        self._tree_panel.select_file(p)
+
+    def _on_tree_file_new_tab(self, path: str) -> None:
+        """Open *path* in a new tab unconditionally."""
+        p = Path(path)
+        tab = self._add_tab()
+        tab.load_file(p)
+        self._refresh_tab_title(tab)
+        self._update_window_title()
+        self._tree_panel.select_file(p)
 
     def _on_new(self) -> None:
-        """Create a new markdown file in the current folder."""
-        if not self._folder_path:
-            # No folder open - just clear the editor
-            if not self._maybe_save():
-                return
-            self._current_file = None
-            self._editor.clear()
-            self._modified = False
-            self._update_title()
-            self._update_status()
-            return
-
-        if not self._maybe_save():
-            return
-
-        # Pick a unique name
-        base = self._folder_path
-        i = 1
-        while (base / f"untitled_{i}.md").exists():
-            i += 1
-        new_path = base / f"untitled_{i}.md"
-
-        try:
-            new_path.write_text("", encoding="utf-8")
-        except OSError as e:
-            QMessageBox.critical(self, "Error", f"Could not create file:\n{e}")
-            return
-
-        self._editor.clear()
-        self._current_file = new_path
-        self._modified = False
-        self._update_title()
-        self._update_status()
-        self._tree_panel.select_file(new_path)
+        self._add_tab()
+        self._update_window_title()
 
     def _on_save(self) -> None:
-        if self._current_file:
-            self._write_file(self._current_file)
+        tab = self._current_tab()
+        if tab is None:
+            return
+        if tab.file_path:
+            if tab.save():
+                self._refresh_tab_title(tab)
+                if tab.file_path:
+                    self._tree_panel.select_file(tab.file_path)
         else:
             self._on_save_as()
 
     def _on_save_as(self) -> None:
+        tab = self._current_tab()
+        if tab is None:
+            return
         start_dir = str(self._folder_path) if self._folder_path else ""
         path, _ = QFileDialog.getSaveFileName(
             self,
@@ -585,269 +659,46 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
-        self._write_file(Path(path))
+        if tab.save_as(Path(path)):
+            self._refresh_tab_title(tab)
+            if tab.file_path:
+                self._tree_panel.select_file(tab.file_path)
 
-    def _write_file(self, path: Path) -> None:
-        try:
-            path.write_text(self._editor.toPlainText(), encoding="utf-8")
-        except OSError as e:
-            QMessageBox.critical(self, "Error", f"Could not save file:\n{e}")
-            return
-        self._current_file = path
-        self._modified = False
-        self._update_title()
-        self._tree_panel.select_file(path)
-
-    def _update_title(self) -> None:
-        if self._current_file:
-            if self._folder_path:
-                try:
-                    rel = self._current_file.relative_to(self._folder_path)
-                    display = str(rel)
-                except ValueError:
-                    display = self._current_file.name
-            else:
-                display = self._current_file.name
+    # ------------------------------------------------------------------
+    # Window title
+    # ------------------------------------------------------------------
+    def _update_window_title(self) -> None:
+        tab = self._current_tab()
+        if tab:
+            display = tab.display_name()
         else:
-            display = "Untitled"
-        mod = " *" if self._modified else ""
-        self.setWindowTitle(f"{display}{mod} \u2013 CuteMD")
+            display = "CuteMD"
+        self.setWindowTitle(f"{display} \u2013 CuteMD")
 
         # Status bar
         if self._folder_path:
-            if self._current_file:
+            tab = self._current_tab()
+            if tab and tab.file_path:
                 try:
-                    rel = self._current_file.relative_to(self._folder_path)
+                    rel = tab.file_path.relative_to(self._folder_path)
                     self._status_file.setText(str(rel))
                 except ValueError:
-                    self._status_file.setText(str(self._current_file))
+                    self._status_file.setText(str(tab.file_path))
             else:
                 self._status_file.setText(self._folder_path.name)
         else:
             self._status_file.setText("No folder")
 
     # ------------------------------------------------------------------
-    # Editor signals
-    # ------------------------------------------------------------------
-    def _on_text_changed(self) -> None:
-        self._modified = True
-        self._update_title()
-        self._preview_timer.start()  # debounced
-        self._update_status()
-        # Invalidate line->anchor cache
-        self._line_anchor_map_hash = 0
-
-    def _update_status(self) -> None:
-        cursor = self._editor.textCursor()
-        line = cursor.blockNumber() + 1
-        col = cursor.columnNumber() + 1
-        self._status_cursor.setText(f"Ln {line}, Col {col}")
-
-        text = self._editor.toPlainText()
-        word_count = len(text.split()) if text else 0
-        self._status_words.setText(f"{word_count} words")
-
-    # ------------------------------------------------------------------
-    # Preview (anchor-based scroll sync)
-    # ------------------------------------------------------------------
-    def _render_with_anchors(self, text: str) -> str:
-        """Render markdown to HTML with <a name='bN'> anchors at block starts.
-
-        Uses the markdown-it token stream to inject anchors immediately
-        before each block-level element.  This makes scrollToAnchor()
-        exact: the preview scrolls to the same content visible in the
-        editor.
-        """
-        tokens = self._md.parse(text)
-        new_tokens: list[Token] = []
-        anchor_idx = 0
-
-        for token in tokens:
-            if token.type in BLOCK_OPEN_TYPES and token.map:
-                start, end = token.map
-                if start < end:
-                    anchor = Token("html_inline", "", 0)
-                    anchor.content = f'<a name="b{anchor_idx}"></a>'
-                    new_tokens.append(anchor)
-                    anchor_idx += 1
-            new_tokens.append(token)
-
-        return self._md.renderer.render(new_tokens, self._md.options, {})
-
-    def _build_line_anchor_map(self, text: str) -> list[int]:
-        """Return per-line mapping: index -> anchor index.
-
-        For each line in the source we pick the most specific (narrowest
-        map range) block-level token that contains it.  This ensures list
-        items and multi-paragraph sections each map to the right anchor.
-        """
-        tokens = self._md.parse(text)
-
-        # Collect (start_line, end_line, anchor_idx)
-        entries: list[tuple[int, int, int]] = []
-        anchor_idx = 0
-        for token in tokens:
-            if token.type in BLOCK_OPEN_TYPES and token.map:
-                start, end = token.map
-                if start < end:
-                    entries.append((start, end, anchor_idx))
-                    anchor_idx += 1
-
-        total_lines = len(text.split("\n"))
-        mapping = [0] * max(total_lines, 1)
-        last_anchor = anchor_idx - 1 if anchor_idx > 0 else 0
-
-        # Sort entries by start line so we can break early
-        entries.sort(key=lambda x: x[0])
-
-        for line in range(total_lines):
-            best: int | None = None
-            best_width = float("inf")
-            for start, end, aidx in entries:
-                if line < start:
-                    break
-                if start <= line < end:
-                    width = end - start
-                    if width < best_width:
-                        best_width = width
-                        best = aidx
-            if best is not None:
-                mapping[line] = best
-            else:
-                # Blank line: use the next visible block's anchor
-                mapping[line] = last_anchor
-                for s, e, aidx in entries:
-                    if line < s:
-                        mapping[line] = aidx
-                        break
-
-        return mapping
-
-    def _update_preview(self) -> None:
-        text = self._editor.toPlainText()
-
-        # --- Build / refresh the line->anchor cache ---
-        text_hash = hash(text)
-        if text_hash != self._line_anchor_map_hash:
-            self._line_anchor_map = self._build_line_anchor_map(text)
-            self._line_anchor_map_hash = text_hash
-
-        # Determine which anchor the editor viewport is currently showing
-        first_block = self._editor.firstVisibleBlock()
-        current_line = first_block.blockNumber()
-        line_map = self._line_anchor_map
-        current_anchor_idx = (
-            line_map[current_line] if current_line < len(line_map) else 0
-        )
-        self._last_anchor = f"b{current_anchor_idx}"
-
-        # --- Render HTML with anchors ---
-        try:
-            body_html = add_heading_ids(self._render_with_anchors(text))
-        except Exception:
-            body_html = (
-                "<pre>"
-                + text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                + "</pre>"
-            )
-
-        theme_class = "dark" if self._theme == "dark" else "light"
-        html = (
-            "<!DOCTYPE html>\n"
-            "<html>\n<head>\n"
-            "<meta charset='utf-8'>\n"
-            f"<style>\n{self._preview_css}\n</style>\n"
-            "</head>\n"
-            f"<body class='{theme_class}'>\n"
-            f"{body_html}\n"
-            "</body>\n</html>"
-        )
-
-        self._syncing_scroll = True
-        self._preview.setHtml(html)
-        self._syncing_scroll = False
-
-        # Scroll preview to the saved anchor (with retry if layout isn't
-        # ready yet).
-        self._pending_sync_anchor = self._last_anchor
-        self._sync_retries = 0
-        self._sync_preview_scroll()
-
-    def _sync_preview_scroll(self) -> None:
-        """Scroll the preview to the pending anchor (with retry logic).
-
-        Called after setHtml() while the layout may not be laid out yet.
-        """
-        if self._syncing_scroll:
-            return
-
-        anchor = getattr(self, "_pending_sync_anchor", "")
-        if not anchor:
-            return
-
-        preview_sb = self._preview.verticalScrollBar()
-        if preview_sb.maximum() > 0:
-            self._syncing_scroll = True
-            self._preview.scrollToAnchor(anchor)
-            self._syncing_scroll = False
-            self._pending_sync_anchor = ""
-        else:
-            retries = getattr(self, "_sync_retries", 0)
-            if retries < 10:
-                self._sync_retries = retries + 1
-                QTimer.singleShot(0, self._sync_preview_scroll)
-            else:
-                self._pending_sync_anchor = ""
-                self._sync_retries = 0
-
-    # ------------------------------------------------------------------
-    # Synchronized scrolling (editor -> preview)
-    # ------------------------------------------------------------------
-    def _on_editor_scrolled(self, _value: int = 0) -> None:
-        """Scroll the preview to the anchor matching the editor viewport.
-
-        Uses the line->anchor cache to find which logical block is at the
-        top of the editor, then calls scrollToAnchor() on the preview.
-        This provides exact content-based sync regardless of how
-        differently the two panes render the same content.
-        """
-        if self._syncing_scroll:
-            return
-
-        line_map = self._line_anchor_map
-        if not line_map:
-            return
-
-        first_block = self._editor.firstVisibleBlock()
-        current_line = first_block.blockNumber()
-        if current_line >= len(line_map):
-            return
-
-        anchor_idx = line_map[current_line]
-        anchor = f"b{anchor_idx}"
-
-        # Avoid redundant scrollToAnchor calls when already on the same
-        # block (significantly reduces flicker on large documents).
-        if anchor == self._last_anchor:
-            return
-        self._last_anchor = anchor
-
-        preview_sb = self._preview.verticalScrollBar()
-        if preview_sb.maximum() <= 0:
-            return
-
-        self._syncing_scroll = True
-        self._preview.scrollToAnchor(anchor)
-        self._syncing_scroll = False
-
-    # ------------------------------------------------------------------
     # Qt overrides
     # ------------------------------------------------------------------
     def closeEvent(self, event) -> None:
-        if self._maybe_save():
-            event.accept()
-        else:
-            event.ignore()
+        for i in range(self._tabs.count() - 1, -1, -1):
+            tab = self._tabs.widget(i)
+            if isinstance(tab, EditorTab) and not tab.maybe_save():
+                event.ignore()
+                return
+        event.accept()
 
     def sizeHint(self) -> QSize:
         return QSize(1200, 750)

@@ -7,7 +7,7 @@ from pygments.formatters import HtmlFormatter
 from pygments.lexers import get_lexer_by_name, guess_lexer
 from pygments.util import ClassNotFound
 
-from ui.theme import PYGMENTS_STYLE
+import ui.themes
 
 # ---------------------------------------------------------------------------
 # Token types that start a visible block-level element in the rendered HTML.
@@ -45,7 +45,9 @@ def highlight_code(code: str, lang: str, _attrs: str) -> str:
         except ClassNotFound:
             lexer = get_lexer_by_name("text", stripall=True)
 
-    formatter = HtmlFormatter(style=PYGMENTS_STYLE, noclasses=True, nowrap=True)
+    formatter = HtmlFormatter(
+        style=ui.themes.PYGMENTS_STYLE, noclasses=True, nowrap=True
+    )
     return highlight(code, lexer, formatter)
 
 
