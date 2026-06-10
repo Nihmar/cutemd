@@ -30,12 +30,16 @@ rm -rf "$DIST_DIR" "$BUILD_DIR" "$PROJECT_DIR/__pycache__"
 echo "==> Installing PyInstaller …"
 uv pip install pyinstaller
 
-echo "==> Building executable with PyInstaller …"
+echo "==> Building executable with PyInstaller (optimised for speed) …"
 cd "$PROJECT_DIR"
 uv run pyinstaller \
     --name "$APP" \
-    --onefile \
+    --onedir \
     --windowed \
+    --strip \
+    --optimize 2 \
+    --noupx \
+    --noconfirm \
     --add-data "ui/icons:ui/icons" \
     --add-data "ui/style.qss:ui" \
     --add-data "ui/preview_styles.css:ui" \
@@ -49,7 +53,9 @@ mkdir -p "$APPDIR/usr/bin"
 mkdir -p "$APPDIR/usr/share/applications"
 mkdir -p "$APPDIR/usr/share/icons/hicolor/scalable/apps"
 
-cp "$DIST_DIR/$APP" "$APPDIR/usr/bin/"
+# --onedir produces a directory: dist/cutemd/
+cp -r "$DIST_DIR/$APP/"* "$APPDIR/usr/bin/"
+
 cp "$PROJECT_DIR/resources/$APP.desktop" "$APPDIR/usr/share/applications/"
 cp "$PROJECT_DIR/resources/$APP.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/"
 
@@ -62,7 +68,7 @@ exec "$HERE/usr/bin/cutemd" "$@"
 APPRUN
 chmod +x "$APPDIR/AppRun"
 
-# Symlink for AppImage tool
+# Symlinks for AppImage tool
 ln -sf usr/share/applications/cutemd.desktop "$APPDIR/cutemd.desktop"
 ln -sf usr/share/icons/hicolor/scalable/apps/cutemd.svg "$APPDIR/cutemd.svg"
 ln -sf usr/share/icons/hicolor/scalable/apps/cutemd.svg "$APPDIR/.DirIcon"
