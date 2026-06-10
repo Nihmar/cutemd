@@ -6,7 +6,17 @@ from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from mdit_py_plugins.dollarmath import dollarmath_plugin
 from PySide6.QtCore import QSettings, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QFont, QKeySequence, QTextCursor
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QFont,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPixmap,
+    QTextCursor,
+)
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -215,67 +225,108 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Editor toolbar
     # ------------------------------------------------------------------
-    def _make_editor_toolbar(self) -> QWidget:
-        """Return a compact toolbar widget for the editor pane."""
-        tb = QWidget()
-        layout = QHBoxLayout(tb)
-        layout.setContentsMargins(4, 2, 4, 2)
-        layout.setSpacing(2)
+    def _make_colored_icon(self, name: str, color: QColor, size: int = 18) -> QIcon:
+        """Render an SVG icon from *name* recoloured with *color*."""
+        path = str(_PROJECT_DIR / "icons" / f"{name}.svg")
+        renderer = QSvgRenderer(path)
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
 
-        def _btn(text: str, syntax: str, tip: str) -> None:
+        # Compose over a solid-colour background to replace currentColor
+        coloured = QPixmap(size, size)
+        coloured.fill(color)
+        painter = QPainter(coloured)
+        painter.setCompositionMode(
+            QPainter.CompositionMode.CompositionMode_DestinationIn
+        )
+        painter.drawPixmap(0, 0, pixmap)
+        painter.end()
+        return QIcon(coloured)
+
+    def _make_editor_toolbar(self) -> QWidget:
+        """Return a QOwnNotes-style toolbar with SVG icons."""
+        # Pick icon colour based on theme
+        icon_color = (
+            QColor(208, 208, 208) if self._theme == "dark" else QColor(48, 48, 48)
+        )
+
+        self._toolbar_buttons: list[tuple[QToolButton, str]] = []
+
+        tb = QWidget()
+        tb.setObjectName("editorToolbar")
+        layout = QHBoxLayout(tb)
+        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setSpacing(1)
+
+        def _btn(icon_name: str, syntax: str, tip: str) -> None:
             b = QToolButton()
-            b.setText(text)
+            b.setIcon(self._make_colored_icon(icon_name, icon_color))
             b.setToolTip(tip)
             b.setAutoRaise(True)
+            b.setIconSize(QSize(18, 18))
+            b.setFixedSize(28, 26)
             b.clicked.connect(lambda checked=False, s=syntax: self._insert_md(s))
             layout.addWidget(b)
+            self._toolbar_buttons.append((b, icon_name))
 
         def _sep() -> None:
             s = QWidget()
-            s.setFixedWidth(6)
+            s.setObjectName("toolbarSep")
+            s.setFixedWidth(1)
             layout.addWidget(s)
 
         # --- Heading dropdown ---
         heading_combo = QComboBox()
         heading_combo.setToolTip("Heading level")
-        heading_combo.addItem("Heading", "")
+        heading_combo.addItem("H", "")
         for i in range(1, 7):
             heading_combo.addItem(f"H{i}", "#" * i + " ")
         heading_combo.currentIndexChanged.connect(self._on_heading_combo)
-        heading_combo.setFixedWidth(80)
+        heading_combo.setFixedWidth(48)
         layout.addWidget(heading_combo)
         _sep()
 
         # --- Blocks: lists ---
-        _btn("\u2022", "- ", "Unordered list")
-        _btn("1.", "1. ", "Ordered list")
-        _btn("\u2610", "- [ ] ", "Task list")
+        _btn("list-unordered", "- ", "Unordered list")
+        _btn("list-ordered", "1. ", "Ordered list")
+        _btn("list-task", "- [ ] ", "Task list")
         _sep()
 
         # --- Blocks: other ---
-        _btn(">", "> ", "Blockquote")
-        _btn("```", "```", "Code block")
+        _btn("quote", "> ", "Blockquote")
+        _btn("code-block", "```", "Code block")
         _btn(
-            "\u2639",
+            "table",
             "\n| Col 1 | Col 2 |\n|------|------|\n|      |      |\n",
             "Insert table",
         )
-        _btn("\u2014", "---\n", "Horizontal rule")
+        _btn("hr", "---\n", "Horizontal rule")
         _sep()
 
         # --- Inline ---
-        _btn("B", "**", "Bold")
-        _btn("I", "*", "Italic")
-        _btn("S", "~~", "Strikethrough")
-        _btn("`", "`", "Inline code")
+        _btn("bold", "**", "Bold")
+        _btn("italic", "*", "Italic")
+        _btn("strikethrough", "~~", "Strikethrough")
+        _btn("code", "`", "Inline code")
         _sep()
 
         # --- Links & media ---
-        _btn("Link", "[]()", "Insert link")
-        _btn("Img", "![]()", "Insert image")
+        _btn("link", "[]()", "Insert link")
+        _btn("image", "![]()", "Insert image")
 
         layout.addStretch()
         return tb
+
+    def _recolor_toolbar_icons(self) -> None:
+        """Refresh toolbar icon colours after a theme change."""
+        icon_color = (
+            QColor(208, 208, 208) if self._theme == "dark" else QColor(48, 48, 48)
+        )
+        for button, name in getattr(self, "_toolbar_buttons", []):
+            button.setIcon(self._make_colored_icon(name, icon_color))
 
     def _on_heading_combo(self, index: int) -> None:
         """Handle heading dropdown selection."""
@@ -378,6 +429,7 @@ class MainWindow(QMainWindow):
             theme.PYGMENTS_STYLE = "default"
 
         self._highlighter.set_theme(self._theme)
+        self._recolor_toolbar_icons()
         self._update_preview()
 
     def _toggle_theme(self) -> None:

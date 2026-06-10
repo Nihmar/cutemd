@@ -1,10 +1,23 @@
-"""Theme support: colour palettes and Pygments code-highlight style."""
+"""Theme support: colour palettes, Pygments style, and modern QSS."""
+
+from pathlib import Path
 
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
 # Pygments style name — mutated by MainWindow._apply_theme()
 PYGMENTS_STYLE: str = "monokai"
+
+_STYLE_QSS: str | None = None  # cached stylesheet
+
+
+def _load_qss() -> str:
+    """Load the modern QSS stylesheet (cached after first read)."""
+    global _STYLE_QSS
+    if _STYLE_QSS is None:
+        path = Path(__file__).resolve().parent / "style.qss"
+        _STYLE_QSS = path.read_text() if path.exists() else ""
+    return _STYLE_QSS
 
 
 def dark_palette() -> QPalette:
@@ -28,3 +41,9 @@ def dark_palette() -> QPalette:
 def light_palette() -> QPalette:
     """Return the default (light) system palette."""
     return QApplication.style().standardPalette()
+
+
+def apply_modern_style(app: QApplication) -> None:
+    """Apply the Fusion style and load the custom QSS stylesheet."""
+    app.setStyle("Fusion")
+    app.setStyleSheet(_load_qss())

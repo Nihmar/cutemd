@@ -1,0 +1,180 @@
+/* ------------------------------------------------------------------ */
+/*  CuteMD — Modern Qt stylesheet (Fusion)                           */
+/* ------------------------------------------------------------------ */
+
+/* === Scrollbars ================================================== */
+
+QScrollBar:vertical {
+    background: palette(window);
+    width: 8px;
+    margin: 0;
+}
+QScrollBar::handle:vertical {
+    background: palette(mid);
+    border-radius: 4px;
+    min-height: 24px;
+}
+QScrollBar::handle:vertical:hover {
+    background: palette(dark);
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+}
+QScrollBar:horizontal {
+    background: palette(window);
+    height: 8px;
+    margin: 0;
+}
+QScrollBar::handle:horizontal {
+    background: palette(mid);
+    border-radius: 4px;
+    min-width: 24px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: palette(dark);
+}
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0;
+}
+
+/* === Splitter ==================================================== */
+
+QSplitter::handle {
+    background: palette(midlight);
+    margin: 1px;
+}
+QSplitter::handle:horizontal {
+    width: 3px;
+}
+QSplitter::handle:vertical {
+    height: 3px;
+}
+
+/* === Tree view =================================================== */
+
+QTreeView {
+    background: palette(base);
+    border: none;
+    outline: none;
+    padding: 4px 0;
+}
+QTreeView::item {
+    padding: 3px 6px;
+    border-radius: 3px;
+}
+QTreeView::item:selected {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+}
+
+/* === Editor ====================================================== */
+
+QPlainTextEdit {
+    background: palette(base);
+    border: none;
+    padding: 6px 10px;
+}
+
+/* === Toolbar buttons ============================================= */
+
+#editorToolbar {
+    background: palette(window);
+    border-bottom: 1px solid palette(midlight);
+}
+QToolButton {
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 2px;
+    color: palette(text);
+}
+QToolButton:hover {
+    background: palette(highlight);
+}
+QToolButton:pressed {
+    background: palette(dark);
+}
+#toolbarSep {
+    background: palette(midlight);
+    margin: 4px 2px;
+}
+
+/* === ComboBox (heading dropdown) ================================= */
+
+QComboBox {
+    background: palette(button);
+    color: palette(button-text);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    padding: 3px 8px;
+    min-height: 20px;
+}
+QComboBox:hover {
+    border-color: palette(highlight);
+}
+QComboBox::drop-down {
+    border: none;
+    width: 18px;
+}
+QComboBox QAbstractItemView {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 3px;
+    outline: none;
+}
+
+/* === Status bar ================================================== */
+
+QStatusBar {
+    background: palette(window);
+    border-top: 1px solid palette(midlight);
+}
+QStatusBar::item {
+    border: none;
+}
+
+/* === Menu bar ==================================================== */
+
+QMenuBar {
+    background: palette(window);
+    border-bottom: 1px solid palette(midlight);
+    padding: 2px 0;
+}
+QMenuBar::item {
+    padding: 4px 10px;
+    border-radius: 3px;
+}
+QMenuBar::item:hover,
+QMenuBar::item:selected {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+}
+
+/* === Menus ======================================================= */
+
+QMenu {
+    background: palette(base);
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 5px 28px 5px 12px;
+    border-radius: 3px;
+}
+QMenu::item:selected {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+}
+
+/* === Tooltips ==================================================== */
+
+QToolTip {
+    background: palette(tool-tip-base);
+    color: palette(tool-tip-text);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+    padding: 4px 8px;
+}
