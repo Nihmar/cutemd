@@ -1,5 +1,6 @@
 """Theme support: QSS generation from palette colours."""
 
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication
@@ -9,10 +10,17 @@ from PySide6.QtWidgets import QApplication
 _STYLE_TEMPLATE: str | None = None
 
 
+def _resolve_path(relative: str) -> Path:
+    """Resolve a path relative to the ui/ package, supporting PyInstaller."""
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS) / "ui" / relative  # type: ignore[attr-defined]
+    return Path(__file__).resolve().parent / relative
+
+
 def _load_template() -> str:
     global _STYLE_TEMPLATE
     if _STYLE_TEMPLATE is None:
-        path = Path(__file__).resolve().parent / "style.qss"
+        path = _resolve_path("style.qss")
         _STYLE_TEMPLATE = path.read_text() if path.exists() else ""
     return _STYLE_TEMPLATE
 

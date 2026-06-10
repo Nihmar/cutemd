@@ -1,5 +1,6 @@
 """Main window for the Markdown editor."""
 
+import sys
 from pathlib import Path
 
 from markdown_it import MarkdownIt
@@ -44,10 +45,14 @@ from ui.file_tree_panel import FileTreePanel
 from ui.themes import get_theme, system_theme
 
 # ---------------------------------------------------------------------------
-# Paths
+# Paths (supports PyInstaller one-file bundles)
 # ---------------------------------------------------------------------------
-_PROJECT_DIR = Path(__file__).resolve().parent.parent
-_CSS_PATH = _PROJECT_DIR / "ui" / "preview_styles.css"
+if getattr(sys, "frozen", False):
+    _ROOT = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+else:
+    _ROOT = Path(__file__).resolve().parent.parent
+_CSS_PATH = _ROOT / "ui" / "preview_styles.css"
+_ICONS_DIR = _ROOT / "ui" / "icons"
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +296,7 @@ class MainWindow(QMainWindow):
     # Editor toolbar
     # ------------------------------------------------------------------
     def _make_colored_icon(self, name: str, color: QColor, size: int = 18) -> QIcon:
-        path = str(_PROJECT_DIR / "ui" / "icons" / f"{name}.svg")
+        path = str(_ICONS_DIR / f"{name}.svg")
         renderer = QSvgRenderer(path)
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.GlobalColor.transparent)

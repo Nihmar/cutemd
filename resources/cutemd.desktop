@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=CuteMD
+Comment=A non-WYSIWYG Markdown editor
+Exec=cutemd %F
+Icon=cutemd
+Terminal=false
+Categories=Office;TextEditor;
+MimeType=text/markdown;text/x-markdown;
+StartupNotify=true

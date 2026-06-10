@@ -1,7 +1,7 @@
 [project]
 name = "cutemd"
 version = "0.1.0"
-description = "Add your description here"
+description = "A non-WYSIWYG Markdown editor"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -12,4 +12,9 @@ dependencies = [
     "pygments>=2.20.0",
     "pyside6>=6.11.1",
     "qmarkdownview>=0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyinstaller>=6",
 ]
