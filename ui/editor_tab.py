@@ -4,7 +4,7 @@ from pathlib import Path
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QMessageBox,
@@ -38,6 +38,10 @@ class EditorTab(QWidget):
         md_parser: MarkdownIt,
         preview_css: str,
         theme: str,
+        editor_font_family: str = "System",
+        editor_font_size: int = 11,
+        preview_font_family: str = "System",
+        preview_font_size: int = 16,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -55,9 +59,14 @@ class EditorTab(QWidget):
         self._sync_retries = 0
         self._preview_visible = True
 
+        self._editor_font_family = editor_font_family
+        self._editor_font_size = editor_font_size
+        self._preview_font_family = preview_font_family
+        self._preview_font_size = preview_font_size
+
         # --- Editor ---
         self.editor = QPlainTextEdit()
-        self.editor.setFont(QFont("monospace", 11))
+        self._apply_editor_font()
         self.editor.setTabStopDistance(40)
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.editor.textChanged.connect(self._on_text_changed)
@@ -103,12 +112,12 @@ class EditorTab(QWidget):
 
     def display_name(self) -> str:
         """Tab title: file name or 'Untitled' with optional *."""
-        name = self._file_path.name if self._file_path else "Untitled"
+        name = self._file_path.name if self._file_path else self.tr("Untitled")
         return f"{name} *" if self._modified else name
 
     def tooltip(self) -> str:
         """Full path for the tab tooltip."""
-        return str(self._file_path) if self._file_path else "Untitled"
+        return str(self._file_path) if self._file_path else self.tr("Untitled")
 
     def set_theme(self, theme: str, pygments_style: str = "") -> None:
         """Update highlighter theme and re-render preview."""
@@ -127,12 +136,28 @@ class EditorTab(QWidget):
         if visible:
             self._update_preview()
 
+    def set_editor_font(self, family: str, size: int) -> None:
+        """Change the editor font family and size."""
+        self._editor_font_family = family
+        self._editor_font_size = size
+        self._apply_editor_font()
+
+    def set_preview_font(self, family: str, size: int) -> None:
+        """Change the preview font family and size and re-render."""
+        self._preview_font_family = family
+        self._preview_font_size = size
+        self._update_preview()
+
     def load_file(self, path: Path) -> None:
         """Load *path* into the editor, replacing current content."""
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as e:
-            QMessageBox.critical(self, "Error", f"Could not open file:\n{e}")
+            QMessageBox.critical(
+                self,
+                self.tr("Error"),
+                self.tr("Could not open file:\n{}").format(e),
+            )
             return
         self.editor.setPlainText(text)
         self._file_path = path
@@ -152,11 +177,11 @@ class EditorTab(QWidget):
         """Ask to save if modified.  Returns False if user cancels."""
         if not self._modified:
             return True
-        name = self._file_path.name if self._file_path else "Untitled"
+        name = self._file_path.name if self._file_path else self.tr("Untitled")
         ret = QMessageBox.question(
             self,
-            "Unsaved changes",
-            f'"{name}" has been modified.\nSave changes?',
+            self.tr("Unsaved changes"),
+            self.tr('"{}" has been modified.\nSave changes?').format(name),
             QMessageBox.StandardButton.Save
             | QMessageBox.StandardButton.Discard
             | QMessageBox.StandardButton.Cancel,
@@ -173,11 +198,23 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+    def _apply_editor_font(self) -> None:
+        """Apply the configured font to the editor widget."""
+        if self._editor_font_family in ("System", "Sistema"):
+            font = QFont("monospace", self._editor_font_size)
+        else:
+            font = QFont(self._editor_font_family, self._editor_font_size)
+        self.editor.setFont(font)
+
     def _write_file(self, path: Path) -> bool:
         try:
             path.write_text(self.editor.toPlainText(), encoding="utf-8")
         except OSError as e:
-            QMessageBox.critical(self, "Error", f"Could not save file:\n{e}")
+            QMessageBox.critical(
+                self,
+                self.tr("Error"),
+                self.tr("Could not save file:\n{}").format(e),
+            )
             return False
         self._file_path = path
         self._set_modified(False)
@@ -201,7 +238,10 @@ class EditorTab(QWidget):
         col = cursor.columnNumber() + 1
         text = self.editor.toPlainText()
         words = len(text.split()) if text else 0
-        self.status_changed.emit(f"Ln {line}, Col {col}", f"{words} words")
+        self.status_changed.emit(
+            self.tr("Ln {}, Col {}").format(line, col),
+            self.tr("{} words").format(words),
+        )
 
     # ------------------------------------------------------------------
     # Preview & scroll sync
@@ -296,13 +336,19 @@ class EditorTab(QWidget):
             )
 
         theme_class = "dark" if self._theme == "dark" else "light"
+
+        # Inline font style overrides the CSS defaults
+        font_style = f"font-size: {self._preview_font_size}px;"
+        if self._preview_font_family != "Sistema":
+            font_style += f" font-family: {self._preview_font_family};"
+
         html = (
             "<!DOCTYPE html>\n"
             "<html>\n<head>\n"
             "<meta charset='utf-8'>\n"
             f"<style>\n{self._preview_css}\n</style>\n"
             "</head>\n"
-            f"<body class='{theme_class}'>\n"
+            f"<body class='{theme_class}' style='{font_style}'>\n"
             f"{body_html}\n"
             "</body>\n</html>"
         )
@@ -372,5 +418,10 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
     # Qt overrides
     # ------------------------------------------------------------------
+    def changeEvent(self, event) -> None:
+        if event.type() == QEvent.Type.LanguageChange:
+            self.title_changed.emit()
+        super().changeEvent(event)
+
     def sizeHint(self) -> QSize:
         return QSize(800, 600)

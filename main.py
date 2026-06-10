@@ -12,6 +12,12 @@ def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("CuteMD")
     app.setOrganizationName("cutemd")
+
+    # Load translations (must be after org/app name so QSettings works)
+    from ui.translations import setup_translation
+
+    setup_translation(app)
+
     apply_modern_style(app)
 
     window = MainWindow()

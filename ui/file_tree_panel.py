@@ -102,19 +102,19 @@ class FileTreePanel(QWidget):
         menu = QMenu(self._tree)
 
         if p.is_dir():
-            act_explorer = menu.addAction("Open in file explorer")
+            act_explorer = menu.addAction(self.tr("Open in file explorer"))
             act_explorer.triggered.connect(
                 lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
             )
         else:
-            act_new_tab = menu.addAction("Open in new tab")
+            act_new_tab = menu.addAction(self.tr("Open in new tab"))
             act_new_tab.triggered.connect(lambda: self.file_open_new_tab.emit(str(p)))
             menu.addSeparator()
-            act_open = menu.addAction("Open with default application")
+            act_open = menu.addAction(self.tr("Open with default application"))
             act_open.triggered.connect(
                 lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
             )
-            act_explorer = menu.addAction("Open in file explorer")
+            act_explorer = menu.addAction(self.tr("Open in file explorer"))
             act_explorer.triggered.connect(
                 lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(p.parent)))
             )

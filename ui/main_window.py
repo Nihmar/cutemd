@@ -5,7 +5,7 @@ from pathlib import Path
 
 from markdown_it import MarkdownIt
 from mdit_py_plugins.dollarmath import dollarmath_plugin
-from PySide6.QtCore import QSettings, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -64,12 +64,24 @@ class MainWindow(QMainWindow):
         self._folder_path: Path | None = None
         self._preview_visible = True
 
-        # Restore saved theme (default: system)
+        # Restore saved settings
         settings = QSettings("cutemd", "cutemd")
         self._theme_id = str(settings.value("theme", "system"))
         self._current_theme = (
             system_theme() if self._theme_id == "system" else get_theme(self._theme_id)
         )
+        self._editor_font_family = str(settings.value("editor_font_family", "System"))
+        # Backward compat: old settings used "Sistema"
+        if self._editor_font_family == "Sistema":
+            self._editor_font_family = "System"
+        _raw = settings.value("editor_font_size", 11)
+        self._editor_font_size = _raw if isinstance(_raw, int) else 11
+        self._preview_font_family = str(settings.value("preview_font_family", "System"))
+        if self._preview_font_family == "Sistema":
+            self._preview_font_family = "System"
+        _raw = settings.value("preview_font_size", 16)
+        self._preview_font_size = _raw if isinstance(_raw, int) else 16
+        self._language = str(settings.value("language", ""))
 
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
@@ -103,50 +115,50 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _setup_actions(self) -> None:
         # File
-        self.act_open_folder = QAction("Open &Folder\u2026", self)
+        self.act_open_folder = QAction(self.tr("Open &Folder…"), self)
         self.act_open_folder.setShortcut(QKeySequence.StandardKey.Open)
         self.act_open_folder.triggered.connect(self._on_open_folder)
 
-        self.act_close_folder = QAction("Close Folder", self)
+        self.act_close_folder = QAction(self.tr("Close Folder"), self)
         self.act_close_folder.triggered.connect(self._on_close_folder)
 
-        self.act_new = QAction("&New File\u2026", self)
+        self.act_new = QAction(self.tr("&New File…"), self)
         self.act_new.setShortcut(QKeySequence.StandardKey.New)
         self.act_new.triggered.connect(self._on_new)
 
-        self.act_save = QAction("&Save", self)
+        self.act_save = QAction(self.tr("&Save"), self)
         self.act_save.setShortcut(QKeySequence.StandardKey.Save)
         self.act_save.triggered.connect(self._on_save)
 
-        self.act_save_as = QAction("Save &As\u2026", self)
+        self.act_save_as = QAction(self.tr("Save &As…"), self)
         self.act_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
         self.act_save_as.triggered.connect(self._on_save_as)
 
-        self.act_close_tab = QAction("Close Tab", self)
+        self.act_close_tab = QAction(self.tr("Close Tab"), self)
         self.act_close_tab.setShortcut(QKeySequence.StandardKey.Close)
         self.act_close_tab.triggered.connect(self._on_close_tab)
 
-        self.act_exit = QAction("E&xit", self)
+        self.act_exit = QAction(self.tr("E&xit"), self)
         self.act_exit.setShortcut(QKeySequence.StandardKey.Quit)
         self.act_exit.triggered.connect(self.close)
 
         # Edit
-        self.act_undo = QAction("&Undo", self)
+        self.act_undo = QAction(self.tr("&Undo"), self)
         self.act_undo.setShortcut(QKeySequence.StandardKey.Undo)
 
-        self.act_redo = QAction("&Redo", self)
+        self.act_redo = QAction(self.tr("&Redo"), self)
         self.act_redo.setShortcut(QKeySequence.StandardKey.Redo)
 
         # View
-        self.act_toggle_preview = QAction("Toggle &Preview", self)
+        self.act_toggle_preview = QAction(self.tr("Toggle &Preview"), self)
         self.act_toggle_preview.setCheckable(True)
         self.act_toggle_preview.setChecked(True)
         self.act_toggle_preview.toggled.connect(self._on_toggle_preview)
 
-        self.act_toggle_split = QAction("Toggle Split &Orientation", self)
+        self.act_toggle_split = QAction(self.tr("Toggle Split &Orientation"), self)
         self.act_toggle_split.triggered.connect(self._toggle_split)
 
-        self.act_settings = QAction("&Settings…", self)
+        self.act_settings = QAction(self.tr("&Settings…"), self)
         self.act_settings.triggered.connect(self._on_settings)
 
     # ------------------------------------------------------------------
@@ -155,28 +167,28 @@ class MainWindow(QMainWindow):
     def _setup_menubar(self) -> None:
         mb = self.menuBar()
 
-        file_menu = mb.addMenu("&File")
-        file_menu.addAction(self.act_open_folder)
-        file_menu.addAction(self.act_close_folder)
-        file_menu.addSeparator()
-        file_menu.addAction(self.act_new)
-        file_menu.addAction(self.act_save)
-        file_menu.addAction(self.act_save_as)
-        file_menu.addSeparator()
-        file_menu.addAction(self.act_close_tab)
-        file_menu.addSeparator()
-        file_menu.addAction(self.act_exit)
+        self._file_menu = mb.addMenu(self.tr("&File"))
+        self._file_menu.addAction(self.act_open_folder)
+        self._file_menu.addAction(self.act_close_folder)
+        self._file_menu.addSeparator()
+        self._file_menu.addAction(self.act_new)
+        self._file_menu.addAction(self.act_save)
+        self._file_menu.addAction(self.act_save_as)
+        self._file_menu.addSeparator()
+        self._file_menu.addAction(self.act_close_tab)
+        self._file_menu.addSeparator()
+        self._file_menu.addAction(self.act_exit)
 
-        edit_menu = mb.addMenu("&Edit")
-        edit_menu.addAction(self.act_undo)
-        edit_menu.addAction(self.act_redo)
+        self._edit_menu = mb.addMenu(self.tr("&Edit"))
+        self._edit_menu.addAction(self.act_undo)
+        self._edit_menu.addAction(self.act_redo)
 
-        view_menu = mb.addMenu("&View")
-        view_menu.addAction(self.act_toggle_preview)
-        view_menu.addAction(self.act_toggle_split)
+        self._view_menu = mb.addMenu(self.tr("&View"))
+        self._view_menu.addAction(self.act_toggle_preview)
+        self._view_menu.addAction(self.act_toggle_split)
 
-        settings_menu = mb.addMenu("&Settings")
-        settings_menu.addAction(self.act_settings)
+        self._settings_menu = mb.addMenu(self.tr("&Settings"))
+        self._settings_menu.addAction(self.act_settings)
 
     # ------------------------------------------------------------------
     # Central widget
@@ -224,6 +236,10 @@ class MainWindow(QMainWindow):
             self._md,
             self._preview_css,
             "dark" if self._current_theme.is_dark else "light",
+            editor_font_family=self._editor_font_family,
+            editor_font_size=self._editor_font_size,
+            preview_font_family=self._preview_font_family,
+            preview_font_size=self._preview_font_size,
         )
         tab.modified_changed.connect(self._on_tab_modified)
         tab.status_changed.connect(self._on_tab_status)
@@ -317,6 +333,7 @@ class MainWindow(QMainWindow):
     def _make_editor_toolbar(self) -> QWidget:
         icon_color = self._current_theme.icon_color
         self._toolbar_buttons: list[tuple[QToolButton, str]] = []
+        self._toolbar_tooltips: list[str] = []
 
         tb = QWidget()
         tb.setObjectName("editorToolbar")
@@ -340,45 +357,46 @@ class MainWindow(QMainWindow):
             b.clicked.connect(lambda checked=False, s=syntax: self._insert_md(s))
             layout.addWidget(b)
             self._toolbar_buttons.append((b, icon_name))
+            self._toolbar_tooltips.append(tip)
 
         # --- Heading dropdown ---
-        heading_combo = QComboBox()
-        heading_combo.setToolTip("Heading level")
-        heading_combo.addItem("H", "")
+        self._heading_combo = QComboBox()
+        self._heading_combo.setToolTip(self.tr("Heading level"))
+        self._heading_combo.addItem("H", "")
         for i in range(1, 7):
-            heading_combo.addItem(f"H{i}", "#" * i + " ")
-        heading_combo.currentIndexChanged.connect(self._on_heading_combo)
-        heading_combo.setFixedWidth(48)
-        layout.addWidget(heading_combo)
+            self._heading_combo.addItem(f"H{i}", "#" * i + " ")
+        self._heading_combo.currentIndexChanged.connect(self._on_heading_combo)
+        self._heading_combo.setFixedWidth(48)
+        layout.addWidget(self._heading_combo)
         _sep()
 
         # --- Blocks: lists ---
-        _btn("list-unordered", "- ", "Unordered list")
-        _btn("list-ordered", "1. ", "Ordered list")
-        _btn("list-task", "- [ ] ", "Task list")
+        _btn("list-unordered", "- ", self.tr("Unordered list"))
+        _btn("list-ordered", "1. ", self.tr("Ordered list"))
+        _btn("list-task", "- [ ] ", self.tr("Task list"))
         _sep()
 
         # --- Blocks: other ---
-        _btn("quote", "> ", "Blockquote")
-        _btn("code-block", "```", "Code block")
+        _btn("quote", "> ", self.tr("Blockquote"))
+        _btn("code-block", "```", self.tr("Code block"))
         _btn(
             "table",
             "\n| Col 1 | Col 2 |\n|------|------|\n|      |      |\n",
-            "Insert table",
+            self.tr("Insert table"),
         )
-        _btn("hr", "---\n", "Horizontal rule")
+        _btn("hr", "---\n", self.tr("Horizontal rule"))
         _sep()
 
         # --- Inline ---
-        _btn("bold", "**", "Bold")
-        _btn("italic", "*", "Italic")
-        _btn("strikethrough", "~~", "Strikethrough")
-        _btn("code", "`", "Inline code")
+        _btn("bold", "**", self.tr("Bold"))
+        _btn("italic", "*", self.tr("Italic"))
+        _btn("strikethrough", "~~", self.tr("Strikethrough"))
+        _btn("code", "`", self.tr("Inline code"))
         _sep()
 
         # --- Links & media ---
-        _btn("link", "[]()", "Insert link")
-        _btn("image", "![]()", "Insert image")
+        _btn("link", "[]()", self.tr("Insert link"))
+        _btn("image", "![]()", self.tr("Insert image"))
 
         layout.addStretch()
         return tb
@@ -395,34 +413,50 @@ class MainWindow(QMainWindow):
         self._insert_md(prefix)
         self.sender().setCurrentIndex(0)  # type: ignore[union-attr]
 
-    def _on_editor_context_menu(self, point) -> None:
+    def _on_editor_context_menu(self, point: QPoint) -> None:
         """Right-click menu on the editor with formatting actions."""
         menu = QMenu(self)
 
-        menu.addAction("Bold").triggered.connect(lambda: self._insert_md("**"))
-        menu.addAction("Italic").triggered.connect(lambda: self._insert_md("*"))
-        menu.addAction("Strikethrough").triggered.connect(lambda: self._insert_md("~~"))
-        menu.addAction("Inline code").triggered.connect(lambda: self._insert_md("`"))
+        menu.addAction(self.tr("Bold")).triggered.connect(lambda: self._insert_md("**"))
+        menu.addAction(self.tr("Italic")).triggered.connect(
+            lambda: self._insert_md("*")
+        )
+        menu.addAction(self.tr("Strikethrough")).triggered.connect(
+            lambda: self._insert_md("~~")
+        )
+        menu.addAction(self.tr("Inline code")).triggered.connect(
+            lambda: self._insert_md("`")
+        )
         menu.addSeparator()
-        menu.addAction("Unordered list").triggered.connect(
+        menu.addAction(self.tr("Unordered list")).triggered.connect(
             lambda: self._insert_md("- ")
         )
-        menu.addAction("Ordered list").triggered.connect(lambda: self._insert_md("1. "))
-        menu.addAction("Task list").triggered.connect(lambda: self._insert_md("- [ ] "))
+        menu.addAction(self.tr("Ordered list")).triggered.connect(
+            lambda: self._insert_md("1. ")
+        )
+        menu.addAction(self.tr("Task list")).triggered.connect(
+            lambda: self._insert_md("- [ ] ")
+        )
         menu.addSeparator()
-        menu.addAction("Blockquote").triggered.connect(lambda: self._insert_md("> "))
-        menu.addAction("Code block").triggered.connect(lambda: self._insert_md("```"))
-        menu.addAction("Table").triggered.connect(
+        menu.addAction(self.tr("Blockquote")).triggered.connect(
+            lambda: self._insert_md("> ")
+        )
+        menu.addAction(self.tr("Code block")).triggered.connect(
+            lambda: self._insert_md("```")
+        )
+        menu.addAction(self.tr("Table")).triggered.connect(
             lambda: self._insert_md(
                 "\n| Col 1 | Col 2 |\n|------|------|\n|      |      |\n"
             )
         )
-        menu.addAction("Horizontal rule").triggered.connect(
+        menu.addAction(self.tr("Horizontal rule")).triggered.connect(
             lambda: self._insert_md("---\n")
         )
         menu.addSeparator()
-        menu.addAction("Insert link").triggered.connect(lambda: self._insert_md("[]()"))
-        menu.addAction("Insert image").triggered.connect(
+        menu.addAction(self.tr("Insert link")).triggered.connect(
+            lambda: self._insert_md("[]()")
+        )
+        menu.addAction(self.tr("Insert image")).triggered.connect(
             lambda: self._insert_md("![]()")
         )
 
@@ -518,20 +552,72 @@ class MainWindow(QMainWindow):
     def _on_settings(self) -> None:
         from ui.settings_dialog import SettingsDialog
 
-        dlg = SettingsDialog(self._theme_id, self)
+        dlg = SettingsDialog(
+            self._theme_id,
+            self._editor_font_family,
+            self._editor_font_size,
+            self._preview_font_family,
+            self._preview_font_size,
+            self._language,
+            self,
+        )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
 
-        new_id = dlg.selected_theme_id()
-        if new_id == self._theme_id:
-            return
+        settings = QSettings("cutemd", "cutemd")
 
-        self._theme_id = new_id
-        self._current_theme = (
-            system_theme() if new_id == "system" else get_theme(new_id)
-        )
-        QSettings("cutemd", "cutemd").setValue("theme", new_id)
-        self._apply_theme()
+        # --- Theme ---
+        new_theme_id = dlg.selected_theme_id()
+        if new_theme_id != self._theme_id:
+            self._theme_id = new_theme_id
+            self._current_theme = (
+                system_theme() if new_theme_id == "system" else get_theme(new_theme_id)
+            )
+            settings.setValue("theme", new_theme_id)
+            self._apply_theme()
+
+        # --- Language ---
+        new_lang = dlg.selected_language()
+        if new_lang != self._language:
+            self._language = new_lang
+            settings.setValue("language", new_lang)
+            from ui.translations import apply_language
+
+            app = QApplication.instance()
+            if isinstance(app, QApplication):
+                apply_language(app, new_lang)
+
+        # --- Fonts ---
+        new_ef = dlg.selected_editor_font()
+        new_efs = dlg.selected_editor_font_size()
+        new_pf = dlg.selected_preview_font()
+        new_pfs = dlg.selected_preview_font_size()
+
+        changed = False
+        if new_ef != self._editor_font_family or new_efs != self._editor_font_size:
+            self._editor_font_family = new_ef
+            self._editor_font_size = new_efs
+            settings.setValue("editor_font_family", new_ef)
+            settings.setValue("editor_font_size", new_efs)
+            changed = True
+
+        if new_pf != self._preview_font_family or new_pfs != self._preview_font_size:
+            self._preview_font_family = new_pf
+            self._preview_font_size = new_pfs
+            settings.setValue("preview_font_family", new_pf)
+            settings.setValue("preview_font_size", new_pfs)
+            changed = True
+
+        if changed:
+            for i in range(self._tabs.count()):
+                tab = self._tabs.widget(i)
+                if isinstance(tab, EditorTab):
+                    tab.set_editor_font(
+                        self._editor_font_family, self._editor_font_size
+                    )
+                    tab.set_preview_font(
+                        self._preview_font_family, self._preview_font_size
+                    )
 
     def _on_toggle_preview(self, checked: bool) -> None:
         self._preview_visible = checked
@@ -697,6 +783,54 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Qt overrides
     # ------------------------------------------------------------------
+    def _retranslate_ui(self) -> None:
+        """Refresh all user-visible strings after a language change."""
+        # Actions
+        self.act_open_folder.setText(self.tr("Open &Folder…"))
+        self.act_close_folder.setText(self.tr("Close Folder"))
+        self.act_new.setText(self.tr("&New File…"))
+        self.act_save.setText(self.tr("&Save"))
+        self.act_save_as.setText(self.tr("Save &As…"))
+        self.act_close_tab.setText(self.tr("Close Tab"))
+        self.act_exit.setText(self.tr("E&xit"))
+        self.act_undo.setText(self.tr("&Undo"))
+        self.act_redo.setText(self.tr("&Redo"))
+        self.act_toggle_preview.setText(self.tr("Toggle &Preview"))
+        self.act_toggle_split.setText(self.tr("Toggle Split &Orientation"))
+        self.act_settings.setText(self.tr("&Settings…"))
+
+        # Menu titles
+        self._file_menu.setTitle(self.tr("&File"))
+        self._edit_menu.setTitle(self.tr("&Edit"))
+        self._view_menu.setTitle(self.tr("&View"))
+        self._settings_menu.setTitle(self.tr("&Settings"))
+
+        # Toolbar tooltips
+        self._heading_combo.setToolTip(self.tr("Heading level"))
+        tips = [
+            self.tr("Unordered list"),
+            self.tr("Ordered list"),
+            self.tr("Task list"),
+            self.tr("Blockquote"),
+            self.tr("Code block"),
+            self.tr("Insert table"),
+            self.tr("Horizontal rule"),
+            self.tr("Bold"),
+            self.tr("Italic"),
+            self.tr("Strikethrough"),
+            self.tr("Inline code"),
+            self.tr("Insert link"),
+            self.tr("Insert image"),
+        ]
+        for (btn, _), tip in zip(self._toolbar_buttons, tips):
+            btn.setToolTip(tip)
+
+    def changeEvent(self, event) -> None:
+        if event.type() == QEvent.Type.LanguageChange:
+            self._update_window_title()
+            self._retranslate_ui()
+        super().changeEvent(event)
+
     def closeEvent(self, event) -> None:
         for i in range(self._tabs.count() - 1, -1, -1):
             tab = self._tabs.widget(i)
