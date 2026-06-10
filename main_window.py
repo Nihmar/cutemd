@@ -11,20 +11,25 @@ from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import get_lexer_by_name, guess_lexer
 from pygments.util import ClassNotFound
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
     QSplitter,
     QTextBrowser,
-    QToolBar,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
 )
 
+from file_tree_panel import FileTreePanel
 from syntax_highlighter import MarkdownHighlighter
 
 # ---------------------------------------------------------------------------
@@ -192,7 +197,8 @@ _BLOCK_OPEN_TYPES = frozenset(
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self._file_path: str | None = None
+        self._folder_path: Path | None = None
+        self._current_file: Path | None = None
         self._modified = False
         self._theme = "dark"
         self._syncing_scroll = False  # guard against scroll feedback loops
@@ -222,7 +228,6 @@ class MainWindow(QMainWindow):
         self._setup_actions()
         self._setup_menubar()
         self._setup_central()
-        self._setup_toolbar()
         self._setup_statusbar()
         self._apply_theme()
 
@@ -232,18 +237,24 @@ class MainWindow(QMainWindow):
         self._preview_timer.setInterval(300)
         self._preview_timer.timeout.connect(self._update_preview)
 
+        # Restore last folder (or prompt on first run)
+        QTimer.singleShot(0, self._restore_last_folder)
+
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
     def _setup_actions(self) -> None:
         # File
-        self.act_new = QAction("&New", self)
+        self.act_open_folder = QAction("Open &Folder…", self)
+        self.act_open_folder.setShortcut(QKeySequence.StandardKey.Open)
+        self.act_open_folder.triggered.connect(self._on_open_folder)
+
+        self.act_close_folder = QAction("Close Folder", self)
+        self.act_close_folder.triggered.connect(self._on_close_folder)
+
+        self.act_new = QAction("&New File…", self)
         self.act_new.setShortcut(QKeySequence.StandardKey.New)
         self.act_new.triggered.connect(self._on_new)
-
-        self.act_open = QAction("&Open...", self)
-        self.act_open.setShortcut(QKeySequence.StandardKey.Open)
-        self.act_open.triggered.connect(self._on_open)
 
         self.act_save = QAction("&Save", self)
         self.act_save.setShortcut(QKeySequence.StandardKey.Save)
@@ -278,8 +289,10 @@ class MainWindow(QMainWindow):
         mb = self.menuBar()
 
         file_menu = mb.addMenu("&File")
+        file_menu.addAction(self.act_open_folder)
+        file_menu.addAction(self.act_close_folder)
+        file_menu.addSeparator()
         file_menu.addAction(self.act_new)
-        file_menu.addAction(self.act_open)
         file_menu.addSeparator()
         file_menu.addAction(self.act_save)
         file_menu.addAction(self.act_save_as)
@@ -298,6 +311,11 @@ class MainWindow(QMainWindow):
     # Central widget
     # ------------------------------------------------------------------
     def _setup_central(self) -> None:
+        # --- File tree panel (left sidebar) ---
+        self._tree_panel = FileTreePanel()
+        self._tree_panel.file_activated.connect(self._on_tree_file_activated)
+
+        # --- Editor ---
         self._editor = QPlainTextEdit()
         self._editor.setFont(QFont("monospace", 11))
         self._editor.setTabStopDistance(40)  # 4 spaces
@@ -313,7 +331,18 @@ class MainWindow(QMainWindow):
         self.act_undo.triggered.connect(self._editor.undo)
         self.act_redo.triggered.connect(self._editor.redo)
 
-        # Preview
+        # --- Editor toolbar (above the editor only) ---
+        editor_toolbar = self._make_editor_toolbar()
+
+        # --- Editor pane (toolbar + editor) ---
+        editor_pane = QWidget()
+        editor_layout = QVBoxLayout(editor_pane)
+        editor_layout.setContentsMargins(0, 0, 0, 0)
+        editor_layout.setSpacing(0)
+        editor_layout.addWidget(editor_toolbar)
+        editor_layout.addWidget(self._editor)
+
+        # --- Preview ---
         self._preview = QTextBrowser()
         self._preview.setReadOnly(True)
         self._preview.setOpenExternalLinks(True)
@@ -321,56 +350,91 @@ class MainWindow(QMainWindow):
         # Synchronized scrolling (editor -> preview only)
         self._editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
 
-        # Splitter
+        # Splitter: tree | [editor+toolbar | preview]
+        inner_splitter = QSplitter(Qt.Orientation.Horizontal)
+        inner_splitter.addWidget(editor_pane)
+        inner_splitter.addWidget(self._preview)
+
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._splitter.addWidget(self._editor)
-        self._splitter.addWidget(self._preview)
-        self._splitter.setSizes([600, 600])
+        self._splitter.addWidget(self._tree_panel)
+        self._splitter.addWidget(inner_splitter)
+        self._splitter.setSizes([220, 980])
 
         self.setCentralWidget(self._splitter)
 
     # ------------------------------------------------------------------
-    # Toolbar
+    # Editor toolbar
     # ------------------------------------------------------------------
-    def _setup_toolbar(self) -> None:
-        tb = QToolBar("Formatting", self)
-        tb.setMovable(False)
-        self.addToolBar(tb)
+    def _make_editor_toolbar(self) -> QWidget:
+        """Return a compact toolbar widget for the editor pane."""
+        tb = QWidget()
+        layout = QHBoxLayout(tb)
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(2)
 
-        def _add(label: str, syntax: str, tip: str) -> None:
-            act = QAction(label, self)
-            act.setToolTip(tip)
-            act.triggered.connect(lambda checked, s=syntax: self._insert_md(s))
-            tb.addAction(act)
+        def _btn(text: str, syntax: str, tip: str) -> None:
+            b = QToolButton()
+            b.setText(text)
+            b.setToolTip(tip)
+            b.setAutoRaise(True)
+            b.clicked.connect(lambda checked=False, s=syntax: self._insert_md(s))
+            layout.addWidget(b)
 
-        # --- Headings ---
-        _add("H1", "# ", "Heading level 1")
-        _add("H2", "## ", "Heading level 2")
-        _add("H3", "### ", "Heading level 3")
-        tb.addSeparator()
+        def _sep() -> None:
+            s = QWidget()
+            s.setFixedWidth(6)
+            layout.addWidget(s)
 
-        # --- Inline formatting ---
-        _add("B", "**", "Bold")
-        _add("I", "*", "Italic")
-        _add("S", "~~", "Strikethrough")
-        _add("`", "`", "Inline code")
-        tb.addSeparator()
+        # --- Heading dropdown ---
+        heading_combo = QComboBox()
+        heading_combo.setToolTip("Heading level")
+        heading_combo.addItem("Heading", "")
+        for i in range(1, 7):
+            heading_combo.addItem(f"H{i}", "#" * i + " ")
+        heading_combo.currentIndexChanged.connect(self._on_heading_combo)
+        heading_combo.setFixedWidth(80)
+        layout.addWidget(heading_combo)
+        _sep()
 
-        # --- Lists ---
-        _add("\u2022", "- ", "Unordered list")
-        _add("1.", "1. ", "Ordered list")
-        _add("\u2610", "- [ ] ", "Task list")
-        tb.addSeparator()
+        # --- Blocks: lists ---
+        _btn("\u2022", "- ", "Unordered list")
+        _btn("1.", "1. ", "Ordered list")
+        _btn("\u2610", "- [ ] ", "Task list")
+        _sep()
 
-        # --- Block elements ---
-        _add("```", "```", "Code block")
-        _add(">", "> ", "Blockquote")
-        _add("\u2014", "---\n", "Horizontal rule")
-        tb.addSeparator()
+        # --- Blocks: other ---
+        _btn(">", "> ", "Blockquote")
+        _btn("```", "```", "Code block")
+        _btn(
+            "\u2639",
+            "\n| Col 1 | Col 2 |\n|------|------|\n|      |      |\n",
+            "Insert table",
+        )
+        _btn("\u2014", "---\n", "Horizontal rule")
+        _sep()
+
+        # --- Inline ---
+        _btn("B", "**", "Bold")
+        _btn("I", "*", "Italic")
+        _btn("S", "~~", "Strikethrough")
+        _btn("`", "`", "Inline code")
+        _sep()
 
         # --- Links & media ---
-        _add("Link", "[]()", "Insert link")
-        _add("Img", "![]()", "Insert image")
+        _btn("Link", "[]()", "Insert link")
+        _btn("Img", "![]()", "Insert image")
+
+        layout.addStretch()
+        return tb
+
+    def _on_heading_combo(self, index: int) -> None:
+        """Handle heading dropdown selection."""
+        if index <= 0:
+            return
+        prefix = "#" * index + " "
+        self._insert_md(prefix)
+        # Reset to placeholder so the same level can be re-selected
+        self.sender().setCurrentIndex(0)  # type: ignore[union-attr]
 
     def _insert_md(self, syntax: str) -> None:
         """Insert markdown syntax at cursor position.
@@ -443,7 +507,7 @@ class MainWindow(QMainWindow):
     # Status bar
     # ------------------------------------------------------------------
     def _setup_statusbar(self) -> None:
-        self._status_file = QLabel("New file")
+        self._status_file = QLabel("No folder")
         self._status_cursor = QLabel("Ln 1, Col 1")
         self._status_words = QLabel("0 words")
 
@@ -475,10 +539,15 @@ class MainWindow(QMainWindow):
     # Split orientation
     # ------------------------------------------------------------------
     def _toggle_split(self) -> None:
-        if self._splitter.orientation() == Qt.Orientation.Horizontal:
-            self._splitter.setOrientation(Qt.Orientation.Vertical)
-        else:
-            self._splitter.setOrientation(Qt.Orientation.Horizontal)
+        # Find the inner splitter (editor|preview) — it's the last child
+        inner = self._splitter.widget(1)
+        if isinstance(inner, QSplitter):
+            cur = inner.orientation()
+            inner.setOrientation(
+                Qt.Orientation.Vertical
+                if cur == Qt.Orientation.Horizontal
+                else Qt.Orientation.Horizontal
+            )
 
     # ------------------------------------------------------------------
     # File operations
@@ -500,69 +569,162 @@ class MainWindow(QMainWindow):
             return not self._modified  # False if save was cancelled
         return ret != QMessageBox.StandardButton.Cancel
 
-    def _on_new(self) -> None:
+    def _load_file(self, path: Path) -> None:
+        """Load the file at *path* into the editor."""
         if not self._maybe_save():
-            return
-        self._editor.clear()
-        self._file_path = None
-        self._modified = False
-        self._update_title()
-        self._update_status()
-
-    def _on_open(self) -> None:
-        if not self._maybe_save():
-            return
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open Markdown file",
-            "",
-            "Markdown files (*.md *.markdown);;All files (*)",
-        )
-        if not path:
             return
         try:
-            text = Path(path).read_text(encoding="utf-8")
+            text = path.read_text(encoding="utf-8")
         except OSError as e:
             QMessageBox.critical(self, "Error", f"Could not open file:\n{e}")
             return
         self._editor.setPlainText(text)
-        self._file_path = path
+        self._current_file = path
         self._modified = False
         self._update_title()
         self._update_status()
+        self._tree_panel.select_file(path)
+
+    def _on_open_folder(self) -> None:
+        """Open a folder and populate the file tree."""
+        if not self._maybe_save():
+            return
+        folder = QFileDialog.getExistingDirectory(self, "Open Folder", "")
+        if not folder:
+            return
+        self._set_folder(Path(folder))
+
+    def _set_folder(self, path: Path) -> None:
+        """Set *path* as the working folder."""
+        self._folder_path = path
+        self._current_file = None
+        self._editor.clear()
+        self._modified = False
+        self._tree_panel.set_root_path(path)
+        self._update_title()
+        self._update_status()
+        # Persist the folder path
+        QSettings("cutemd", "cutemd").setValue("last_folder", str(path))
+
+    def _restore_last_folder(self) -> None:
+        """On startup, reopen the last folder or prompt for one."""
+        settings = QSettings("cutemd", "cutemd")
+        last = str(settings.value("last_folder", ""))
+        if last and Path(last).is_dir():
+            self._set_folder(Path(last))
+        else:
+            self._on_open_folder()
+
+    def _on_close_folder(self) -> None:
+        """Close the current folder."""
+        if not self._maybe_save():
+            return
+        self._folder_path = None
+        self._current_file = None
+        self._editor.clear()
+        self._modified = False
+        self._tree_panel.set_root_path("")
+        self._update_title()
+        self._update_status()
+        QSettings("cutemd", "cutemd").remove("last_folder")
+
+    def _on_tree_file_activated(self, path: str) -> None:
+        """Handle a file being activated in the tree panel."""
+        self._load_file(Path(path))
+
+    def _on_new(self) -> None:
+        """Create a new markdown file in the current folder."""
+        if not self._folder_path:
+            # No folder open — just clear the editor
+            if not self._maybe_save():
+                return
+            self._current_file = None
+            self._editor.clear()
+            self._modified = False
+            self._update_title()
+            self._update_status()
+            return
+
+        if not self._maybe_save():
+            return
+
+        # Pick a unique name
+        base = self._folder_path
+        i = 1
+        while (base / f"untitled_{i}.md").exists():
+            i += 1
+        new_path = base / f"untitled_{i}.md"
+
+        try:
+            new_path.write_text("", encoding="utf-8")
+        except OSError as e:
+            QMessageBox.critical(self, "Error", f"Could not create file:\n{e}")
+            return
+
+        self._editor.clear()
+        self._current_file = new_path
+        self._modified = False
+        self._update_title()
+        self._update_status()
+        self._tree_panel.select_file(new_path)
 
     def _on_save(self) -> None:
-        if self._file_path:
-            self._write_file(self._file_path)
+        if self._current_file:
+            self._write_file(self._current_file)
         else:
             self._on_save_as()
 
     def _on_save_as(self) -> None:
+        start_dir = str(self._folder_path) if self._folder_path else ""
         path, _ = QFileDialog.getSaveFileName(
             self,
             "Save Markdown file",
-            "",
+            start_dir,
             "Markdown files (*.md *.markdown);;All files (*)",
         )
         if not path:
             return
-        self._write_file(path)
+        self._write_file(Path(path))
 
-    def _write_file(self, path: str) -> None:
+    def _write_file(self, path: Path) -> None:
         try:
-            Path(path).write_text(self._editor.toPlainText(), encoding="utf-8")
+            path.write_text(self._editor.toPlainText(), encoding="utf-8")
         except OSError as e:
             QMessageBox.critical(self, "Error", f"Could not save file:\n{e}")
             return
-        self._file_path = path
+        self._current_file = path
         self._modified = False
         self._update_title()
+        self._tree_panel.select_file(path)
 
     def _update_title(self) -> None:
-        name = Path(self._file_path).name if self._file_path else "Untitled"
+        if self._current_file:
+            if self._folder_path:
+                try:
+                    rel = self._current_file.relative_to(self._folder_path)
+                    display = str(rel)
+                except ValueError:
+                    display = self._current_file.name
+            else:
+                display = self._current_file.name
+        else:
+            display = "Untitled"
         mod = " *" if self._modified else ""
-        self.setWindowTitle(f"{name}{mod} - CuteMD")
-        self._status_file.setText(self._file_path or "New file")
+        self.setWindowTitle(f"{display}{mod} – CuteMD")
+
+        # Status bar
+        if self._folder_path:
+            folder_name = self._folder_path.name
+            if self._current_file:
+                try:
+                    rel = self._current_file.relative_to(self._folder_path)
+                    self._status_file.setText(str(rel))
+                except ValueError:
+                    self._status_file.setText(str(self._current_file))
+            else:
+                self._status_file.setText(folder_name)
+        else:
+            self._status_file.setText("No folder")
 
     # ------------------------------------------------------------------
     # Editor signals
