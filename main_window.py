@@ -3,13 +3,16 @@
 import re
 from pathlib import Path
 
+from latex2mathml.converter import convert as _tex2mathml
 from markdown_it import MarkdownIt
+from markdown_it.token import Token
+from mdit_py_plugins.dollarmath import dollarmath_plugin
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import get_lexer_by_name, guess_lexer
 from pygments.util import ClassNotFound
 from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette
+from PySide6.QtGui import QAction, QColor, QFont, QKeySequence, QPalette, QTextCursor
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -19,6 +22,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QSplitter,
     QTextBrowser,
+    QToolBar,
 )
 
 from syntax_highlighter import MarkdownHighlighter
@@ -31,6 +35,59 @@ _CSS_PATH = _PROJECT_DIR / "preview_styles.css"
 
 # Module-level Pygments style name, updated by MainWindow._apply_theme()
 _PYGMENTS_STYLE: str = "monokai"
+
+
+# ---------------------------------------------------------------------------
+# Math -> MathML renderers for dollarmath plugin
+# ---------------------------------------------------------------------------
+def _render_math_inline(tokens, idx, options, env):
+    """Render inline math $...$ as MathML."""
+    content = tokens[idx].content
+    try:
+        return _tex2mathml(content, display="inline")
+    except Exception:
+        escaped = (
+            content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
+        return f'<span class="math-inline">${escaped}$</span>'
+
+
+def _render_math_inline_double(tokens, idx, options, env):
+    """Render inline double math $$...$$ as MathML."""
+    content = tokens[idx].content
+    try:
+        return _tex2mathml(content, display="inline")
+    except Exception:
+        escaped = (
+            content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
+        return f'<span class="math-inline">$${escaped}$$</span>'
+
+
+def _render_math_block(tokens, idx, options, env):
+    """Render display math $$...$$ as a MathML block."""
+    content = tokens[idx].content.strip()
+    try:
+        mathml = _tex2mathml(content, display="block")
+        return f'<div class="math-block">{mathml}</div>'
+    except Exception:
+        escaped = (
+            content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
+        return f'<pre class="math-block">$$\n{escaped}\n$$</pre>'
+
+
+def _render_math_block_label(tokens, idx, options, env):
+    """Render labeled display math as a MathML block."""
+    content = tokens[idx].content.strip()
+    try:
+        mathml = _tex2mathml(content, display="block")
+        return f'<div class="math-block">{mathml}</div>'
+    except Exception:
+        escaped = (
+            content.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
+        return f'<pre class="math-block">$$\n{escaped}\n$$</pre>'
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +117,7 @@ def _light_palette() -> QPalette:
 
 
 # ---------------------------------------------------------------------------
-# Markdown → HTML helpers
+# Markdown -> HTML helpers
 # ---------------------------------------------------------------------------
 def _highlight_code(code: str, lang: str, _attrs: str) -> str:
     """markdown-it-py highlight callback using Pygments with inline styles."""
@@ -108,6 +165,28 @@ _HEADING_LINE_RE = re.compile(r"^#{1,6}\s+(.+)$")
 
 
 # ---------------------------------------------------------------------------
+# Token types that start a visible block-level element in the rendered HTML.
+# We inject an <a name='bN'> anchor before each of these so the preview can
+# be scrolled to the exact corresponding content.
+# ---------------------------------------------------------------------------
+_BLOCK_OPEN_TYPES = frozenset(
+    {
+        "heading_open",
+        "paragraph_open",
+        "fence",
+        "blockquote_open",
+        "bullet_list_open",
+        "ordered_list_open",
+        "table_open",
+        "hr",
+        "math_block",
+        "math_block_label",
+        "html_block",
+    }
+)
+
+
+# ---------------------------------------------------------------------------
 # MainWindow
 # ---------------------------------------------------------------------------
 class MainWindow(QMainWindow):
@@ -117,23 +196,33 @@ class MainWindow(QMainWindow):
         self._modified = False
         self._theme = "dark"
         self._syncing_scroll = False  # guard against scroll feedback loops
-        self._last_anchor: str | None = None  # track section changes
+        self._last_anchor: str = ""  # track the last anchor name scrolled to
+        self._line_anchor_map: list[int] = []  # line->anchor_idx cache
+        self._line_anchor_map_hash: int = 0  # cache validity key
 
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
 
-        # --- Markdown parser ---
-        self._md = MarkdownIt("commonmark", {"highlight": _highlight_code}).enable(
-            ["table", "strikethrough"]
+        # --- Markdown parser (with dollarmath plugin for $...$ / $$...$$) ---
+        self._md = (
+            MarkdownIt("commonmark", {"highlight": _highlight_code})
+            .enable(["table", "strikethrough"])
+            .use(dollarmath_plugin)
         )
+        # Override math token renderers to produce MathML (instead of raw spans)
+        self._md.renderer.rules["math_inline"] = _render_math_inline  # pyright: ignore[reportAttributeAccessIssue]
+        self._md.renderer.rules["math_inline_double"] = _render_math_inline_double  # pyright: ignore[reportAttributeAccessIssue]
+        self._md.renderer.rules["math_block"] = _render_math_block  # pyright: ignore[reportAttributeAccessIssue]
+        self._md.renderer.rules["math_block_label"] = _render_math_block_label  # pyright: ignore[reportAttributeAccessIssue]
 
         # --- UI ---
-        self.setWindowTitle("CuteMD – Markdown Editor")
+        self.setWindowTitle("CuteMD - Markdown Editor")
         self.resize(1200, 750)
 
         self._setup_actions()
         self._setup_menubar()
         self._setup_central()
+        self._setup_toolbar()
         self._setup_statusbar()
         self._apply_theme()
 
@@ -152,7 +241,7 @@ class MainWindow(QMainWindow):
         self.act_new.setShortcut(QKeySequence.StandardKey.New)
         self.act_new.triggered.connect(self._on_new)
 
-        self.act_open = QAction("&Open…", self)
+        self.act_open = QAction("&Open...", self)
         self.act_open.setShortcut(QKeySequence.StandardKey.Open)
         self.act_open.triggered.connect(self._on_open)
 
@@ -160,7 +249,7 @@ class MainWindow(QMainWindow):
         self.act_save.setShortcut(QKeySequence.StandardKey.Save)
         self.act_save.triggered.connect(self._on_save)
 
-        self.act_save_as = QAction("Save &As…", self)
+        self.act_save_as = QAction("Save &As...", self)
         self.act_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
         self.act_save_as.triggered.connect(self._on_save_as)
 
@@ -229,7 +318,7 @@ class MainWindow(QMainWindow):
         self._preview.setReadOnly(True)
         self._preview.setOpenExternalLinks(True)
 
-        # Synchronized scrolling (editor → preview only)
+        # Synchronized scrolling (editor -> preview only)
         self._editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
 
         # Splitter
@@ -239,6 +328,116 @@ class MainWindow(QMainWindow):
         self._splitter.setSizes([600, 600])
 
         self.setCentralWidget(self._splitter)
+
+    # ------------------------------------------------------------------
+    # Toolbar
+    # ------------------------------------------------------------------
+    def _setup_toolbar(self) -> None:
+        tb = QToolBar("Formatting", self)
+        tb.setMovable(False)
+        self.addToolBar(tb)
+
+        def _add(label: str, syntax: str, tip: str) -> None:
+            act = QAction(label, self)
+            act.setToolTip(tip)
+            act.triggered.connect(lambda checked, s=syntax: self._insert_md(s))
+            tb.addAction(act)
+
+        # --- Headings ---
+        _add("H1", "# ", "Heading level 1")
+        _add("H2", "## ", "Heading level 2")
+        _add("H3", "### ", "Heading level 3")
+        tb.addSeparator()
+
+        # --- Inline formatting ---
+        _add("B", "**", "Bold")
+        _add("I", "*", "Italic")
+        _add("S", "~~", "Strikethrough")
+        _add("`", "`", "Inline code")
+        tb.addSeparator()
+
+        # --- Lists ---
+        _add("\u2022", "- ", "Unordered list")
+        _add("1.", "1. ", "Ordered list")
+        _add("\u2610", "- [ ] ", "Task list")
+        tb.addSeparator()
+
+        # --- Block elements ---
+        _add("```", "```", "Code block")
+        _add(">", "> ", "Blockquote")
+        _add("\u2014", "---\n", "Horizontal rule")
+        tb.addSeparator()
+
+        # --- Links & media ---
+        _add("Link", "[]()", "Insert link")
+        _add("Img", "![]()", "Insert image")
+
+    def _insert_md(self, syntax: str) -> None:
+        """Insert markdown syntax at cursor position.
+
+        Behaviour depends on the syntax type:
+        - Wrapping syntax (**, *, ~~, `) wraps the selection or inserts
+          paired markers with the cursor placed between them.
+        - Code block (```) inserts a fenced code block and places the
+          cursor on the blank line inside it.
+        - Link/Image syntax inserts the template and positions the cursor
+          between the brackets.
+        - Everything else (prefix syntax like headings, lists, blockquote,
+          horizontal rule) inserts at the start of the current line.
+        """
+        cursor = self._editor.textCursor()
+
+        # --- Wrapping syntax ---
+        if syntax in ("**", "*", "~~", "`"):
+            sel = cursor.selectedText()
+            cursor.insertText(f"{syntax}{sel}{syntax}")
+            if not sel:
+                # Place cursor between the markers
+                cursor.movePosition(
+                    QTextCursor.MoveOperation.Left,
+                    QTextCursor.MoveMode.MoveAnchor,
+                    len(syntax),
+                )
+                self._editor.setTextCursor(cursor)
+
+        # --- Code block (fenced) ---
+        elif syntax == "```":
+            cursor.beginEditBlock()
+            prefix = "" if cursor.atBlockStart() else "\n"
+            cursor.insertText(f"{prefix}```\n\n```")
+            # Place cursor on the blank line between the fences
+            cursor.movePosition(
+                QTextCursor.MoveOperation.PreviousBlock,
+                QTextCursor.MoveMode.MoveAnchor,
+            )
+            cursor.movePosition(
+                QTextCursor.MoveOperation.EndOfBlock,
+                QTextCursor.MoveMode.MoveAnchor,
+            )
+            cursor.endEditBlock()
+            self._editor.setTextCursor(cursor)
+
+        # --- Link / Image template ---
+        elif syntax in ("[]()", "![]()"):
+            cursor.insertText(syntax)
+            # Place cursor between the square brackets
+            cursor.movePosition(
+                QTextCursor.MoveOperation.Left,
+                QTextCursor.MoveMode.MoveAnchor,
+                len(syntax) - 1,
+            )
+            self._editor.setTextCursor(cursor)
+
+        # --- Prefix-style (headings, lists, blockquote, HR, etc.) ---
+        else:
+            if not cursor.atBlockStart():
+                cursor.movePosition(
+                    QTextCursor.MoveOperation.StartOfBlock,
+                    QTextCursor.MoveMode.MoveAnchor,
+                )
+            cursor.insertText(syntax)
+
+        self._editor.setFocus()
 
     # ------------------------------------------------------------------
     # Status bar
@@ -362,7 +561,7 @@ class MainWindow(QMainWindow):
     def _update_title(self) -> None:
         name = Path(self._file_path).name if self._file_path else "Untitled"
         mod = " *" if self._modified else ""
-        self.setWindowTitle(f"{name}{mod} – CuteMD")
+        self.setWindowTitle(f"{name}{mod} - CuteMD")
         self._status_file.setText(self._file_path or "New file")
 
     # ------------------------------------------------------------------
@@ -373,6 +572,8 @@ class MainWindow(QMainWindow):
         self._update_title()
         self._preview_timer.start()  # debounced
         self._update_status()
+        # Invalidate line->anchor cache
+        self._line_anchor_map_hash = 0
 
     def _update_status(self) -> None:
         cursor = self._editor.textCursor()
@@ -385,14 +586,103 @@ class MainWindow(QMainWindow):
         self._status_words.setText(f"{word_count} words")
 
     # ------------------------------------------------------------------
-    # Preview
+    # Preview (anchor-based scroll sync)
     # ------------------------------------------------------------------
+    def _render_with_anchors(self, text: str) -> str:
+        """Render markdown to HTML with <a name='bN'> anchors at block starts.
+
+        Uses the markdown-it token stream to inject anchors immediately
+        before each block-level element.  This makes scrollToAnchor()
+        exact: the preview scrolls to the same content visible in the
+        editor.
+        """
+        tokens = self._md.parse(text)
+        new_tokens: list[Token] = []
+        anchor_idx = 0
+
+        for token in tokens:
+            if token.type in _BLOCK_OPEN_TYPES and token.map:
+                start, end = token.map
+                if start < end:
+                    anchor = Token("html_inline", "", 0)
+                    anchor.content = f'<a name="b{anchor_idx}"></a>'
+                    new_tokens.append(anchor)
+                    anchor_idx += 1
+            new_tokens.append(token)
+
+        return self._md.renderer.render(new_tokens, self._md.options, {})
+
+    def _build_line_anchor_map(self, text: str) -> list[int]:
+        """Return per-line mapping: index -> anchor index.
+
+        For each line in the source we pick the most specific (narrowest
+        map range) block-level token that contains it.  This ensures list
+        items and multi-paragraph sections each map to the right anchor.
+        """
+        tokens = self._md.parse(text)
+
+        # Collect (start_line, end_line, anchor_idx)
+        entries: list[tuple[int, int, int]] = []
+        anchor_idx = 0
+        for token in tokens:
+            if token.type in _BLOCK_OPEN_TYPES and token.map:
+                start, end = token.map
+                if start < end:
+                    entries.append((start, end, anchor_idx))
+                    anchor_idx += 1
+
+        total_lines = len(text.split("\n"))
+        mapping = [0] * max(total_lines, 1)
+        last_anchor = anchor_idx - 1 if anchor_idx > 0 else 0
+
+        # Sort entries by start line so we can break early
+        entries.sort(key=lambda x: x[0])
+
+        for line in range(total_lines):
+            best: int | None = None
+            best_width = float("inf")
+            for start, end, aidx in entries:
+                if line < start:
+                    break
+                if start <= line < end:
+                    width = end - start
+                    if width < best_width:
+                        best_width = width
+                        best = aidx
+            if best is not None:
+                mapping[line] = best
+            else:
+                # Blank line: use the next visible block's anchor
+                mapping[line] = last_anchor
+                for s, e, aidx in entries:
+                    if line < s:
+                        mapping[line] = aidx
+                        break
+
+        return mapping
+
     def _update_preview(self) -> None:
         text = self._editor.toPlainText()
+
+        # --- Build / refresh the line->anchor cache ---
+        text_hash = hash(text)
+        if text_hash != self._line_anchor_map_hash:
+            self._line_anchor_map = self._build_line_anchor_map(text)
+            self._line_anchor_map_hash = text_hash
+
+        # Determine which anchor the editor viewport is currently showing
+        first_block = self._editor.firstVisibleBlock()
+        current_line = first_block.blockNumber()
+        line_map = self._line_anchor_map
+        current_anchor_idx = (
+            line_map[current_line] if current_line < len(line_map) else 0
+        )
+        self._last_anchor = f"b{current_anchor_idx}"
+
+        # --- Render HTML with anchors ---
         try:
-            body_html = _add_heading_ids(self._md.render(text))
+            body_html = _add_heading_ids(self._render_with_anchors(text))
         except Exception:
-            # Fallback: escape HTML and show as plain preformatted text
             body_html = (
                 "<pre>"
                 + text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -400,7 +690,6 @@ class MainWindow(QMainWindow):
             )
 
         theme_class = "dark" if self._theme == "dark" else "light"
-
         html = (
             "<!DOCTYPE html>\n"
             "<html>\n<head>\n"
@@ -416,38 +705,78 @@ class MainWindow(QMainWindow):
         self._preview.setHtml(html)
         self._syncing_scroll = False
 
-    # ------------------------------------------------------------------
-    # Synchronized scrolling (editor to preview)
-    # ------------------------------------------------------------------
-    def _on_editor_scrolled(self, _value: int) -> None:
+        # Scroll preview to the saved anchor (with retry if layout isn't
+        # ready yet).
+        self._pending_sync_anchor = self._last_anchor
+        self._sync_retries = 0
+        self._sync_preview_scroll()
+
+    def _sync_preview_scroll(self) -> None:
+        """Scroll the preview to the pending anchor (with retry logic).
+
+        Called after setHtml() while the layout may not be laid out yet.
+        """
         if self._syncing_scroll:
             return
 
-        editor_sb = self._editor.verticalScrollBar()
-        preview_sb = self._preview.verticalScrollBar()
-        editor_max = editor_sb.maximum()
-        preview_max = preview_sb.maximum()
-        if editor_max <= 0 or preview_max <= 0:
+        anchor = getattr(self, "_pending_sync_anchor", "")
+        if not anchor:
             return
 
-        # Same percentage through both panes.
-        fraction = editor_sb.value() / editor_max
-        self._syncing_scroll = True
-        preview_sb.setValue(int(preview_max * fraction))
-        self._syncing_scroll = False
+        preview_sb = self._preview.verticalScrollBar()
+        if preview_sb.maximum() > 0:
+            self._syncing_scroll = True
+            self._preview.scrollToAnchor(anchor)
+            self._syncing_scroll = False
+            self._pending_sync_anchor = ""
+        else:
+            retries = getattr(self, "_sync_retries", 0)
+            if retries < 10:
+                self._sync_retries = retries + 1
+                QTimer.singleShot(0, self._sync_preview_scroll)
+            else:
+                self._pending_sync_anchor = ""
+                self._sync_retries = 0
 
-    def _find_current_anchor(self) -> str | None:
-        """Return the slug of the nearest heading at or above the first
-        visible line, or None if no heading is found."""
-        block = self._editor.firstVisibleBlock()
-        for _ in range(200):  # limit backward search
-            match = _HEADING_LINE_RE.match(block.text())
-            if match:
-                return _slugify(match.group(1))
-            block = block.previous()
-            if not block.isValid():
-                break
-        return None
+    # ------------------------------------------------------------------
+    # Synchronized scrolling (editor -> preview)
+    # ------------------------------------------------------------------
+    def _on_editor_scrolled(self, _value: int = 0) -> None:
+        """Scroll the preview to the anchor matching the editor viewport.
+
+        Uses the line->anchor cache to find which logical block is at the
+        top of the editor, then calls scrollToAnchor() on the preview.
+        This provides exact content-based sync regardless of how
+        differently the two panes render the same content.
+        """
+        if self._syncing_scroll:
+            return
+
+        line_map = self._line_anchor_map
+        if not line_map:
+            return
+
+        first_block = self._editor.firstVisibleBlock()
+        current_line = first_block.blockNumber()
+        if current_line >= len(line_map):
+            return
+
+        anchor_idx = line_map[current_line]
+        anchor = f"b{anchor_idx}"
+
+        # Avoid redundant scrollToAnchor calls when already on the same
+        # block (significantly reduces flicker on large documents).
+        if anchor == self._last_anchor:
+            return
+        self._last_anchor = anchor
+
+        preview_sb = self._preview.verticalScrollBar()
+        if preview_sb.maximum() <= 0:
+            return
+
+        self._syncing_scroll = True
+        self._preview.scrollToAnchor(anchor)
+        self._syncing_scroll = False
 
     # ------------------------------------------------------------------
     # Qt overrides

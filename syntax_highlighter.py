@@ -29,7 +29,8 @@ def _make_format(
 class MarkdownHighlighter(QSyntaxHighlighter):
     """Syntax highlighter for Markdown source text.
 
-    Uses per-line block state to track code fences across line boundaries.
+    Uses per-line block state to track code fences and math
+    blocks across line boundaries.
     """
 
     # --- Regex patterns ---
@@ -40,6 +41,8 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     )
     INLINE_CODE_RE = re.compile(r"`([^`]+)`")
     CODE_FENCE_RE = re.compile(r"^```.*$")
+    MATH_FENCE_RE = re.compile(r"^\$\$")
+    MATH_INLINE_RE = re.compile(r"\$[^$\n]+\$")
     LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
     LIST_RE = re.compile(r"^(\s{0,3})([-*+]|\d+\.)\s")
     BLOCKQUOTE_RE = re.compile(r"^>\s?.*$")
@@ -47,6 +50,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     # Block state constants
     STATE_NORMAL = 0
     STATE_FENCE = 1
+    STATE_MATH = 2
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -70,6 +74,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             self.italic_fmt = _make_format("#e5c07b", italic=True)
             self.inline_code_fmt = _make_format("#98c379", bg="#2c323c")
             self.code_fence_fmt = _make_format("#abb2bf", bg="#282c34")
+            self.math_fmt = _make_format("#56b6c2")  # teal
             self.link_fmt = _make_format("#61afef")
             self.list_fmt = _make_format("#c678dd")
             self.blockquote_fmt = _make_format("#5c6370")
@@ -80,6 +85,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             self.italic_fmt = _make_format("#50a14f", italic=True)
             self.inline_code_fmt = _make_format("#e45649", bg="#f0f0f0")
             self.code_fence_fmt = _make_format("#383a42", bg="#fafafa")
+            self.math_fmt = _make_format("#1a8ea8")  # teal
             self.link_fmt = _make_format("#4078f2")
             self.list_fmt = _make_format("#0184bc")
             self.blockquote_fmt = _make_format("#a0a1a7")
@@ -91,7 +97,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     def highlightBlock(self, text: str) -> None:
         prev_state = self.previousBlockState()
 
-        # --- Code fence tracking ---
+        # --- Code fence tracking (highest priority) ---
         if self.CODE_FENCE_RE.match(text.strip()):
             fmt = self.code_fence_fmt
             self.setFormat(0, len(text), fmt)
@@ -106,6 +112,20 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             self.setCurrentBlockState(self.STATE_FENCE)
             return
 
+        # --- Math block tracking ($$...$$) ---
+        if self.MATH_FENCE_RE.match(text.strip()):
+            self.setFormat(0, len(text), self.math_fmt)
+            if prev_state == self.STATE_MATH:
+                self.setCurrentBlockState(self.STATE_NORMAL)
+            else:
+                self.setCurrentBlockState(self.STATE_MATH)
+            return
+
+        if prev_state == self.STATE_MATH:
+            self.setFormat(0, len(text), self.math_fmt)
+            self.setCurrentBlockState(self.STATE_MATH)
+            return
+
         self.setCurrentBlockState(self.STATE_NORMAL)
 
         # --- Inline patterns ---
@@ -113,6 +133,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         self._apply_rule(self.BOLD_RE, text, self.bold_fmt)
         self._apply_rule(self.ITALIC_RE, text, self.italic_fmt)
         self._apply_rule(self.INLINE_CODE_RE, text, self.inline_code_fmt)
+        self._apply_rule(self.MATH_INLINE_RE, text, self.math_fmt)
         self._apply_rule(self.LINK_RE, text, self.link_fmt)
         self._apply_rule(self.LIST_RE, text, self.list_fmt)
         self._apply_rule(self.BLOCKQUOTE_RE, text, self.blockquote_fmt)
