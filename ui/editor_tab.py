@@ -585,10 +585,17 @@ class EditorTab(QWidget):
             return
         preview_sb = self.preview.verticalScrollBar()
         if preview_sb.maximum() > 0:
+            self._syncing_scroll += 1
             self.preview.scrollToAnchor(anchor)
-        elif self._sync_retries < 10:
-            self._sync_retries += 1
-            QTimer.singleShot(50, self._sync_preview_scroll)
+            self._syncing_scroll -= 1
+            self._pending_sync_anchor = ""
+        else:
+            if self._sync_retries < 10:
+                self._sync_retries += 1
+                QTimer.singleShot(0, self._sync_preview_scroll)
+            else:
+                self._pending_sync_anchor = ""
+                self._sync_retries = 0
 
     def _on_editor_scrolled(self, _value: int = 0) -> None:
         if self._syncing_scroll > 0 or not self._preview_visible or self._is_binary_preview:
@@ -597,12 +604,18 @@ class EditorTab(QWidget):
         if not line_map:
             return
         first_block = self.editor.firstVisibleBlock()
-        line = first_block.blockNumber()
-        if line < len(line_map):
-            anchor = f"b{line_map[line]}"
-            if anchor != self._pending_sync_anchor:
-                self._pending_sync_anchor = anchor
-                self.preview.scrollToAnchor(anchor)
+        current_line = first_block.blockNumber()
+        anchor_idx = line_map[current_line]
+        anchor = f"b{anchor_idx}"
+        if anchor == self._last_anchor:
+            return
+        self._last_anchor = anchor
+        preview_sb = self.preview.verticalScrollBar()
+        if preview_sb.maximum() <= 0:
+            return
+        self._syncing_scroll += 1
+        self.preview.scrollToAnchor(anchor)
+        self._syncing_scroll -= 1
 
     def _on_preview_scrolled(self, _value: int = 0) -> None:
         if self._syncing_scroll > 0 or not self._preview_visible or self._is_binary_preview:
@@ -611,12 +624,17 @@ class EditorTab(QWidget):
         max_pv = preview_sb.maximum()
         if max_pv <= 0:
             return
-        position = preview_sb.value()
-        ratio = position / max_pv
-
         editor_sb = self.editor.verticalScrollBar()
-        new_value = int(ratio * editor_sb.maximum())
-        editor_sb.setValue(new_value)
+        max_ed = editor_sb.maximum()
+        if max_ed <= 0:
+            return
+        ratio = preview_sb.value() / max_pv
+        target = int(ratio * max_ed)
+        if abs(editor_sb.value() - target) < 5:
+            return
+        self._syncing_scroll += 1
+        editor_sb.setValue(target)
+        self._syncing_scroll -= 1
 
     # ------------------------------------------------------------------
     # Clickable link navigation (hover underline + click to open)
