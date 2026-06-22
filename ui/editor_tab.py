@@ -89,6 +89,11 @@ class LineNumberArea(QWidget):
                         0, top, self.width() - 4, self._editor.fontMetrics().height(),
                         Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, number,
                     )
+                elif self._mode == 2:
+                    painter.drawText(
+                        0, top, self.width() - 4, self._editor.fontMetrics().height(),
+                        Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter, "·",
+                    )
             block = block.next()
             top = bottom
             bottom = top + int(self._editor.blockBoundingRect(block).height()) if block.isValid() else top
