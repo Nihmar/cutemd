@@ -358,7 +358,7 @@ class EditorTab(QWidget):
     # Line number helpers
     # ------------------------------------------------------------------
     def _update_line_number_area_width(self, _count: int = 0) -> None:
-        w = self._line_number_area._line_number_area_width()
+        w = self._line_number_area._line_number_area_width() if self._line_number_area._mode != 0 else 0
         self.editor.setViewportMargins(w, 0, 0, 0)
         cr = self.editor.contentsRect()
         self._line_number_area.setGeometry(
