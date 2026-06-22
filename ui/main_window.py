@@ -503,8 +503,13 @@ class MainWindow(QMainWindow):
 
     def _open_file_at_line(self, location: tuple) -> None:
         path, line_num = location
-        tab = self._add_tab()
-        tab.load_file(path)
+        existing = self._find_tab_for_file(path)
+        if existing >= 0:
+            tab = self._tabs.widget(existing)
+            self._tabs.setCurrentIndex(existing)
+        else:
+            tab = self._add_tab()
+            tab.load_file(path)
         # Position cursor at the target line
         cursor = tab.editor.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
