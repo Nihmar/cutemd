@@ -1,6 +1,7 @@
 """Main window for the Markdown editor."""
 
 import sys
+import re
 from pathlib import Path
 
 from markdown_it import MarkdownIt
@@ -18,10 +19,16 @@ from PySide6.QtGui import (
 from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QPlainTextEdit,
@@ -153,6 +160,12 @@ class MainWindow(QMainWindow):
         self.act_find.setShortcut(QKeySequence.StandardKey.Find)
         self.act_find.triggered.connect(self._on_find)
 
+        self.act_find_files = QAction(self.tr("Find in &Files…"), self)
+        self.act_find_files.setShortcut(
+            QKeySequence(Qt.Modifier.CTRL | Qt.Modifier.SHIFT | Qt.Key.Key_F)
+        )
+        self.act_find_files.triggered.connect(self._on_find_in_files)
+
         # View
         self.act_toggle_preview = QAction(self.tr("Toggle &Preview"), self)
         self.act_toggle_preview.setCheckable(True)
@@ -188,6 +201,7 @@ class MainWindow(QMainWindow):
         self._edit_menu.addAction(self.act_redo)
         self._edit_menu.addSeparator()
         self._edit_menu.addAction(self.act_find)
+        self._edit_menu.addAction(self.act_find_files)
 
         self._view_menu = mb.addMenu(self.tr("&View"))
         self._view_menu.addAction(self.act_toggle_preview)
@@ -433,6 +447,74 @@ class MainWindow(QMainWindow):
         tab = self._current_tab()
         if isinstance(tab, EditorTab):
             tab.open_find()
+
+    def _on_find_in_files(self) -> None:
+        if self._folder_path is None:
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle(self.tr("Find in Files"))
+        dlg.resize(550, 400)
+        layout = QVBoxLayout(dlg)
+
+        top = QHBoxLayout()
+        search_input = QLineEdit()
+        search_input.setPlaceholderText(self.tr("Search…"))
+        case_cb = QCheckBox(self.tr("Match case"))
+        top.addWidget(search_input)
+        top.addWidget(case_cb)
+        layout.addLayout(top)
+
+        results = QListWidget()
+        layout.addWidget(results)
+
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btns.rejected.connect(dlg.reject)
+        layout.addWidget(btns)
+
+        def do_search() -> None:
+            results.clear()
+            term = search_input.text()
+            if not term:
+                return
+            flags = re.IGNORECASE if not case_cb.isChecked() else 0
+            folder = self._folder_path
+            for md_path in folder.rglob("*.md"):
+                try:
+                    text = md_path.read_text(encoding="utf-8")
+                except OSError:
+                    continue
+                for line_num, line in enumerate(text.splitlines(), 1):
+                    if re.search(re.escape(term), line, flags):
+                        rel = md_path.relative_to(folder)
+                        item_text = f"{rel}:{line_num}: {line.strip()[:120]}"
+                        item = QListWidgetItem(item_text)
+                        item.setData(Qt.ItemDataRole.UserRole, (md_path, line_num))
+                        results.addItem(item)
+
+        search_input.textChanged.connect(do_search)
+
+        results.itemDoubleClicked.connect(
+            lambda item: self._open_file_at_line(
+                item.data(Qt.ItemDataRole.UserRole)
+            )
+        )
+
+        dlg.exec()
+
+    def _open_file_at_line(self, location: tuple) -> None:
+        path, line_num = location
+        tab = self._add_tab()
+        tab.load_file(path)
+        # Position cursor at the target line
+        cursor = tab.editor.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        cursor.movePosition(
+            QTextCursor.MoveOperation.NextBlock,
+            QTextCursor.MoveMode.MoveAnchor,
+            line_num - 1,
+        )
+        tab.editor.setTextCursor(cursor)
+        tab.editor.centerCursor()
 
     def _on_editor_context_menu(self, point: QPoint) -> None:
         """Right-click menu on the editor with formatting actions."""
@@ -815,6 +897,7 @@ class MainWindow(QMainWindow):
         self.act_undo.setText(self.tr("&Undo"))
         self.act_redo.setText(self.tr("&Redo"))
         self.act_find.setText(self.tr("&Find…"))
+        self.act_find_files.setText(self.tr("Find in &Files…"))
         self.act_toggle_preview.setText(self.tr("Toggle &Preview"))
         self.act_toggle_split.setText(self.tr("Toggle Split &Orientation"))
         self.act_settings.setText(self.tr("&Settings…"))

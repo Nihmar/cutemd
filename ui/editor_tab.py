@@ -12,8 +12,10 @@ from PySide6.QtGui import (
     QShortcut,
     QTextCharFormat,
     QTextCursor,
+    QTextDocument,
 )
 from PySide6.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -22,6 +24,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QTextBrowser,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -115,35 +118,49 @@ class EditorTab(QWidget):
         # --- Find bar (hidden by default) ---
         self._find_bar = QWidget(self)
         self._find_bar.setVisible(False)
+        self._find_bar.setFixedHeight(30)
         find_layout = QHBoxLayout(self._find_bar)
-        find_layout.setContentsMargins(4, 2, 4, 2)
+        find_layout.setContentsMargins(4, 0, 4, 0)
+        find_layout.setSpacing(4)
 
         self._find_input = QLineEdit()
         self._find_input.setPlaceholderText(self.tr("Find…"))
-        self._find_input.setMaximumWidth(250)
+        self._find_input.setMaximumWidth(200)
+        self._find_input.setFixedHeight(24)
         self._find_input.textChanged.connect(self._on_find_text_changed)
         self._find_input.returnPressed.connect(self._find_next)
 
         self._find_count_label = QLabel()
 
-        prev_btn = QPushButton("▲")
-        prev_btn.setFixedWidth(28)
+        self._find_case_btn = QToolButton()
+        self._find_case_btn.setText("Aa")
+        self._find_case_btn.setCheckable(True)
+        self._find_case_btn.setToolTip(self.tr("Match case"))
+        self._find_case_btn.setFixedSize(28, 24)
+        self._find_case_btn.toggled.connect(self._highlight_all_matches)
+
+        prev_btn = QToolButton()
+        prev_btn.setText("▲")
         prev_btn.setToolTip(self.tr("Previous match"))
+        prev_btn.setFixedSize(28, 24)
         prev_btn.clicked.connect(self._find_prev)
 
-        next_btn = QPushButton("▼")
-        next_btn.setFixedWidth(28)
+        next_btn = QToolButton()
+        next_btn.setText("▼")
         next_btn.setToolTip(self.tr("Next match"))
+        next_btn.setFixedSize(28, 24)
         next_btn.clicked.connect(self._find_next)
 
-        close_btn = QPushButton("✕")
-        close_btn.setFixedWidth(28)
+        close_btn = QToolButton()
+        close_btn.setText("✕")
         close_btn.setToolTip(self.tr("Close find bar"))
+        close_btn.setFixedSize(28, 24)
         close_btn.clicked.connect(self.close_find)
 
         find_layout.addWidget(self._find_input)
         find_layout.addWidget(self._find_count_label)
         find_layout.addStretch()
+        find_layout.addWidget(self._find_case_btn)
         find_layout.addWidget(prev_btn)
         find_layout.addWidget(next_btn)
         find_layout.addWidget(close_btn)
@@ -496,17 +513,27 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
     # Find / search
     # ------------------------------------------------------------------
-    def _highlight_all_matches(self) -> list[QTextCursor]:
-        """Highlight all occurrences of the search term and return cursor list."""
+    def _find_flags(self) -> QTextDocument.FindFlag:
+        flags = QTextDocument.FindFlag(0)
+        if getattr(self, "_find_case_btn", None) and self._find_case_btn.isChecked():
+            flags |= QTextDocument.FindFlag.FindCaseSensitively
+        return flags
+
+    def _highlight_all_matches(self, _checked: bool = False) -> None:
+        """Highlight all occurrences of the search term."""
+        self._highlight_all_matches_impl()
+        self._update_count_label()
+
+    def _highlight_all_matches_impl(self) -> None:
         self._clear_highlights()
         term = self._find_input.text()
         if not term:
-            return []
+            return
         doc = self.editor.document()
+        flags = self._find_flags()
         fmt = QTextCharFormat()
         fmt.setBackground(QColor(255, 255, 0, 100))
-        cursors: list[QTextCursor] = []
-        cursor = doc.find(term)
+        cursor = doc.find(term, 0, flags)
         while not cursor.isNull():
             sel = QTextCursor(cursor)
             sel.movePosition(
@@ -514,66 +541,75 @@ class EditorTab(QWidget):
                 QTextCursor.MoveMode.KeepAnchor,
                 len(term),
             )
-            cursors.append(sel)
             extra_sel = self.editor.ExtraSelection()
             extra_sel.format = fmt
             extra_sel.cursor = sel
             self._find_selections.append(extra_sel)
-            cursor = doc.find(term, cursor)
-        self.editor.setExtraSelections(
-            self._find_selections + getattr(self, "_saved_selections", [])
-        )
-        return cursors
+            cursor = doc.find(term, cursor, flags)
+        saved = getattr(self, "_saved_selections", [])
+        self.editor.setExtraSelections(self._find_selections + saved)
+
+    def _update_count_label(self) -> None:
+        count = len(self._find_selections)
+        if count:
+            idx = self._find_focused_index()
+            if idx >= 0:
+                self._find_count_label.setText(
+                    f"{idx + 1}/{count}"
+                )
+            else:
+                self._find_count_label.setText(self.tr("{}/{}").format(0, count))
+        else:
+            self._find_count_label.setText("")
+
+    def _find_focused_index(self) -> int:
+        """Return index of the current match if cursor is exactly on one, else -1."""
+        cp = self.editor.textCursor().position()
+        anchor = self.editor.textCursor().anchor()
+        # Only consider if cursor is exactly at a match start or selection
+        for i, sel in enumerate(self._find_selections):
+            if sel.selectionStart() == anchor and sel.selectionEnd() == cp:
+                return i
+            if sel.selectionStart() == cp and sel.selectionEnd() == anchor:
+                return i
+        return -1
 
     def _clear_highlights(self) -> None:
         self._find_selections = []
-        self.editor.setExtraSelections(getattr(self, "_saved_selections", []))
+        saved = getattr(self, "_saved_selections", [])
+        self.editor.setExtraSelections(saved)
 
     def _on_find_text_changed(self, _text: str) -> None:
-        cursors = self._highlight_all_matches()
-        count = len(cursors)
-        self._find_count_label.setText(
-            self.tr("{} match(es)").format(count) if count else ""
-        )
-
-    def _find_index(self) -> int:
-        """Return index of the match closest to the current cursor."""
-        if not self._find_selections:
-            return -1
-        cp = self.editor.textCursor().position()
-        best = 0
-        best_dist = float("inf")
-        for i, sel in enumerate(self._find_selections):
-            dist = abs(sel.anchor() - cp)
-            if dist < best_dist:
-                best_dist = dist
-                best = i
-        return best
+        self._highlight_all_matches()
+        # Jump to the first match after the cursor
+        self._find_next()
 
     def _find_next(self) -> None:
-        if not self._find_selections:
-            self._highlight_all_matches()
-        if not self._find_selections:
+        term = self._find_input.text()
+        if not term:
             return
-        idx = self._find_index()
-        nxt = (idx + 1) % len(self._find_selections)
-        self._go_to_match(nxt)
+        flags = self._find_flags()
+        found = self.editor.find(term, flags)
+        if not found:
+            # Wrap around
+            cursor = self.editor.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
+            self.editor.setTextCursor(cursor)
+            self.editor.find(term, flags)
+        self._update_count_label()
 
     def _find_prev(self) -> None:
-        if not self._find_selections:
-            self._highlight_all_matches()
-        if not self._find_selections:
+        term = self._find_input.text()
+        if not term:
             return
-        idx = self._find_index()
-        prv = (idx - 1) % len(self._find_selections)
-        self._go_to_match(prv)
-
-    def _go_to_match(self, index: int) -> None:
-        sel = self._find_selections[index]
-        cursor = self.editor.textCursor()
-        cursor.setPosition(sel.anchor())
-        self.editor.setTextCursor(cursor)
-        self.editor.ensureCursorVisible()
+        flags = self._find_flags() | QTextDocument.FindFlag.FindBackward
+        found = self.editor.find(term, flags)
+        if not found:
+            cursor = self.editor.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            self.editor.setTextCursor(cursor)
+            self.editor.find(term, flags)
+        self._update_count_label()
 
     def open_find(self) -> None:
         """Show the find bar and focus the input."""
