@@ -4,15 +4,17 @@ from pathlib import Path
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
     QKeySequence,
+    QPainter,
     QShortcut,
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
+    QTextFormat,
 )
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -31,6 +33,48 @@ from PySide6.QtWidgets import (
 
 from markdown.tools import BLOCK_OPEN_TYPES, add_heading_ids
 from ui.syntax_highlighter import MarkdownHighlighter
+
+
+class LineNumberArea(QWidget):
+    """Widget that paints line numbers alongside the editor."""
+
+    def __init__(self, editor: QPlainTextEdit) -> None:
+        super().__init__(editor)
+        self._editor = editor
+
+    def sizeHint(self) -> QSize:
+        return QSize(self._line_number_area_width(), 0)
+
+    def _line_number_area_width(self) -> int:
+        digits = len(str(max(1, self._editor.blockCount())))
+        space = 10 + self._editor.fontMetrics().horizontalAdvance("9") * digits
+        return space
+
+    def paintEvent(self, event: object) -> None:
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.fillRect(event.rect(), QColor(self._editor.palette().color(self._editor.palette().ColorRole.Window)))
+
+        block = self._editor.firstVisibleBlock()
+        block_num = block.blockNumber()
+        top = int(self._editor.blockBoundingGeometry(block).translated(self._editor.contentOffset()).top())
+        bottom = top + int(self._editor.blockBoundingRect(block).height())
+
+        fg = self._editor.palette().color(self._editor.palette().ColorRole.Mid)
+        painter.setPen(fg)
+        painter.setFont(self._editor.font())
+
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible() and bottom >= event.rect().top():
+                number = str(block_num + 1)
+                painter.drawText(
+                    0, top, self.width() - 4, self._editor.fontMetrics().height(),
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, number,
+                )
+            block = block.next()
+            top = bottom
+            bottom = top + int(self._editor.blockBoundingRect(block).height()) if block.isValid() else top
+            block_num += 1
 
 
 class EditorTab(QWidget):
@@ -73,6 +117,7 @@ class EditorTab(QWidget):
         self._pending_sync_anchor: str = ""
         self._sync_retries = 0
         self._preview_visible = True
+        self._current_line_sel: object = None
 
         self._editor_font_family = editor_font_family
         self._editor_font_size = editor_font_size
@@ -89,6 +134,16 @@ class EditorTab(QWidget):
 
         self._highlighter = MarkdownHighlighter(self.editor.document())
         self._highlighter.set_theme(theme)  # type: ignore[attr-defined]
+
+        # --- Line numbers ---
+        self._line_number_area = LineNumberArea(self.editor)
+        self._update_line_number_area_width()
+        self.editor.blockCountChanged.connect(
+            self._update_line_number_area_width
+        )
+        self.editor.updateRequest.connect(self._update_line_number_area)
+        self.editor.cursorPositionChanged.connect(self._on_highlight_current_line)
+        self.editor.installEventFilter(self)
 
         # --- Preview ---
         self.preview = QTextBrowser()
@@ -267,6 +322,47 @@ class EditorTab(QWidget):
         return ret != QMessageBox.StandardButton.Cancel
 
     # ------------------------------------------------------------------
+    # Line number helpers
+    # ------------------------------------------------------------------
+    def _update_line_number_area_width(self, _count: int = 0) -> None:
+        w = self._line_number_area._line_number_area_width()
+        self.editor.setViewportMargins(w, 0, 0, 0)
+        cr = self.editor.contentsRect()
+        self._line_number_area.setGeometry(
+            QRect(cr.left(), cr.top(), w, cr.height())
+        )
+
+    def _update_line_number_area(self, rect: QRect, dy: int) -> None:
+        if dy:
+            self._line_number_area.scroll(0, dy)
+        else:
+            self._line_number_area.update(
+                0, rect.y(), self._line_number_area.width(), rect.height()
+            )
+        if rect.contains(self.editor.viewport().rect()):
+            self._update_line_number_area_width()
+
+    def _on_highlight_current_line(self) -> None:
+        if not self.isVisible():
+            return
+        sel = self.editor.ExtraSelection()
+        sel.format.setBackground(
+            self.editor.palette().color(self.editor.palette().ColorRole.AlternateBase)
+        )
+        sel.format.setProperty(QTextFormat.FullWidthSelection, True)
+        sel.cursor = self.editor.textCursor()
+        sel.cursor.clearSelection()
+        self._current_line_sel = sel
+        self._apply_all_selections()
+
+    def _apply_all_selections(self) -> None:
+        parts: list = []
+        if self._current_line_sel is not None:
+            parts.append(self._current_line_sel)
+        parts.extend(getattr(self, "_find_selections", []))
+        self.editor.setExtraSelections(parts)
+
+    # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
     def _apply_editor_font(self) -> None:
@@ -276,6 +372,8 @@ class EditorTab(QWidget):
         else:
             font = QFont(self._editor_font_family, self._editor_font_size)
         self.editor.setFont(font)
+        if hasattr(self, "_line_number_area"):
+            self._update_line_number_area_width()
 
     def _write_file(self, path: Path) -> bool:
         try:
@@ -546,8 +644,7 @@ class EditorTab(QWidget):
             extra_sel.cursor = sel
             self._find_selections.append(extra_sel)
             cursor = doc.find(term, cursor, flags)
-        saved = getattr(self, "_saved_selections", [])
-        self.editor.setExtraSelections(self._find_selections + saved)
+        self._apply_all_selections()
 
     def _update_count_label(self) -> None:
         count = len(self._find_selections)
@@ -576,8 +673,7 @@ class EditorTab(QWidget):
 
     def _clear_highlights(self) -> None:
         self._find_selections = []
-        saved = getattr(self, "_saved_selections", [])
-        self.editor.setExtraSelections(saved)
+        self._apply_all_selections()
 
     def _on_find_text_changed(self, _text: str) -> None:
         self._highlight_all_matches()
@@ -618,7 +714,6 @@ class EditorTab(QWidget):
         self._find_input.selectAll()
         if self.editor.textCursor().hasSelection():
             self._find_input.setText(self.editor.textCursor().selectedText())
-        self._saved_selections = self.editor.extraSelections()
         self._find_selections = []
 
     def close_find(self) -> None:
@@ -630,6 +725,14 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
     # Qt overrides
     # ------------------------------------------------------------------
+    def eventFilter(self, obj: object, event: QEvent) -> bool:
+        if obj is self.editor and event.type() == QEvent.Type.Resize:
+            cr = self.editor.contentsRect()
+            self._line_number_area.setGeometry(
+                QRect(cr.left(), cr.top(), self._line_number_area.sizeHint().width(), cr.height())
+            )
+        return super().eventFilter(obj, event)
+
     def changeEvent(self, event) -> None:
         if event.type() == QEvent.Type.LanguageChange:
             self.title_changed.emit()
