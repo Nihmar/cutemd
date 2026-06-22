@@ -345,7 +345,7 @@ class EditorTab(QWidget):
     def _on_highlight_current_line(self) -> None:
         if not self.isVisible():
             return
-        sel = self.editor.ExtraSelection()
+        sel = QPlainTextEdit.ExtraSelection()
         sel.format.setBackground(
             self.editor.palette().color(self.editor.palette().ColorRole.AlternateBase)
         )
@@ -639,7 +639,7 @@ class EditorTab(QWidget):
                 QTextCursor.MoveMode.KeepAnchor,
                 len(term),
             )
-            extra_sel = self.editor.ExtraSelection()
+            extra_sel = QPlainTextEdit.ExtraSelection()
             extra_sel.format = fmt
             extra_sel.cursor = sel
             self._find_selections.append(extra_sel)
