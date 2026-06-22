@@ -863,6 +863,7 @@ class EditorTab(QWidget):
 
         base_dir = self._file_path.parent if self._file_path else Path.cwd()
         self.preview.set_base_dir(base_dir)
+        pw = self.preview.width()
         body_html = self._add_img_dims(body_html, base_dir, max_width=max(pw, 200))
         body_html = EditorTab._PARA_IMG_RE.sub(
             r'<p style="margin:0;padding:0;">\2</p>', body_html
