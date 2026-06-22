@@ -19,11 +19,20 @@ from ui.translations import LANGUAGES
 
 
 class _ScrollingCombo(QComboBox):
-    """QComboBox configured to show at most ~20 items in the popup."""
+    """QComboBox whose popup height is limited to ~20 items."""
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setMaxVisibleItems(20)
+
+    def showPopup(self) -> None:
+        super().showPopup()
+        view = self.view()
+        if view is not None:
+            popup = view.window()
+            if popup is not self and popup.isVisible():
+                height = self.view().sizeHintForRow(0) * 20 + 4
+                popup.resize(popup.width(), height)
 
 
 class SettingsDialog(QDialog):
