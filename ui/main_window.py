@@ -190,6 +190,9 @@ class MainWindow(QMainWindow):
         self.act_settings = QAction(self.tr("&Settings…"), self)
         self.act_settings.triggered.connect(self._on_settings)
 
+        self.act_install_desktop = QAction(self.tr("Install Desktop &Integration"), self)
+        self.act_install_desktop.triggered.connect(self._on_install_desktop)
+
     # ------------------------------------------------------------------
     # Menubar
     # ------------------------------------------------------------------
@@ -221,6 +224,9 @@ class MainWindow(QMainWindow):
 
         self._settings_menu = mb.addMenu(self.tr("&Settings"))
         self._settings_menu.addAction(self.act_settings)
+
+        self._help_menu = mb.addMenu(self.tr("&Help"))
+        self._help_menu.addAction(self.act_install_desktop)
 
     # ------------------------------------------------------------------
     # Central widget
@@ -786,6 +792,27 @@ class MainWindow(QMainWindow):
                 tab = self._tabs.widget(i)
                 if isinstance(tab, EditorTab):
                     tab.set_smart_editing(new_se)
+
+    def _on_install_desktop(self) -> None:
+        from ui.desktop_integration import install_desktop, is_desktop_installed
+
+        if is_desktop_installed():
+            QMessageBox.information(self, self.tr("Desktop Integration"),
+                                    self.tr("Desktop integration is already installed."))
+            return
+
+        try:
+            install_desktop()
+            QMessageBox.information(
+                self, self.tr("Desktop Integration"),
+                self.tr("Desktop integration installed.\n"
+                        "CuteMD now appears in your application menu."),
+            )
+        except OSError as e:
+            QMessageBox.warning(
+                self, self.tr("Desktop Integration"),
+                self.tr("Could not install desktop integration:\n{}").format(e),
+            )
 
     def _on_toggle_preview(self, checked: bool) -> None:
         self._preview_visible = checked

@@ -18,6 +18,18 @@ def _resolve_icon() -> str:
 
 def main() -> None:
     app = QApplication(sys.argv)
+
+    if "--install-desktop" in sys.argv:
+        from ui.desktop_integration import install_desktop
+
+        try:
+            install_desktop()
+            print("Desktop integration installed successfully.")
+        except OSError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
+
     app.setApplicationName("CuteMD")
     app.setOrganizationName("cutemd")
     app.setWindowIcon(QIcon(_resolve_icon()))
