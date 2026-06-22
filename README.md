@@ -61,7 +61,8 @@ cutemd/
 │   └── cutemd.svg             # Application icon
 ├── scripts/                   # Build scripts
 │   ├── build_appimage.sh      # Linux AppImage builder
-│   └── build_windows.sh       # Windows .exe builder
+│   ├── build_windows.sh       # Windows .exe builder (Git Bash / WSL)
+│   └── build_windows.bat      # Windows .exe builder (cmd / PowerShell)
 ├── pyproject.toml
 └── uv.lock
 ```
@@ -96,6 +97,15 @@ The AppImage is self-contained — no dependencies needed on the target system. 
 uv pip install pyinstaller
 bash scripts/build_windows.sh
 # → dist/cutemd.exe
+```
+
+Or from a native Windows prompt:
+
+```cmd
+REM cmd.exe or PowerShell
+uv pip install pyinstaller
+scripts\build_windows.bat
+REM → dist\cutemd.exe
 ```
 
 The `.exe` is a single self-contained file — no installer needed.

@@ -34,6 +34,7 @@ uv run pyinstaller \
     --add-data "ui/style.qss;ui" \
     --add-data "ui/preview_styles.css;ui" \
     --add-data "resources/translations;resources/translations" \
+    --add-data "resources/cutemd.svg;resources" \
     --collect-data latex2mathml \
     --collect-data pygments \
     --hidden-import PySide6.QtSvg \

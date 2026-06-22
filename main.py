@@ -1,17 +1,26 @@
 """Entry point for CuteMD – a non-WYSIWYG Markdown editor."""
 
 import sys
+from pathlib import Path
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from ui.main_window import MainWindow
 from ui.theme import apply_modern_style
 
 
+def _resolve_icon() -> str:
+    if getattr(sys, "frozen", False):
+        return str(Path(sys._MEIPASS) / "resources" / "cutemd.svg")  # type: ignore[attr-defined]
+    return str(Path(__file__).resolve().parent / "resources" / "cutemd.svg")
+
+
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("CuteMD")
     app.setOrganizationName("cutemd")
+    app.setWindowIcon(QIcon(_resolve_icon()))
 
     # Load translations (must be after org/app name so QSettings works)
     from ui.translations import setup_translation
