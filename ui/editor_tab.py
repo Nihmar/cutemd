@@ -833,7 +833,7 @@ class EditorTab(QWidget):
         base_dir = self._file_path.parent if self._file_path else Path.cwd()
         self.preview.set_base_dir(base_dir)
         body_html = EditorTab._PARA_IMG_RE.sub(
-            r'<p style="margin:0;padding:0;">\1\2</p>', body_html
+            r'<p style="margin:0;padding:0;">\2</p>', body_html
         )
 
         theme_class = "dark" if self._theme == "dark" else "light"
