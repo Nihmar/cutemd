@@ -866,7 +866,7 @@ class EditorTab(QWidget):
         pw = self.preview.width()
         body_html = self._add_img_dims(body_html, base_dir, max_width=max(pw, 200))
         body_html = EditorTab._PARA_IMG_RE.sub(
-            r'<p style="margin:0;padding:0;">\2</p>', body_html
+            r'<p style="margin-top:0px;margin-bottom:0px;line-height:0px;">\1\2</p>', body_html
         )
 
         theme_class = "dark" if self._theme == "dark" else "light"
@@ -890,9 +890,6 @@ class EditorTab(QWidget):
         self._syncing_scroll += 1
         self.preview.setHtml(html)
         self._syncing_scroll -= 1
-
-        _DUMP = Path.home() / "preview_dump.html"
-        _DUMP.write_text(self.preview.toHtml(), encoding="utf-8")
 
         self._pending_sync_anchor = self._last_anchor
         self._sync_retries = 0
