@@ -19,14 +19,10 @@ from ui.translations import LANGUAGES
 
 
 class _ScrollingCombo(QComboBox):
-    """QComboBox that limits its popup size."""
+    """QComboBox that limits popup height via setMaxVisibleItems."""
 
-    def showPopup(self) -> None:
-        super().showPopup()
-        v = self.view()
-        if v is not None and v.parentWidget() is not None:
-            v.parentWidget().setMaximumHeight(400)
-            v.parentWidget().setMaximumWidth(max(300, self.width()))
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
 
 
 class SettingsDialog(QDialog):
@@ -159,7 +155,6 @@ class SettingsDialog(QDialog):
                 combo.setCurrentIndex(i)
         # If current is "System" (or not found), leave at index 0
         combo.setMaxVisibleItems(20)
-        combo.view().parentWidget().setMaximumWidth(400)
 
     def _reset_defaults(self) -> None:
         """Reset all fields to their factory defaults."""
