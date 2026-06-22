@@ -531,53 +531,58 @@ class MainWindow(QMainWindow):
     def _on_editor_context_menu(self, point: QPoint) -> None:
         """Right-click menu on the editor with formatting actions."""
         menu = QMenu(self)
+        ic = self._current_theme.icon_color
 
         inline_menu = menu.addMenu(self.tr("Inline &Formatting"))
-        inline_menu.addAction(self.tr("&Bold")).triggered.connect(
+        inline_menu.setIcon(self._make_colored_icon("bold", ic))
+        inline_menu.addAction(self._make_colored_icon("bold", ic), self.tr("&Bold")).triggered.connect(
             lambda: self._insert_md("**")
         )
-        inline_menu.addAction(self.tr("&Italic")).triggered.connect(
+        inline_menu.addAction(self._make_colored_icon("italic", ic), self.tr("&Italic")).triggered.connect(
             lambda: self._insert_md("*")
         )
-        inline_menu.addAction(self.tr("&Strikethrough")).triggered.connect(
+        inline_menu.addAction(self._make_colored_icon("strikethrough", ic), self.tr("&Strikethrough")).triggered.connect(
             lambda: self._insert_md("~~")
         )
-        inline_menu.addAction(self.tr("Inline &Code")).triggered.connect(
+        inline_menu.addAction(self._make_colored_icon("code", ic), self.tr("Inline &Code")).triggered.connect(
             lambda: self._insert_md("`")
         )
 
         lists_menu = menu.addMenu(self.tr("&Lists"))
-        lists_menu.addAction(self.tr("&Unordered list")).triggered.connect(
+        lists_menu.setIcon(self._make_colored_icon("list-unordered", ic))
+        lists_menu.addAction(self._make_colored_icon("list-unordered", ic), self.tr("&Unordered list")).triggered.connect(
             lambda: self._insert_md("- ")
         )
-        lists_menu.addAction(self.tr("&Ordered list")).triggered.connect(
+        lists_menu.addAction(self._make_colored_icon("list-ordered", ic), self.tr("&Ordered list")).triggered.connect(
             lambda: self._insert_md("1. ")
         )
-        lists_menu.addAction(self.tr("&Task list")).triggered.connect(
+        lists_menu.addAction(self._make_colored_icon("list-task", ic), self.tr("&Task list")).triggered.connect(
             lambda: self._insert_md("- [ ] ")
         )
 
         blocks_menu = menu.addMenu(self.tr("&Blocks"))
-        blocks_menu.addAction(self.tr("Block&quote")).triggered.connect(
+        blocks_menu.setIcon(self._make_colored_icon("quote", ic))
+        blocks_menu.addAction(self._make_colored_icon("quote", ic), self.tr("Block&quote")).triggered.connect(
             lambda: self._insert_md("> ")
         )
-        blocks_menu.addAction(self.tr("Code &block")).triggered.connect(
+        blocks_menu.addAction(self._make_colored_icon("code-block", ic), self.tr("Code &block")).triggered.connect(
             lambda: self._insert_md("```")
         )
-        blocks_menu.addAction(self.tr("&Table")).triggered.connect(
+        blocks_menu.addAction(self._make_colored_icon("table", ic), self.tr("&Table")).triggered.connect(
             lambda: self._insert_md(
                 "\n| Col 1 | Col 2 |\n|------|------|\n|      |      |\n"
             )
         )
-        blocks_menu.addAction(self.tr("&Horizontal rule")).triggered.connect(
+        blocks_menu.addAction(self._make_colored_icon("hr", ic), self.tr("&Horizontal rule")).triggered.connect(
             lambda: self._insert_md("---\n")
         )
 
         insert_menu = menu.addMenu(self.tr("&Insert"))
-        insert_menu.addAction(self.tr("&Link")).triggered.connect(
+        insert_menu.setIcon(self._make_colored_icon("link", ic))
+        insert_menu.addAction(self._make_colored_icon("link", ic), self.tr("&Link")).triggered.connect(
             lambda: self._insert_md("[]()")
         )
-        insert_menu.addAction(self.tr("&Image")).triggered.connect(
+        insert_menu.addAction(self._make_colored_icon("image", ic), self.tr("&Image")).triggered.connect(
             lambda: self._insert_md("![]()")
         )
 
