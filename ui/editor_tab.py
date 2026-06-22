@@ -436,7 +436,7 @@ class EditorTab(QWidget):
     _IMG_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"})
     _PDF_EXTS = frozenset({".pdf"})
 
-    _PARA_IMG_RE = re.compile(r'<p>\s*(<img\s[^>]+>)\s*</p>')
+    _PARA_IMG_RE = re.compile(r'<p>(<a\b[^>]*></a>)?\s*(<img\b[^>]+>)\s*</p>')
     _WIKILINK_IMG_RE = re.compile(r'!\[\[([^\]]+?)(?:\|([^\]]*?))?\]\]')
 
     @staticmethod
@@ -742,15 +742,15 @@ class EditorTab(QWidget):
     # Preview & scroll sync
     # ------------------------------------------------------------------
     def _render_with_anchors(self, text: str) -> str:
-        """Render HTML with <a name='bN'> anchors at each block start.
-
-        Anchors are used by scrollToAnchor() in the scroll-sync logic
-        to keep the preview in exact lockstep with the editor viewport.
+        """Render HTML with <a name='bN'> anchors inside each block.
+        Placed after the opening tag so QTextDocument treats them as
+        inline, avoiding phantom paragraph spacing.
         """
         tokens = self._md.parse(text)
         new_tokens: list[Token] = []
         anchor_idx = 0
         for token in tokens:
+            new_tokens.append(token)
             if token.type in BLOCK_OPEN_TYPES and token.map:
                 start, end = token.map
                 if start < end:
@@ -758,7 +758,6 @@ class EditorTab(QWidget):
                     anchor.content = f'<a name="b{anchor_idx}"></a>'
                     new_tokens.append(anchor)
                     anchor_idx += 1
-            new_tokens.append(token)
         return self._md.renderer.render(new_tokens, self._md.options, {})
 
     def _build_line_anchor_map(self, text: str) -> list[int]:
@@ -834,7 +833,7 @@ class EditorTab(QWidget):
         base_dir = self._file_path.parent if self._file_path else Path.cwd()
         self.preview.set_base_dir(base_dir)
         body_html = EditorTab._PARA_IMG_RE.sub(
-            r'<p style="margin-top:0px;margin-bottom:0px">\1</p>', body_html
+            r'<p style="margin:0;padding:0;">\1\2</p>', body_html
         )
 
         theme_class = "dark" if self._theme == "dark" else "light"
