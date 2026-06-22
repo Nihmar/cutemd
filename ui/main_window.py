@@ -508,8 +508,12 @@ class MainWindow(QMainWindow):
             tab = self._tabs.widget(existing)
             self._tabs.setCurrentIndex(existing)
         else:
-            tab = self._add_tab()
-            tab.load_file(path)
+            tab = self._current_tab()
+            if tab is not None and not tab.is_modified:
+                tab.load_file(path)
+            else:
+                tab = self._add_tab()
+                tab.load_file(path)
         # Position cursor at the target line
         cursor = tab.editor.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.Start)
