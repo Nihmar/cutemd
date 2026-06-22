@@ -46,6 +46,24 @@ from ui.markdown_completer import DEFAULT_SMART_EDITING, MarkdownAutoCompleter
 from ui.syntax_highlighter import MarkdownHighlighter
 
 
+class PreviewTextBrowser(QTextBrowser):
+    """QTextBrowser that loads images from a local cache dict."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._image_cache: dict[tuple[int, str], QImage] = {}
+
+    def loadResource(self, resource_type: int, url: QUrl):
+        key = (resource_type, url.toString())
+        img = self._image_cache.get(key)
+        if img is not None:
+            return img
+        return super().loadResource(resource_type, url)
+
+    def cache_image(self, resource_type: int, url: QUrl, img: QImage) -> None:
+        self._image_cache[(resource_type, url.toString())] = img
+
+
+
 class LineNumberArea(QWidget):
     """Widget that paints line numbers alongside the editor.
 
@@ -195,7 +213,7 @@ class EditorTab(QWidget):
         self._completer = MarkdownAutoCompleter(self.editor, smart_editing, self)
 
         # --- Preview stack (page 0 = text browser, page 1 = image, page 2 = PDF) ---
-        self.preview = QTextBrowser()
+        self.preview = PreviewTextBrowser()
         self.preview.setReadOnly(True)
         self.preview.setOpenExternalLinks(True)
 
@@ -246,6 +264,7 @@ class EditorTab(QWidget):
         self._preview_stack.addWidget(self.preview)       # index 0
         self._preview_stack.addWidget(self._image_scroll) # index 1
         self._preview_stack.addWidget(self._pdf_view)     # index 2
+        self._preview_stack.installEventFilter(self)
 
         # --- Scroll sync ---
         self.editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
@@ -384,6 +403,99 @@ class EditorTab(QWidget):
     _MD_EXTS = frozenset({".md", ".markdown"})
     _IMG_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"})
     _PDF_EXTS = frozenset({".pdf"})
+
+    _IMG_SRC_RE = re.compile(r'<img\s+src="([^"]*)"')
+    _P_IMG_P_RE = re.compile(r'<p>(<img\s[^>]+>)</p>')
+    _WIKILINK_IMG_RE = re.compile(r'!\[\[([^\]]+?)(?:\|([^\]]*?))?\]\]')
+
+    @staticmethod
+    def _preprocess_wikilink_images(text: str) -> str:
+        """Convert ![[wikilink]] image syntax to standard Markdown ![](...)."""
+        def _repl(m: re.Match) -> str:
+            target = m.group(1).strip()
+            alt = m.group(2).strip() if m.group(2) else target
+            return f"![{alt}]({target})"
+        return EditorTab._WIKILINK_IMG_RE.sub(_repl, text)
+
+    @staticmethod
+    def _search_image(filename: str, start_dir: Path) -> Path | None:
+        """Search for *filename* in *start_dir* and all subdirectories
+        up to 5 levels deep, then try up to 4 parent directories
+        (each searched 5 levels deep as well)."""
+        target = filename.lower()
+        seen: set[Path] = set()
+
+        dirs_to_search: list[Path] = [start_dir.resolve()]
+        # Walk up to 4 parent levels to gather search roots
+        d = start_dir.resolve()
+        for _ in range(4):
+            p = d.parent
+            if p == d:
+                break
+            dirs_to_search.append(p)
+            d = p
+
+        for root in dirs_to_search:
+            stack = [(root, 0)]
+            while stack:
+                d, depth = stack.pop()
+                if d in seen:
+                    continue
+                seen.add(d)
+                try:
+                    for entry in d.iterdir():
+                        if entry.is_file() and entry.name.lower() == target:
+                            return entry.resolve()
+                        if entry.is_dir() and depth < 5:
+                            stack.append((entry, depth + 1))
+                except PermissionError:
+                    continue
+        return None
+
+    @staticmethod
+    def _fit_image(img: QImage, max_width: int) -> QImage:
+        """Scale *img* to fit within *max_width*, preserving aspect ratio."""
+        if img.width() <= max_width:
+            return img
+        return img.scaledToWidth(max_width, Qt.TransformationMode.SmoothTransformation)
+
+    @staticmethod
+    def _extract_images(html: str, base_dir: Path, max_width: int = 800) -> tuple[str, list[tuple[str, QImage]]]:
+        """Replace relative <img src='...'> with cache keys and return
+        the modified HTML plus a list of (key, QImage) to add to the
+        document resource cache."""
+        resources: list[tuple[str, QImage]] = []
+        img_count = 0
+        def _repl(m: re.Match) -> str:
+            nonlocal img_count
+            src = m.group(1)
+            if not src or "://" in src or src.startswith("data:") or src.startswith("file:"):
+                return m.group(0)
+            p = Path(src)
+            if p.is_absolute():
+                return m.group(0)
+            resolved = (base_dir / p).resolve()
+            if not resolved.exists():
+                found = EditorTab._search_image(p.name, base_dir)
+                if found:
+                    resolved = found
+                else:
+                    return m.group(0)
+            if not resolved.exists():
+                return m.group(0)
+            try:
+                img = QImage(str(resolved))
+            except Exception:
+                img = QImage()
+            if img.isNull():
+                return m.group(0)
+            img = EditorTab._fit_image(img, max_width)
+            key = f"_cutemd_img_{img_count}"
+            img_count += 1
+            resources.append((key, img))
+            return f'<img src="{key}" width="{img.width()}" height="{img.height()}" style="margin:0;display:block">'
+        html = EditorTab._IMG_SRC_RE.sub(_repl, html)
+        return html, resources
 
     def load_file(self, path: Path) -> None:
         """Load *path* into the editor, replacing current content."""
@@ -702,7 +814,8 @@ class EditorTab(QWidget):
     def _update_preview(self) -> None:
         if not self._preview_visible or self._is_binary_preview:
             return
-        text = self.editor.toPlainText()
+        raw_text = self.editor.toPlainText()
+        text = self._preprocess_wikilink_images(raw_text)
         text_hash = hash(text)
         if text_hash != self._line_anchor_map_hash:
             self._line_anchor_map = self._build_line_anchor_map(text)
@@ -725,6 +838,12 @@ class EditorTab(QWidget):
                 + "</pre>"
             )
 
+        img_resources: list[tuple[str, QImage]] = []
+        base_dir = self._file_path.parent if self._file_path else Path.cwd()
+        pw = self.preview.width()
+        body_html, img_resources = self._extract_images(body_html, base_dir, max_width=max(pw, 200))
+        body_html = EditorTab._P_IMG_P_RE.sub(r'\1', body_html)
+
         theme_class = "dark" if self._theme == "dark" else "light"
 
         # Inline font style overrides the CSS defaults
@@ -744,8 +863,8 @@ class EditorTab(QWidget):
         )
 
         self._syncing_scroll += 1
-        if self._file_path:
-            self.preview.setSearchPaths([str(self._file_path.parent)])
+        for key, img in img_resources:
+            self.preview.cache_image(QTextDocument.ImageResource, QUrl(key), img)
         self.preview.setHtml(html)
         self._syncing_scroll -= 1
 
@@ -961,6 +1080,9 @@ class EditorTab(QWidget):
 
         elif obj in (self._image_scroll.viewport(), self._pdf_scroll.viewport()):
             return self._on_media_viewport_event(obj, event)
+
+        elif obj is self._preview_stack and event.type() == QEvent.Type.Resize:
+            self._preview_timer.start()
 
         return super().eventFilter(obj, event)
 
