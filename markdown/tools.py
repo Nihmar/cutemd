@@ -7,7 +7,15 @@ from pygments.formatters import HtmlFormatter
 from pygments.lexers import get_lexer_by_name, guess_lexer
 from pygments.util import ClassNotFound
 
-import ui.themes
+# ---------------------------------------------------------------------------
+# Pygments theme — set by the UI layer before rendering.
+# ---------------------------------------------------------------------------
+_PYGMENTS_STYLE: str = "default"
+
+
+def set_pygments_style(style: str) -> None:
+    global _PYGMENTS_STYLE
+    _PYGMENTS_STYLE = style
 
 # ---------------------------------------------------------------------------
 # Token types that start a visible block-level element in the rendered HTML.
@@ -46,7 +54,7 @@ def highlight_code(code: str, lang: str, _attrs: str) -> str:
             lexer = get_lexer_by_name("text", stripall=True)
 
     formatter = HtmlFormatter(
-        style=ui.themes.PYGMENTS_STYLE, noclasses=True, nowrap=True
+        style=_PYGMENTS_STYLE, noclasses=True, nowrap=True
     )
     return highlight(code, lexer, formatter)
 

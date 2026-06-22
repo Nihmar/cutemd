@@ -1,6 +1,6 @@
 version = 1
 revision = 3
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 
 [[package]]
 name = "altgraph"
@@ -22,7 +22,6 @@ dependencies = [
     { name = "mdit-py-plugins" },
     { name = "pygments" },
     { name = "pyside6" },
-    { name = "qmarkdownview" },
 ]
 
 [package.optional-dependencies]
@@ -39,7 +38,6 @@ requires-dist = [
     { name = "pygments", specifier = ">=2.20.0" },
     { name = "pyinstaller", marker = "extra == 'dev'", specifier = ">=6" },
     { name = "pyside6", specifier = ">=6.11.1" },
-    { name = "qmarkdownview", specifier = ">=0.2" },
 ]
 provides-extras = ["dev"]
 
@@ -228,19 +226,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/85/9f/01a1a99704853cb63f253eea009390c88e7131c67e66a0a02099a8c917cb/pywin32-ctypes-0.2.3.tar.gz", hash = "sha256:d162dc04946d704503b2edc4d55f3dba5c1d539ead017afa00142c38b9885755", size = 29471, upload-time = "2024-08-14T10:15:34.626Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/de/3d/8161f7711c017e01ac9f008dfddd9410dff3674334c233bde66e7ba65bbf/pywin32_ctypes-0.2.3-py3-none-any.whl", hash = "sha256:8a1513379d709975552d202d942d9837758905c8d01eb82b8bcc30918929e7b8", size = 30756, upload-time = "2024-08-14T10:15:33.187Z" },
-]
-
-[[package]]
-name = "qmarkdownview"
-version = "0.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "markdown" },
-    { name = "pyside6" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/f1/83/e98cf135e150e6b63666d071d1997a50bb079e4505ff04dbb383656c7f08/QMarkdownView-0.2.tar.gz", hash = "sha256:57f647472929c5bfd01de11e70e00a16a573a8b85353b48c31fc9b0a569f390b", size = 1950567, upload-time = "2023-12-10T07:13:55.155Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a0/10/3dcf599146a68064d33156406cb866cdfe606ebe117356412e6cdbf85625/QMarkdownView-0.2-py3-none-any.whl", hash = "sha256:645bb0010a8d21488edbd3767e6d63d06f437e0b1317252763ce2529ec8953e8", size = 2023390, upload-time = "2023-12-10T07:13:52.57Z" },
 ]
 
 [[package]]

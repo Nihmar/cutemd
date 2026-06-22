@@ -149,6 +149,10 @@ class MainWindow(QMainWindow):
         self.act_redo = QAction(self.tr("&Redo"), self)
         self.act_redo.setShortcut(QKeySequence.StandardKey.Redo)
 
+        self.act_find = QAction(self.tr("&Find…"), self)
+        self.act_find.setShortcut(QKeySequence.StandardKey.Find)
+        self.act_find.triggered.connect(self._on_find)
+
         # View
         self.act_toggle_preview = QAction(self.tr("Toggle &Preview"), self)
         self.act_toggle_preview.setCheckable(True)
@@ -182,6 +186,8 @@ class MainWindow(QMainWindow):
         self._edit_menu = mb.addMenu(self.tr("&Edit"))
         self._edit_menu.addAction(self.act_undo)
         self._edit_menu.addAction(self.act_redo)
+        self._edit_menu.addSeparator()
+        self._edit_menu.addAction(self.act_find)
 
         self._view_menu = mb.addMenu(self.tr("&View"))
         self._view_menu.addAction(self.act_toggle_preview)
@@ -276,7 +282,15 @@ class MainWindow(QMainWindow):
                 break
 
     def _connect_edit_actions(self, tab: EditorTab) -> None:
-        # Connect window-level undo/redo to this tab's editor
+        # Disconnect any previous tab's editor from window-level undo/redo
+        try:
+            self.act_undo.triggered.disconnect()
+        except RuntimeError:
+            pass
+        try:
+            self.act_redo.triggered.disconnect()
+        except RuntimeError:
+            pass
         self.act_undo.triggered.connect(tab.editor.undo)
         self.act_redo.triggered.connect(tab.editor.redo)
 
@@ -415,6 +429,11 @@ class MainWindow(QMainWindow):
         self._insert_md(prefix)
         self.sender().setCurrentIndex(0)  # type: ignore[union-attr]
 
+    def _on_find(self) -> None:
+        tab = self._current_tab()
+        if isinstance(tab, EditorTab):
+            tab.open_find()
+
     def _on_editor_context_menu(self, point: QPoint) -> None:
         """Right-click menu on the editor with formatting actions."""
         menu = QMenu(self)
@@ -530,17 +549,15 @@ class MainWindow(QMainWindow):
     # Theme
     # ------------------------------------------------------------------
     def _apply_theme(self) -> None:
-        import ui.themes as themes_mod
+        from markdown.tools import set_pygments_style
 
-        themes_mod.PYGMENTS_STYLE = self._current_theme.pygments_style
+        set_pygments_style(self._current_theme.pygments_style)
 
         pal = self._current_theme.build_palette()
-        QApplication.instance().setPalette(pal)  # type: ignore[union-attr]
-
-        # Re-generate QSS with the new palette
         app = QApplication.instance()
-        if app:
-            app.setStyleSheet(theme.load_qss(pal))  # type: ignore[attr-defined]
+        if app is not None:
+            app.setPalette(pal)
+            app.setStyleSheet(theme.load_qss(pal))
 
         self._recolor_toolbar_icons()
         for i in range(self._tabs.count()):
@@ -797,6 +814,7 @@ class MainWindow(QMainWindow):
         self.act_exit.setText(self.tr("E&xit"))
         self.act_undo.setText(self.tr("&Undo"))
         self.act_redo.setText(self.tr("&Redo"))
+        self.act_find.setText(self.tr("&Find…"))
         self.act_toggle_preview.setText(self.tr("Toggle &Preview"))
         self.act_toggle_split.setText(self.tr("Toggle Split &Orientation"))
         self.act_settings.setText(self.tr("&Settings…"))

@@ -5,10 +5,21 @@ from pathlib import Path
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 from PySide6.QtCore import QEvent, QSize, Qt, QTimer, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QKeySequence,
+    QShortcut,
+    QTextCharFormat,
+    QTextCursor,
+)
 from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QMessageBox,
     QPlainTextEdit,
+    QPushButton,
     QSplitter,
     QTextBrowser,
     QVBoxLayout,
@@ -100,6 +111,46 @@ class EditorTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter)
+
+        # --- Find bar (hidden by default) ---
+        self._find_bar = QWidget(self)
+        self._find_bar.setVisible(False)
+        find_layout = QHBoxLayout(self._find_bar)
+        find_layout.setContentsMargins(4, 2, 4, 2)
+
+        self._find_input = QLineEdit()
+        self._find_input.setPlaceholderText(self.tr("Find…"))
+        self._find_input.setMaximumWidth(250)
+        self._find_input.textChanged.connect(self._on_find_text_changed)
+        self._find_input.returnPressed.connect(self._find_next)
+
+        self._find_count_label = QLabel()
+
+        prev_btn = QPushButton("▲")
+        prev_btn.setFixedWidth(28)
+        prev_btn.setToolTip(self.tr("Previous match"))
+        prev_btn.clicked.connect(self._find_prev)
+
+        next_btn = QPushButton("▼")
+        next_btn.setFixedWidth(28)
+        next_btn.setToolTip(self.tr("Next match"))
+        next_btn.clicked.connect(self._find_next)
+
+        close_btn = QPushButton("✕")
+        close_btn.setFixedWidth(28)
+        close_btn.setToolTip(self.tr("Close find bar"))
+        close_btn.clicked.connect(self.close_find)
+
+        find_layout.addWidget(self._find_input)
+        find_layout.addWidget(self._find_count_label)
+        find_layout.addStretch()
+        find_layout.addWidget(prev_btn)
+        find_layout.addWidget(next_btn)
+        find_layout.addWidget(close_btn)
+        layout.addWidget(self._find_bar)
+
+        # Escape closes the find bar
+        QShortcut(QKeySequence(Qt.Key.Key_Escape), self._find_bar, self.close_find)
 
     # ------------------------------------------------------------------
     # Public API
@@ -441,6 +492,104 @@ class EditorTab(QWidget):
         self._syncing_scroll += 1
         editor_sb.setValue(target)
         self._syncing_scroll -= 1
+
+    # ------------------------------------------------------------------
+    # Find / search
+    # ------------------------------------------------------------------
+    def _highlight_all_matches(self) -> list[QTextCursor]:
+        """Highlight all occurrences of the search term and return cursor list."""
+        self._clear_highlights()
+        term = self._find_input.text()
+        if not term:
+            return []
+        doc = self.editor.document()
+        fmt = QTextCharFormat()
+        fmt.setBackground(QColor(255, 255, 0, 100))
+        cursors: list[QTextCursor] = []
+        cursor = doc.find(term)
+        while not cursor.isNull():
+            sel = QTextCursor(cursor)
+            sel.movePosition(
+                QTextCursor.MoveOperation.Right,
+                QTextCursor.MoveMode.KeepAnchor,
+                len(term),
+            )
+            cursors.append(sel)
+            extra_sel = self.editor.ExtraSelection()
+            extra_sel.format = fmt
+            extra_sel.cursor = sel
+            self._find_selections.append(extra_sel)
+            cursor = doc.find(term, cursor)
+        self.editor.setExtraSelections(
+            self._find_selections + getattr(self, "_saved_selections", [])
+        )
+        return cursors
+
+    def _clear_highlights(self) -> None:
+        self._find_selections = []
+        self.editor.setExtraSelections(getattr(self, "_saved_selections", []))
+
+    def _on_find_text_changed(self, _text: str) -> None:
+        cursors = self._highlight_all_matches()
+        count = len(cursors)
+        self._find_count_label.setText(
+            self.tr("{} match(es)").format(count) if count else ""
+        )
+
+    def _find_index(self) -> int:
+        """Return index of the match closest to the current cursor."""
+        if not self._find_selections:
+            return -1
+        cp = self.editor.textCursor().position()
+        best = 0
+        best_dist = float("inf")
+        for i, sel in enumerate(self._find_selections):
+            dist = abs(sel.anchor() - cp)
+            if dist < best_dist:
+                best_dist = dist
+                best = i
+        return best
+
+    def _find_next(self) -> None:
+        if not self._find_selections:
+            self._highlight_all_matches()
+        if not self._find_selections:
+            return
+        idx = self._find_index()
+        nxt = (idx + 1) % len(self._find_selections)
+        self._go_to_match(nxt)
+
+    def _find_prev(self) -> None:
+        if not self._find_selections:
+            self._highlight_all_matches()
+        if not self._find_selections:
+            return
+        idx = self._find_index()
+        prv = (idx - 1) % len(self._find_selections)
+        self._go_to_match(prv)
+
+    def _go_to_match(self, index: int) -> None:
+        sel = self._find_selections[index]
+        cursor = self.editor.textCursor()
+        cursor.setPosition(sel.anchor())
+        self.editor.setTextCursor(cursor)
+        self.editor.ensureCursorVisible()
+
+    def open_find(self) -> None:
+        """Show the find bar and focus the input."""
+        self._find_bar.setVisible(True)
+        self._find_input.setFocus()
+        self._find_input.selectAll()
+        if self.editor.textCursor().hasSelection():
+            self._find_input.setText(self.editor.textCursor().selectedText())
+        self._saved_selections = self.editor.extraSelections()
+        self._find_selections = []
+
+    def close_find(self) -> None:
+        """Hide the find bar and clear highlights."""
+        self._find_bar.setVisible(False)
+        self._clear_highlights()
+        self.editor.setFocus()
 
     # ------------------------------------------------------------------
     # Qt overrides

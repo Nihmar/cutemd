@@ -15,6 +15,7 @@ There are **no tests, no linter, and no type checker** configured. Don't run com
 - `markdown/` — pure Markdown processing, **no Qt imports**. Used by `ui/`.
 - `ui/` — PySide6 GUI layer. Imports from `markdown/` but not the reverse.
 - `main.py` — entry point. Creates `QApplication`, sets app/org name, loads translations, applies theme, shows `MainWindow`.
+- `markdown/tools.py` exposes `set_pygments_style(name)` — call this from the UI layer when the theme changes, never import `ui.themes` from `markdown/`.
 
 ## Resource paths (PyInstaller-aware)
 
@@ -24,6 +25,7 @@ Always use `_resolve_path()` from `ui/theme.py` (or equivalent `getattr(sys, "fr
 --add-data "ui/icons;ui/icons"
 --add-data "ui/style.qss;ui"
 --add-data "ui/preview_styles.css;ui"
+--add-data "resources/translations;resources/translations"
 --collect-data latex2mathml
 --collect-data pygments
 --hidden-import PySide6.QtSvg

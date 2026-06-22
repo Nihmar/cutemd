@@ -3,7 +3,7 @@ name = "cutemd"
 version = "0.1.0"
 description = "A non-WYSIWYG Markdown editor"
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 dependencies = [
     "latex2mathml>=3.81.0",
     "markdown>=3.10.2",
@@ -11,7 +11,6 @@ dependencies = [
     "mdit-py-plugins>=0.6.1",
     "pygments>=2.20.0",
     "pyside6>=6.11.1",
-    "qmarkdownview>=0.2",
 ]
 
 [project.optional-dependencies]
