@@ -35,6 +35,11 @@ from markdown.tools import BLOCK_OPEN_TYPES, add_heading_ids
 from ui.syntax_highlighter import MarkdownHighlighter
 
 
+class _ExtraSelection:
+    """Lightweight replacement for QPlainTextEdit.ExtraSelection (not exposed in PySide6)."""
+    __slots__ = ("format", "cursor")
+
+
 class LineNumberArea(QWidget):
     """Widget that paints line numbers alongside the editor.
 
@@ -377,7 +382,7 @@ class EditorTab(QWidget):
     def _on_highlight_current_line(self) -> None:
         if not self.isVisible():
             return
-        sel = QPlainTextEdit.ExtraSelection()
+        sel = _ExtraSelection()
         sel.format.setBackground(
             self.editor.palette().color(self.editor.palette().ColorRole.AlternateBase)
         )
@@ -671,7 +676,7 @@ class EditorTab(QWidget):
                 QTextCursor.MoveMode.KeepAnchor,
                 len(term),
             )
-            extra_sel = QPlainTextEdit.ExtraSelection()
+            extra_sel = _ExtraSelection()
             extra_sel.format = fmt
             extra_sel.cursor = sel
             self._find_selections.append(extra_sel)
