@@ -5,95 +5,43 @@ from pathlib import Path
 from typing import Any
 
 from markdown_it import MarkdownIt
-from markdown_it.token import Token
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
-    QImage,
     QKeySequence,
     QMouseEvent,
     QPainter,
-    QPixmap,
     QShortcut,
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
-    QTextFormat,
-    QWheelEvent,
 )
-from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import (
-    QCheckBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
-    QPushButton,
-    QScrollArea,
     QSplitter,
     QStackedWidget,
-    QTextBrowser,
     QTextEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from markdown.tools import BLOCK_OPEN_TYPES, add_heading_ids
-from ui.markdown_completer import DEFAULT_SMART_EDITING, MarkdownAutoCompleter
+from markdown.html_builder import build_html, preprocess_wikilink_images
+from ui.markdown_completer import MarkdownAutoCompleter
 from ui.syntax_highlighter import MarkdownHighlighter
+from ui.image_viewer import ImageViewer
+from ui.pdf_viewer import PdfViewer
+from ui.preview_browser import PreviewTextBrowser
 
 
-class PreviewTextBrowser(QTextBrowser):
-    """QTextBrowser that loads local images via loadResource() override."""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._base_dir: Path | None = None
-        self._image_cache: dict[tuple[int, str], QImage] = {}
-
-    def set_base_dir(self, d: Path) -> None:
-        resolved = d.resolve()
-        if self._base_dir != resolved:
-            self._image_cache.clear()
-            self._base_dir = resolved
-
-    @property
-    def _max_width(self) -> int:
-        return max(self.width(), 200)
-
-    def loadResource(self, resource_type: int, url: QUrl):
-        url_str = url.toString()
-        cache_key = (resource_type, url_str)
-        full = self._image_cache.get(cache_key)
-        if full is not None:
-            return EditorTab._fit_image(full, self._max_width)
-
-        if resource_type == int(QTextDocument.ImageResource) and self._base_dir is not None:
-            resolved = self._resolve_image_path(url_str)
-            if resolved is not None:
-                try:
-                    img = QImage(str(resolved))
-                except Exception:
-                    img = QImage()
-                if not img.isNull():
-                    self._image_cache[cache_key] = img
-                    return EditorTab._fit_image(img, self._max_width)
-
-        return super().loadResource(resource_type, url)
-
-    def _resolve_image_path(self, src: str) -> Path | None:
-        p = Path(src)
-        if "://" in src or src.startswith("data:") or src.startswith("file:"):
-            return None
-        if p.is_absolute():
-            return p if p.is_file() else None
-        resolved = (self._base_dir / p).resolve()
-        if resolved.is_file():
-            return resolved
-        return EditorTab._search_image(p.name, self._base_dir)
-
+# ---------------------------------------------------------------------------
+# LineNumberArea
+# ---------------------------------------------------------------------------
 
 
 class LineNumberArea(QWidget):
@@ -165,20 +113,34 @@ class LineNumberArea(QWidget):
         return line == 1 or line == total or line % 5 == 0
 
 
+# ---------------------------------------------------------------------------
+# EditorTab
+# ---------------------------------------------------------------------------
+
+
 class EditorTab(QWidget):
     """A single tab containing an editor pane, a live preview pane, and
     synchronised scrolling between them.
 
     Signals:
-        modified_changed(bool)   — emitted when the dirty flag toggles.
-        status_changed(str, str) — cursor position and word count.
-        title_changed()          — emitted so the tab bar can refresh.
+        modified_changed(bool) — fired when the dirty flag toggles.
+        status_changed(str, str) — line:col message + language hint.
+        title_changed() — tab title needs refresh.
+        file_link_clicked(str) — a local markdown/wikilink was clicked.
     """
 
     modified_changed = Signal(bool)
     status_changed = Signal(str, str)
     title_changed = Signal()
     file_link_clicked = Signal(str)
+
+    _MD_EXTS = frozenset({".md", ".markdown"})
+    _IMG_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"})
+    _PDF_EXTS = frozenset({".pdf"})
+
+    # -- Link detection in the editor (clickable links + hover underline) --
+    _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+    _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 
     def __init__(
         self,
@@ -209,10 +171,9 @@ class EditorTab(QWidget):
         self._preview_visible = True
         self._current_line_sel: object = None
         self._is_binary_preview = False
-        self._pan_active = False
 
-        # Hover state for clickable links
-        self._hover_link_key: tuple[int, int, int] | None = None  # (block, start, end)
+        self._hover_link_key: tuple[int, int, int] | None = None
+        self._find_selections: list[QTextEdit.ExtraSelection] = []
 
         self._editor_font_family = editor_font_family
         self._editor_font_size = editor_font_size
@@ -228,14 +189,11 @@ class EditorTab(QWidget):
         self.editor.cursorPositionChanged.connect(self._emit_status)
 
         self._highlighter = MarkdownHighlighter(self.editor.document())
-        self._highlighter.set_theme(theme)  # type: ignore[attr-defined]
+        self._highlighter.set_theme(theme)
 
-        # --- Line numbers ---
         self._line_number_area = LineNumberArea(self.editor)
         self._update_line_number_area_width()
-        self.editor.blockCountChanged.connect(
-            self._update_line_number_area_width
-        )
+        self.editor.blockCountChanged.connect(self._update_line_number_area_width)
         self.editor.updateRequest.connect(self._update_line_number_area)
         self.editor.cursorPositionChanged.connect(self._on_highlight_current_line)
         self.editor.installEventFilter(self)
@@ -244,58 +202,21 @@ class EditorTab(QWidget):
         self._viewport.installEventFilter(self)
         self._completer = MarkdownAutoCompleter(self.editor, smart_editing, self)
 
-        # --- Preview stack (page 0 = text browser, page 1 = image, page 2 = PDF) ---
+        # --- Preview stack ---
         self.preview = PreviewTextBrowser()
         self.preview.setReadOnly(True)
         self.preview.setOpenExternalLinks(True)
 
-        self._image_view = QLabel()
-        self._image_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._image_scroll = QScrollArea()
-        self._image_scroll.setWidgetResizable(True)
-        self._image_scroll.setWidget(self._image_view)
-        self._image_scroll.viewport().installEventFilter(self)
+        self._image_viewer = ImageViewer()
+        self._image_viewer.viewport().installEventFilter(self._image_viewer)
 
-        self._pdf_view = QWidget()
-        pdf_lay = QVBoxLayout(self._pdf_view)
-        pdf_lay.setContentsMargins(0, 0, 0, 0)
-
-        # Navigation bar
-        nav = QHBoxLayout()
-        self._pdf_prev_btn = QPushButton("\u25c0")  # ◀
-        self._pdf_prev_btn.setFixedWidth(32)
-        self._pdf_page_label = QLabel("0 / 0")
-        self._pdf_page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._pdf_next_btn = QPushButton("\u25b6")  # ▶
-        self._pdf_next_btn.setFixedWidth(32)
-        self._pdf_open_btn = QPushButton(self.tr("Open externally"))
-        nav.addStretch()
-        nav.addWidget(self._pdf_prev_btn)
-        nav.addWidget(self._pdf_page_label)
-        nav.addWidget(self._pdf_next_btn)
-        nav.addSpacing(10)
-        nav.addWidget(self._pdf_open_btn)
-        nav.addStretch()
-        nav_widget = QWidget()
-        nav_widget.setLayout(nav)
-
-        self._pdf_page_view = QLabel()
-        self._pdf_page_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._pdf_scroll = QScrollArea()
-        self._pdf_scroll.setWidgetResizable(True)
-        self._pdf_scroll.setWidget(self._pdf_page_view)
-        self._pdf_scroll.viewport().installEventFilter(self)
-
-        pdf_lay.addWidget(nav_widget)
-        pdf_lay.addWidget(self._pdf_scroll)
-        self._pdf_prev_btn.clicked.connect(self._pdf_prev_page)
-        self._pdf_next_btn.clicked.connect(self._pdf_next_page)
-        self._pdf_open_btn.clicked.connect(self._on_open_pdf_externally)
+        self._pdf_viewer = PdfViewer()
+        self._pdf_viewer._scroll.viewport().installEventFilter(self._pdf_viewer)
 
         self._preview_stack = QStackedWidget()
-        self._preview_stack.addWidget(self.preview)       # index 0
-        self._preview_stack.addWidget(self._image_scroll) # index 1
-        self._preview_stack.addWidget(self._pdf_view)     # index 2
+        self._preview_stack.addWidget(self.preview)
+        self._preview_stack.addWidget(self._image_viewer)
+        self._preview_stack.addWidget(self._pdf_viewer)
         self._preview_stack.installEventFilter(self)
 
         # --- Scroll sync ---
@@ -319,7 +240,7 @@ class EditorTab(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(splitter)
 
-        # --- Find bar (hidden by default) ---
+        # --- Find bar ---
         self._find_bar = QWidget(self)
         self._find_bar.setVisible(False)
         self._find_bar.setFixedHeight(30)
@@ -328,7 +249,7 @@ class EditorTab(QWidget):
         find_layout.setSpacing(4)
 
         self._find_input = QLineEdit()
-        self._find_input.setPlaceholderText(self.tr("Find…"))
+        self._find_input.setPlaceholderText(self.tr("Find\u2026"))
         self._find_input.setMaximumWidth(200)
         self._find_input.setFixedHeight(24)
         self._find_input.textChanged.connect(self._on_find_text_changed)
@@ -344,19 +265,19 @@ class EditorTab(QWidget):
         self._find_case_btn.toggled.connect(self._highlight_all_matches)
 
         prev_btn = QToolButton()
-        prev_btn.setText("▲")
+        prev_btn.setText("\u25b2")
         prev_btn.setToolTip(self.tr("Previous match"))
         prev_btn.setFixedSize(28, 24)
         prev_btn.clicked.connect(self._find_prev)
 
         next_btn = QToolButton()
-        next_btn.setText("▼")
+        next_btn.setText("\u25bc")
         next_btn.setToolTip(self.tr("Next match"))
         next_btn.setFixedSize(28, 24)
         next_btn.clicked.connect(self._find_next)
 
         close_btn = QToolButton()
-        close_btn.setText("✕")
+        close_btn.setText("\u2715")
         close_btn.setToolTip(self.tr("Close find bar"))
         close_btn.setFixedSize(28, 24)
         close_btn.clicked.connect(self.close_find)
@@ -370,7 +291,6 @@ class EditorTab(QWidget):
         find_layout.addWidget(close_btn)
         layout.addWidget(self._find_bar)
 
-        # Escape closes the find bar
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self._find_bar, self.close_find)
 
     # ------------------------------------------------------------------
@@ -387,24 +307,19 @@ class EditorTab(QWidget):
         return self.editor.toPlainText() != self._saved_text
 
     def display_name(self) -> str:
-        """Tab title: file name or 'Untitled' with optional *."""
         name = self._file_path.name if self._file_path else self.tr("Untitled")
         return f"{name} *" if self.is_modified else name
 
     def tooltip(self) -> str:
-        """Full path for the tab tooltip."""
         return str(self._file_path) if self._file_path else self.tr("Untitled")
 
     def set_theme(self, theme: str, pygments_style: str = "") -> None:
-        """Update highlighter theme and re-render preview."""
         if theme != self._theme:
             self._theme = theme
-            self._highlighter.set_theme(theme)  # type: ignore[attr-defined]
+            self._highlighter.set_theme(theme)
             self._update_preview()
-        # Pygments style for code blocks — updated via global in highlight_code
 
     def set_preview_visible(self, visible: bool) -> None:
-        """Show or hide the preview pane."""
         if visible == self._preview_visible:
             return
         self._preview_visible = visible
@@ -413,13 +328,11 @@ class EditorTab(QWidget):
             self._update_preview()
 
     def set_editor_font(self, family: str, size: int) -> None:
-        """Change the editor font family and size."""
         self._editor_font_family = family
         self._editor_font_size = size
         self._apply_editor_font()
 
     def set_line_number_mode(self, mode: int) -> None:
-        """Set line number display mode (0=off, 1=all, 2=every 5th)."""
         self._line_number_area.set_mode(mode)
         self._update_line_number_area_width()
 
@@ -427,110 +340,21 @@ class EditorTab(QWidget):
         self._completer.update_settings(settings)
 
     def set_preview_font(self, family: str, size: int) -> None:
-        """Change the preview font family and size and re-render."""
         self._preview_font_family = family
         self._preview_font_size = size
         self._update_preview()
 
-    _MD_EXTS = frozenset({".md", ".markdown"})
-    _IMG_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"})
-    _PDF_EXTS = frozenset({".pdf"})
-
-    _PARA_IMG_RE = re.compile(r'<p>\s*(<a\b[^>]*></a>)?\s*(<img\b[^>]+>)\s*</p>')
-    _IMG_DIMS_RE = re.compile(r'(<img\s+)(src="([^"]*)")')
-    _WIKILINK_IMG_RE = re.compile(r'!\[\[([^\]]+?)(?:\|([^\]]*?))?\]\]')
-
-    @staticmethod
-    def _add_img_dims(html: str, base_dir: Path, max_width: int) -> str:
-        """Add width/height attributes to local <img> tags so QTextDocument
-        uses the correct size during layout."""
-        def _repl(m: re.Match) -> str:
-            prefix = m.group(1)
-            src_attr = m.group(2)
-            src = m.group(3)
-            if not src or "://" in src or src.startswith("data:") or src.startswith("file:"):
-                return m.group(0)
-            p = Path(src)
-            if p.is_absolute():
-                return m.group(0)
-            resolved = (base_dir / p).resolve()
-            if not resolved.exists():
-                found = EditorTab._search_image(p.name, base_dir)
-                if found:
-                    resolved = found
-                else:
-                    return m.group(0)
-            try:
-                img = QImage(str(resolved))
-            except Exception:
-                return m.group(0)
-            if img.isNull():
-                return m.group(0)
-            img = EditorTab._fit_image(img, max_width)
-            return f'{prefix}{src_attr} width="{img.width()}" height="{img.height()}"'
-        return EditorTab._IMG_DIMS_RE.sub(_repl, html)
-
-    @staticmethod
-    def _preprocess_wikilink_images(text: str) -> str:
-        """Convert ![[wikilink]] image syntax to standard Markdown ![](...)."""
-        def _repl(m: re.Match) -> str:
-            target = m.group(1).strip()
-            alt = m.group(2).strip() if m.group(2) else target
-            return f"![{alt}]({target})"
-        return EditorTab._WIKILINK_IMG_RE.sub(_repl, text)
-
-    @staticmethod
-    def _search_image(filename: str, start_dir: Path) -> Path | None:
-        """Search for *filename* in *start_dir* and all subdirectories
-        up to 5 levels deep, then try up to 4 parent directories
-        (each searched 5 levels deep as well)."""
-        target = filename.lower()
-        seen: set[Path] = set()
-
-        dirs_to_search: list[Path] = [start_dir.resolve()]
-        # Walk up to 4 parent levels to gather search roots
-        d = start_dir.resolve()
-        for _ in range(4):
-            p = d.parent
-            if p == d:
-                break
-            dirs_to_search.append(p)
-            d = p
-
-        for root in dirs_to_search:
-            stack = [(root, 0)]
-            while stack:
-                d, depth = stack.pop()
-                if d in seen:
-                    continue
-                seen.add(d)
-                try:
-                    for entry in d.iterdir():
-                        if entry.is_file() and entry.name.lower() == target:
-                            return entry.resolve()
-                        if entry.is_dir() and depth < 5:
-                            stack.append((entry, depth + 1))
-                except PermissionError:
-                    continue
-        return None
-
-    @staticmethod
-    def _fit_image(img: QImage, max_width: int) -> QImage:
-        """Scale *img* to fit within *max_width*, preserving aspect ratio."""
-        if img.width() <= max_width:
-            return img
-        return img.scaledToWidth(max_width, Qt.TransformationMode.SmoothTransformation)
+    # ------------------------------------------------------------------
+    # File I/O
+    # ------------------------------------------------------------------
 
     def load_file(self, path: Path) -> None:
-        """Load *path* into the editor, replacing current content."""
         ext = path.suffix.lower()
-
         if ext in self._IMG_EXTS:
             self._file_path = path
             self._load_image(path)
             self.title_changed.emit()
             return
-
         if ext in self._PDF_EXTS:
             self._file_path = path
             self._load_pdf(path)
@@ -556,104 +380,57 @@ class EditorTab(QWidget):
         self._splitter.setSizes([500, 500])
         self.title_changed.emit()
 
-        # Enable syntax highlighting only for Markdown files
         if ext in self._MD_EXTS:
             self._highlighter.setDocument(self.editor.document())
         else:
-            self._highlighter.setDocument(None)  # type: ignore[arg-type]
+            self._highlighter.setDocument(None)
 
     def _load_image(self, path: Path) -> None:
-        """Display an image in a dedicated QLabel."""
-        self.editor.setPlainText(
-            self.tr("Image preview — {}").format(path.name)
-        )
+        self.editor.setPlainText(self.tr("Image preview \u2014 {}").format(path.name))
         self.editor.setReadOnly(True)
-        self._highlighter.setDocument(None)  # type: ignore[arg-type]
+        self._highlighter.setDocument(None)
         self._saved_text = ""
-
-        self._original_pixmap = QPixmap(str(path))
-        self._image_zoom = 1.0
-        if not self._original_pixmap.isNull():
-            self._rescale_image()
-        else:
-            self._image_view.setText(self.tr("Cannot display this image format."))
+        self._image_viewer.load(path)
         self._preview_stack.setCurrentIndex(1)
         self._is_binary_preview = True
         self._splitter.setSizes([0, 1000])
 
-    def _rescale_image(self) -> None:
-        """Rescale the stored pixmap to fit the current viewport size * zoom."""
-        if not hasattr(self, "_original_pixmap") or self._original_pixmap.isNull():
-            return
-        zoom = getattr(self, "_image_zoom", 1.0)
-        size = self._image_scroll.viewport().size()
-        scaled = self._original_pixmap.scaled(
-            size * zoom, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
-        )
-        self._image_view.setPixmap(scaled)
-        self._image_view.setToolTip(f"Zoom: {int(zoom * 100)}%")
-
     def _load_pdf(self, path: Path) -> None:
-        """Display PDF pages via QPdfDocument."""
-        self.editor.setPlainText(
-            self.tr("PDF — {}").format(path.name)
-        )
+        self.editor.setPlainText(self.tr("PDF \u2014 {}").format(path.name))
         self.editor.setReadOnly(True)
-        self._highlighter.setDocument(None)  # type: ignore[arg-type]
+        self._highlighter.setDocument(None)
         self._saved_text = ""
-        self._pdf_path = path.resolve()
-
-        self._pdf_doc = QPdfDocument()
-        self._pdf_doc.load(str(self._pdf_path))
-        self._pdf_page = 0
-        self._pdf_zoom = 1.0
-        self._pdf_page_count = max(self._pdf_doc.pageCount(), 0)
-        self._render_pdf_page()
+        self._pdf_viewer.load(path)
         self._preview_stack.setCurrentIndex(2)
         self._is_binary_preview = True
         self._splitter.setSizes([0, 1000])
 
-    def _render_pdf_page(self) -> None:
-        if self._pdf_page_count == 0:
-            self._pdf_page_view.setText(self.tr("Cannot render this PDF."))
-            self._pdf_page_label.setText("0 / 0")
-            return
-        zoom = getattr(self, "_pdf_zoom", 1.0)
-        size = self._pdf_scroll.viewport().size() * zoom
-        img = self._pdf_doc.render(self._pdf_page, QSize(int(size.width()), int(size.height())))
-        self._pdf_page_view.setPixmap(QPixmap.fromImage(img))
-        self._pdf_page_label.setText(f"{self._pdf_page + 1} / {self._pdf_page_count}")
-        self._pdf_prev_btn.setEnabled(self._pdf_page > 0)
-        self._pdf_next_btn.setEnabled(self._pdf_page < self._pdf_page_count - 1)
-
-    def _pdf_prev_page(self) -> None:
-        if self._pdf_page > 0:
-            self._pdf_page -= 1
-            self._render_pdf_page()
-
-    def _pdf_next_page(self) -> None:
-        if self._pdf_page < self._pdf_page_count - 1:
-            self._pdf_page += 1
-            self._render_pdf_page()
-
-    def _on_open_pdf_externally(self) -> None:
-        from PySide6.QtGui import QDesktopServices
-
-        if hasattr(self, "_pdf_path"):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._pdf_path)))
-
     def save(self) -> bool:
-        """Save to the current path.  Returns True on success."""
         if self._file_path:
             return self._write_file(self._file_path)
         return False
 
     def save_as(self, path: Path) -> bool:
-        """Save to *path*.  Returns True on success."""
+        self._file_path = path
         return self._write_file(path)
 
+    def _write_file(self, path: Path) -> bool:
+        try:
+            path.write_text(self.editor.toPlainText(), encoding="utf-8")
+            self._saved_text = self.editor.toPlainText()
+            self.editor.document().setModified(False)
+            self.modified_changed.emit(False)
+            self.title_changed.emit()
+            return True
+        except OSError as e:
+            QMessageBox.critical(
+                self,
+                self.tr("Error"),
+                self.tr("Could not save file:\n{}").format(e),
+            )
+            return False
+
     def maybe_save(self) -> bool:
-        """Ask to save if modified.  Returns False if user cancels."""
         if not self.is_modified:
             return True
         name = self._file_path.name if self._file_path else self.tr("Untitled")
@@ -669,135 +446,97 @@ class EditorTab(QWidget):
             if self._file_path:
                 self._write_file(self._file_path)
             else:
-                # The caller should handle Save As for untitled files
                 return False
             return not self.is_modified
         return ret != QMessageBox.StandardButton.Cancel
 
     # ------------------------------------------------------------------
-    # Line number helpers
+    # Editor helpers
     # ------------------------------------------------------------------
-    def _update_line_number_area_width(self, _count: int = 0) -> None:
-        w = self._line_number_area._line_number_area_width() if self._line_number_area._mode != 0 else 0
-        self.editor.setViewportMargins(w, 0, 0, 0)
-        cr = self.editor.contentsRect()
-        self._line_number_area.setGeometry(
-            QRect(cr.left(), cr.top(), w, cr.height())
-        )
 
-    def _update_line_number_area(self, rect: QRect, dy: int) -> None:
-        if dy:
-            self._line_number_area.scroll(0, dy)
-        else:
-            self._line_number_area.update(
-                0, rect.y(), self._line_number_area.width(), rect.height()
-            )
-        if rect.contains(self.editor.viewport().rect()):
-            self._update_line_number_area_width()
+    def _apply_editor_font(self) -> None:
+        font = QFont()
+        if self._editor_font_family != "System":
+            font.setFamily(self._editor_font_family)
+        font.setPointSize(self._editor_font_size)
+        self.editor.setFont(font)
+
+    def _update_line_number_area_width(self) -> None:
+        self.editor.setViewportMargins(self._line_number_area.sizeHint().width(), 0, 0, 0)
+
+    def _update_line_number_area(self) -> None:
+        self._line_number_area.update()
 
     def _on_highlight_current_line(self) -> None:
-        if not self.isVisible():
-            return
-        sel = QTextEdit.ExtraSelection()
-        sel.format.setBackground(
-            self.editor.palette().color(self.editor.palette().ColorRole.AlternateBase)
-        )
-        sel.format.setProperty(QTextFormat.FullWidthSelection, True)
-        sel.cursor = self.editor.textCursor()
-        sel.cursor.clearSelection()
-        self._current_line_sel = sel
-        self._apply_all_selections()
+        if self._current_line_sel is not None:
+            self._current_line_sel = None
+            self._apply_all_selections()
 
     def _apply_all_selections(self) -> None:
-        parts: list = []
+        extra = []
         if self._current_line_sel is not None:
-            parts.append(self._current_line_sel)
-        parts.extend(getattr(self, "_find_selections", []))
-        self.editor.setExtraSelections(parts)
-
-    # ------------------------------------------------------------------
-    # Internals
-    # ------------------------------------------------------------------
-    def _apply_editor_font(self) -> None:
-        """Apply the configured font to the editor widget."""
-        if self._editor_font_family in ("System", "Sistema"):
-            font = QFont("monospace", self._editor_font_size)
-        else:
-            font = QFont(self._editor_font_family, self._editor_font_size)
-        self.editor.setFont(font)
-        if hasattr(self, "_line_number_area"):
-            self._update_line_number_area_width()
-
-    def _write_file(self, path: Path) -> bool:
-        try:
-            text = self.editor.toPlainText()
-            path.write_text(text, encoding="utf-8")
-        except OSError as e:
-            QMessageBox.critical(
-                self,
-                self.tr("Error"),
-                self.tr("Could not save file:\n{}").format(e),
-            )
-            return False
-        self._file_path = path
-        self._saved_text = text
-        self.title_changed.emit()
-        return True
-
-    def _check_modified(self) -> None:
-        """Emit modified_changed if the dirty state toggled."""
-        dirty = self.editor.toPlainText() != self._saved_text
-        if dirty != getattr(self, "_dirty", False):
-            self._dirty = dirty
-            self.modified_changed.emit(dirty)
-            self.title_changed.emit()
-
-    def _on_text_changed(self) -> None:
-        self._check_modified()
-        self._preview_timer.start()
-        self._emit_status()
-        self._line_anchor_map_hash = 0
+            extra.append(self._current_line_sel)
+        extra.extend(self._find_selections)
+        self.editor.setExtraSelections(extra)
 
     def _emit_status(self) -> None:
         cursor = self.editor.textCursor()
         line = cursor.blockNumber() + 1
         col = cursor.columnNumber() + 1
-        text = self.editor.toPlainText()
-        words = len(text.split()) if text else 0
-        self.status_changed.emit(
-            self.tr("Ln {}, Col {}").format(line, col),
-            self.tr("{} words").format(words),
+        self.status_changed.emit(f"{line}:{col}", "Markdown")
+
+    def _on_text_changed(self) -> None:
+        self._preview_timer.start()
+        if not self._dirty:
+            self._dirty = True
+            self.modified_changed.emit(True)
+
+    # ------------------------------------------------------------------
+    # Preview rendering
+    # ------------------------------------------------------------------
+
+    def _update_preview(self) -> None:
+        if not self._preview_visible or self._is_binary_preview:
+            return
+        raw_text = self.editor.toPlainText()
+        text = preprocess_wikilink_images(raw_text)
+        text_hash = hash(text)
+        if text_hash != self._line_anchor_map_hash:
+            self._line_anchor_map = self._build_line_anchor_map(text)
+            self._line_anchor_map_hash = text_hash
+
+        first_block = self.editor.firstVisibleBlock()
+        current_line = first_block.blockNumber()
+        line_map = self._line_anchor_map
+        current_anchor_idx = line_map[current_line] if current_line < len(line_map) else 0
+        self._last_anchor = f"b{current_anchor_idx}"
+
+        base_dir = self._file_path.parent if self._file_path else Path.cwd()
+        self.preview.set_base_dir(base_dir)
+        pw = self.preview.width()
+
+        html = build_html(
+            text=text,
+            md=self._md,
+            preview_css=self._preview_css,
+            theme=self._theme,
+            font_family=self._preview_font_family,
+            font_size=self._preview_font_size,
+            base_dir=base_dir,
+            max_width=max(pw, 200),
         )
 
-    # ------------------------------------------------------------------
-    # Preview & scroll sync
-    # ------------------------------------------------------------------
-    def _render_with_anchors(self, text: str) -> str:
-        """Render HTML with <a name='bN'> anchors inside each block.
-        Placed after the opening tag so QTextDocument treats them as
-        inline, avoiding phantom paragraph spacing.
-        """
-        tokens = self._md.parse(text)
-        new_tokens: list[Token] = []
-        anchor_idx = 0
-        for token in tokens:
-            new_tokens.append(token)
-            if token.type in BLOCK_OPEN_TYPES and token.map:
-                start, end = token.map
-                if start < end:
-                    anchor = Token("html_inline", "", 0)
-                    anchor.content = f'<a name="b{anchor_idx}"></a>'
-                    new_tokens.append(anchor)
-                    anchor_idx += 1
-        return self._md.renderer.render(new_tokens, self._md.options, {})
+        self._syncing_scroll += 1
+        self.preview.setHtml(html)
+        self._syncing_scroll -= 1
+
+        self._pending_sync_anchor = self._last_anchor
+        self._sync_retries = 0
+        self._sync_preview_scroll()
 
     def _build_line_anchor_map(self, text: str) -> list[int]:
-        """Return a per-line array that maps editor line number → anchor index.
+        from markdown.tools import BLOCK_OPEN_TYPES
 
-        For each source line we pick the narrowest (most specific)
-        block-level token that contains it, so list items and
-        multi-paragraph blocks resolve to the correct anchor.
-        """
         tokens = self._md.parse(text)
         entries: list[tuple[int, int, int]] = []
         anchor_idx = 0
@@ -834,74 +573,11 @@ class EditorTab(QWidget):
                         break
         return mapping
 
-    def _update_preview(self) -> None:
-        if not self._preview_visible or self._is_binary_preview:
-            return
-        raw_text = self.editor.toPlainText()
-        text = self._preprocess_wikilink_images(raw_text)
-        text_hash = hash(text)
-        if text_hash != self._line_anchor_map_hash:
-            self._line_anchor_map = self._build_line_anchor_map(text)
-            self._line_anchor_map_hash = text_hash
-
-        first_block = self.editor.firstVisibleBlock()
-        current_line = first_block.blockNumber()
-        line_map = self._line_anchor_map
-        current_anchor_idx = (
-            line_map[current_line] if current_line < len(line_map) else 0
-        )
-        self._last_anchor = f"b{current_anchor_idx}"
-
-        try:
-            body_html = add_heading_ids(self._render_with_anchors(text))
-        except Exception:
-            body_html = (
-                "<pre>"
-                + text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-                + "</pre>"
-            )
-
-        base_dir = self._file_path.parent if self._file_path else Path.cwd()
-        self.preview.set_base_dir(base_dir)
-        pw = self.preview.width()
-        body_html = self._add_img_dims(body_html, base_dir, max_width=max(pw, 200))
-        body_html = EditorTab._PARA_IMG_RE.sub(
-            r'<p style="margin-top:0px;margin-bottom:0px;line-height:0px;">\1\2</p>', body_html
-        )
-
-        theme_class = "dark" if self._theme == "dark" else "light"
-
-        # Inline font style overrides the CSS defaults
-        font_style = f"font-size: {self._preview_font_size}px;"
-        if self._preview_font_family != "Sistema":
-            font_style += f" font-family: {self._preview_font_family};"
-
-        html = (
-            "<!DOCTYPE html>\n"
-            "<html>\n<head>\n"
-            "<meta charset='utf-8'>\n"
-            f"<style>\n{self._preview_css}\n</style>\n"
-            "</head>\n"
-            f"<body class='{theme_class}' style='{font_style}'>\n"
-            f"{body_html}\n"
-            "</body>\n</html>"
-        )
-
-        self._syncing_scroll += 1
-        self.preview.setHtml(html)
-        self._syncing_scroll -= 1
-
-        self._pending_sync_anchor = self._last_anchor
-        self._sync_retries = 0
-        self._sync_preview_scroll()
+    # ------------------------------------------------------------------
+    # Scroll sync
+    # ------------------------------------------------------------------
 
     def _sync_preview_scroll(self) -> None:
-        """Scroll the preview to the cached anchor, retrying if layout is not ready.
-
-        Called after setHtml() — the scrollbar may not have its final
-        range yet, so we retry on subsequent event-loop ticks up to
-        10 times.
-        """
         if self._syncing_scroll > 0:
             return
         anchor = self._pending_sync_anchor
@@ -909,274 +585,45 @@ class EditorTab(QWidget):
             return
         preview_sb = self.preview.verticalScrollBar()
         if preview_sb.maximum() > 0:
-            self._syncing_scroll += 1
             self.preview.scrollToAnchor(anchor)
-            self._syncing_scroll -= 1
-            self._pending_sync_anchor = ""
-        else:
-            if self._sync_retries < 10:
-                self._sync_retries += 1
-                QTimer.singleShot(0, self._sync_preview_scroll)
-            else:
-                self._pending_sync_anchor = ""
-                self._sync_retries = 0
+        elif self._sync_retries < 10:
+            self._sync_retries += 1
+            QTimer.singleShot(50, self._sync_preview_scroll)
 
     def _on_editor_scrolled(self, _value: int = 0) -> None:
-        """Scroll the preview to match the block at the top of the editor.
-
-        Uses the cached line→anchor map to find which anchor corresponds
-        to the first visible line in the editor, then calls
-        scrollToAnchor() on the preview.
-        """
         if self._syncing_scroll > 0 or not self._preview_visible or self._is_binary_preview:
             return
         line_map = self._line_anchor_map
         if not line_map:
             return
         first_block = self.editor.firstVisibleBlock()
-        current_line = first_block.blockNumber()
-        if current_line >= len(line_map):
-            return
-        anchor_idx = line_map[current_line]
-        anchor = f"b{anchor_idx}"
-        if anchor == self._last_anchor:
-            return
-        self._last_anchor = anchor
-        preview_sb = self.preview.verticalScrollBar()
-        if preview_sb.maximum() <= 0:
-            return
-        self._syncing_scroll += 1
-        self.preview.scrollToAnchor(anchor)
-        self._syncing_scroll -= 1
+        line = first_block.blockNumber()
+        if line < len(line_map):
+            anchor = f"b{line_map[line]}"
+            if anchor != self._pending_sync_anchor:
+                self._pending_sync_anchor = anchor
+                self.preview.scrollToAnchor(anchor)
 
     def _on_preview_scrolled(self, _value: int = 0) -> None:
-        """Scroll the editor proportionally to match the preview position."""
         if self._syncing_scroll > 0 or not self._preview_visible or self._is_binary_preview:
             return
         preview_sb = self.preview.verticalScrollBar()
         max_pv = preview_sb.maximum()
         if max_pv <= 0:
             return
+        position = preview_sb.value()
+        ratio = position / max_pv
+
         editor_sb = self.editor.verticalScrollBar()
-        max_ed = editor_sb.maximum()
-        if max_ed <= 0:
-            return
-        ratio = preview_sb.value() / max_pv
-        target = int(ratio * max_ed)
-        if abs(editor_sb.value() - target) < 5:
-            return
-        self._syncing_scroll += 1
-        editor_sb.setValue(target)
-        self._syncing_scroll -= 1
-
-    # ------------------------------------------------------------------
-    # Find / search
-    # ------------------------------------------------------------------
-    def _find_flags(self) -> QTextDocument.FindFlag:
-        flags = QTextDocument.FindFlag(0)
-        if getattr(self, "_find_case_btn", None) and self._find_case_btn.isChecked():
-            flags |= QTextDocument.FindFlag.FindCaseSensitively
-        return flags
-
-    def _highlight_all_matches(self, _checked: bool = False) -> None:
-        """Highlight all occurrences of the search term."""
-        self._highlight_all_matches_impl()
-        self._update_count_label()
-
-    def _highlight_all_matches_impl(self) -> None:
-        self._clear_highlights()
-        term = self._find_input.text()
-        if not term:
-            return
-        doc = self.editor.document()
-        flags = self._find_flags()
-        fmt = QTextCharFormat()
-        fmt.setBackground(QColor(255, 255, 0, 100))
-        cursor = doc.find(term, 0, flags)
-        while not cursor.isNull():
-            sel = QTextCursor(cursor)
-            sel.movePosition(
-                QTextCursor.MoveOperation.Right,
-                QTextCursor.MoveMode.KeepAnchor,
-                len(term),
-            )
-            extra_sel = QTextEdit.ExtraSelection()
-            extra_sel.format = fmt
-            extra_sel.cursor = sel
-            self._find_selections.append(extra_sel)
-            cursor = doc.find(term, cursor, flags)
-        self._apply_all_selections()
-
-    def _update_count_label(self) -> None:
-        count = len(self._find_selections)
-        if count:
-            idx = self._find_focused_index()
-            if idx >= 0:
-                self._find_count_label.setText(
-                    f"{idx + 1}/{count}"
-                )
-            else:
-                self._find_count_label.setText(self.tr("{}/{}").format(0, count))
-        else:
-            self._find_count_label.setText("")
-
-    def _find_focused_index(self) -> int:
-        """Return index of the current match if cursor is exactly on one, else -1."""
-        cp = self.editor.textCursor().position()
-        anchor = self.editor.textCursor().anchor()
-        # Only consider if cursor is exactly at a match start or selection
-        for i, sel in enumerate(self._find_selections):
-            if sel.selectionStart() == anchor and sel.selectionEnd() == cp:
-                return i
-            if sel.selectionStart() == cp and sel.selectionEnd() == anchor:
-                return i
-        return -1
-
-    def _clear_highlights(self) -> None:
-        self._find_selections = []
-        self._apply_all_selections()
-
-    def _on_find_text_changed(self, _text: str) -> None:
-        self._highlight_all_matches()
-        # Jump to the first match after the cursor
-        self._find_next()
-
-    def _find_next(self) -> None:
-        term = self._find_input.text()
-        if not term:
-            return
-        flags = self._find_flags()
-        found = self.editor.find(term, flags)
-        if not found:
-            # Wrap around
-            cursor = self.editor.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.Start)
-            self.editor.setTextCursor(cursor)
-            self.editor.find(term, flags)
-        self._update_count_label()
-
-    def _find_prev(self) -> None:
-        term = self._find_input.text()
-        if not term:
-            return
-        flags = self._find_flags() | QTextDocument.FindFlag.FindBackward
-        found = self.editor.find(term, flags)
-        if not found:
-            cursor = self.editor.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            self.editor.setTextCursor(cursor)
-            self.editor.find(term, flags)
-        self._update_count_label()
-
-    def open_find(self) -> None:
-        """Show the find bar and focus the input."""
-        self._find_bar.setVisible(True)
-        self._find_input.setFocus()
-        self._find_input.selectAll()
-        if self.editor.textCursor().hasSelection():
-            self._find_input.setText(self.editor.textCursor().selectedText())
-        self._find_selections = []
-
-    def close_find(self) -> None:
-        """Hide the find bar and clear highlights."""
-        self._find_bar.setVisible(False)
-        self._clear_highlights()
-        self.editor.setFocus()
-
-    # ------------------------------------------------------------------
-    # Qt overrides
-    # ------------------------------------------------------------------
-    def eventFilter(self, obj: object, event: QEvent) -> bool:
-        if obj is self.editor:
-            if event.type() == QEvent.Type.Resize:
-                cr = self.editor.contentsRect()
-                self._line_number_area.setGeometry(
-                    QRect(cr.left(), cr.top(), self._line_number_area.sizeHint().width(), cr.height())
-                )
-                return super().eventFilter(obj, event)
-
-        elif obj is self._viewport:
-            if event.type() == QEvent.Type.MouseMove:
-                self._on_mouse_move(event)  # type: ignore[arg-type]
-            elif event.type() == QEvent.Type.MouseButtonRelease:
-                return self._on_mouse_click(event)  # type: ignore[arg-type]
-
-        elif obj in (self._image_scroll.viewport(), self._pdf_scroll.viewport()):
-            return self._on_media_viewport_event(obj, event)
-
-        elif obj is self._preview_stack and event.type() == QEvent.Type.Resize:
-            self._preview_timer.start()
-
-        return super().eventFilter(obj, event)
-
-    # ------------------------------------------------------------------
-    # Shared zoom + pan for image / PDF viewports
-    # ------------------------------------------------------------------
-
-    def _on_media_viewport_event(self, obj: object, event: QEvent) -> bool:
-        vp = obj
-        if event.type() == QEvent.Type.Resize:
-            self._media_refresh(obj)
-            return False
-
-        if event.type() == QEvent.Type.Wheel:
-            we: QWheelEvent = event  # type: ignore[assignment]
-            if we.modifiers() & Qt.KeyboardModifier.ControlModifier:
-                delta = we.angleDelta().y() / 120.0
-                zoom_attr = "_image_zoom" if obj is self._image_scroll.viewport() else "_pdf_zoom"
-                cur = getattr(self, zoom_attr, 1.0)
-                setattr(self, zoom_attr, max(0.1, min(10.0, cur + delta * 0.15)))
-                self._media_refresh(obj)
-                return True
-
-        if event.type() == QEvent.Type.MouseButtonPress:
-            me: QMouseEvent = event  # type: ignore[assignment]
-            if me.button() == Qt.MouseButton.MiddleButton:
-                self._pan_active = True
-                self._pan_last = me.position().toPoint()
-                vp.setCursor(Qt.CursorShape.ClosedHandCursor)
-                return True
-
-        if event.type() == QEvent.Type.MouseMove:
-            if getattr(self, "_pan_active", False):
-                me: QMouseEvent = event  # type: ignore[assignment]
-                pt = me.position().toPoint()
-                delta = self._pan_last - pt
-                self._pan_last = pt
-                h = vp.horizontalScrollBar()
-                v = vp.verticalScrollBar()
-                if h:
-                    h.setValue(h.value() + delta.x())
-                if v:
-                    v.setValue(v.value() + delta.y())
-                return True
-
-        if event.type() == QEvent.Type.MouseButtonRelease:
-            me: QMouseEvent = event  # type: ignore[assignment]
-            if me.button() == Qt.MouseButton.MiddleButton:
-                self._pan_active = False
-                vp.setCursor(Qt.CursorShape.ArrowCursor)
-                return True
-
-        return False
-
-    def _media_refresh(self, obj: object) -> None:
-        if obj is self._image_scroll.viewport():
-            self._rescale_image()
-        elif obj is self._pdf_scroll.viewport():
-            self._render_pdf_page()
+        new_value = int(ratio * editor_sb.maximum())
+        editor_sb.setValue(new_value)
 
     # ------------------------------------------------------------------
     # Clickable link navigation (hover underline + click to open)
     # ------------------------------------------------------------------
 
-    _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
-    _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
-
     @classmethod
     def _link_range_at(cls, pos_in_block: int, text: str) -> tuple[str, int, int] | None:
-        """Return (target, start, end) if *pos_in_block* falls inside a
-        markdown link or wikilink, else None."""
         for m in cls._WIKILINK_RE.finditer(text):
             if m.start() <= pos_in_block <= m.end():
                 return (m.group(1).split("|")[0].strip(), m.start(), m.end())
@@ -1222,7 +669,6 @@ class EditorTab(QWidget):
     def _on_mouse_click(self, event: QMouseEvent) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
-
         pt = event.position().toPoint()
         cursor = self.editor.cursorForPosition(pt)
         block_text = cursor.block().text()
@@ -1233,10 +679,130 @@ class EditorTab(QWidget):
             return True
         return False
 
+    # ------------------------------------------------------------------
+    # Find bar
+    # ------------------------------------------------------------------
+
+    def _find_flags(self) -> QTextDocument.FindFlag | QTextDocument.FindFlags:
+        flags: QTextDocument.FindFlag = QTextDocument.FindFlag(0)
+        if self._find_case_btn.isChecked():
+            flags = QTextDocument.FindFlag.FindCaseSensitively  # type: ignore[assignment]
+        return flags  # type: ignore[return-value]
+
+    def _highlight_all_matches(self) -> None:
+        term = self._find_input.text()
+        if not term:
+            self._clear_highlights()
+            return
+        flags = self._find_flags()
+        doc = self.editor.document()
+        self._find_selections = []
+        cursor = QTextCursor(doc)
+        while True:
+            cursor = doc.find(term, cursor, flags)
+            if cursor.isNull():
+                break
+            fmt = QTextCharFormat()
+            fmt.setBackground(QColor(100, 100, 100))
+            sel = QTextEdit.ExtraSelection()
+            sel.format = fmt
+            sel.cursor = QTextCursor(cursor)
+            self._find_selections.append(sel)
+        self._apply_all_selections()
+        self._update_count_label()
+
+    def _update_count_label(self) -> None:
+        count = len(self._find_selections)
+        if count > 0:
+            cursor = self.editor.textCursor()
+            found = -1
+            cp = cursor.position()
+            anchor = cursor.anchor()
+            for i, sel in enumerate(self._find_selections):
+                if sel.cursor.selectionStart() <= cp and sel.cursor.selectionEnd() >= cp:
+                    found = i
+                    break
+                if sel.cursor.selectionStart() == cp and sel.cursor.selectionEnd() == anchor:
+                    found = i
+                    break
+            if found >= 0:
+                self._find_count_label.setText(f"{found + 1}/{count}")
+            else:
+                self._find_count_label.setText(f"0/{count}")
+        else:
+            self._find_count_label.setText("0/0")
+
+    def _clear_highlights(self) -> None:
+        self._find_selections = []
+        self._apply_all_selections()
+
+    def _on_find_text_changed(self, _text: str) -> None:
+        self._highlight_all_matches()
+        self._find_next()
+
+    def _find_next(self) -> None:
+        term = self._find_input.text()
+        if not term:
+            return
+        flags = self._find_flags()
+        found = self.editor.find(term, flags)
+        if not found:
+            cursor = self.editor.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
+            self.editor.setTextCursor(cursor)
+            self.editor.find(term, flags)
+        self._update_count_label()
+
+    def _find_prev(self) -> None:
+        term = self._find_input.text()
+        if not term:
+            return
+        flags = self._find_flags() | QTextDocument.FindFlag.FindBackward
+        found = self.editor.find(term, flags)
+        if not found:
+            cursor = self.editor.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            self.editor.setTextCursor(cursor)
+            self.editor.find(term, flags)
+        self._update_count_label()
+
+    def open_find(self) -> None:
+        self._find_bar.setVisible(True)
+        self._find_input.setFocus()
+        self._find_input.selectAll()
+        if self.editor.textCursor().hasSelection():
+            self._find_input.setText(self.editor.textCursor().selectedText())
+        self._find_selections = []
+
+    def close_find(self) -> None:
+        self._find_bar.setVisible(False)
+        self._clear_highlights()
+        self.editor.setFocus()
+
+    # ------------------------------------------------------------------
+    # Qt overrides
+    # ------------------------------------------------------------------
+
+    def eventFilter(self, obj: object, event: QEvent) -> bool:
+        if obj is self.editor:
+            if event.type() == QEvent.Type.Resize:
+                cr = self.editor.contentsRect()
+                self._line_number_area.setGeometry(
+                    QRect(cr.left(), cr.top(), self._line_number_area.sizeHint().width(), cr.height())
+                )
+                return super().eventFilter(obj, event)
+
+        elif obj is self._viewport:
+            if event.type() == QEvent.Type.MouseMove:
+                self._on_mouse_move(event)  # type: ignore[arg-type]
+            elif event.type() == QEvent.Type.MouseButtonRelease:
+                return self._on_mouse_click(event)  # type: ignore[arg-type]
+
+        elif obj is self._preview_stack and event.type() == QEvent.Type.Resize:
+            self._preview_timer.start()
+
+        return super().eventFilter(obj, event)
+
     def changeEvent(self, event) -> None:
         if event.type() == QEvent.Type.LanguageChange:
             self.title_changed.emit()
-        super().changeEvent(event)
-
-    def sizeHint(self) -> QSize:
-        return QSize(800, 600)
