@@ -10,6 +10,7 @@ from PySide6.QtGui import (
     QAction,
     QColor,
     QIcon,
+    QImage,
     QKeySequence,
     QPainter,
     QPixmap,
@@ -312,23 +313,30 @@ class MainWindow(QMainWindow):
     # Editor toolbar
     # ------------------------------------------------------------------
     def _make_colored_icon(self, name: str, color: QColor, size: int = 18) -> QIcon:
+        """Render an SVG icon tinted with *color*.
+
+        Uses QImage (ARGB32) so alpha is reliable on all platforms.
+        """
         path = str(_ICONS_DIR / f"{name}.svg")
         renderer = QSvgRenderer(path)
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(pixmap)
+
+        mask = QImage(size, size, QImage.Format.Format_ARGB32)
+        mask.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(mask)
         renderer.render(painter)
         painter.end()
 
-        coloured = QPixmap(size, size)
-        coloured.fill(color)
-        painter = QPainter(coloured)
+        result = QImage(size, size, QImage.Format.Format_ARGB32)
+        result.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(result)
+        painter.fillRect(result.rect(), color)
         painter.setCompositionMode(
             QPainter.CompositionMode.CompositionMode_DestinationIn
         )
-        painter.drawPixmap(0, 0, pixmap)
+        painter.drawImage(0, 0, mask)
         painter.end()
-        return QIcon(coloured)
+
+        return QIcon(QPixmap.fromImage(result))
 
     def _make_editor_toolbar(self) -> QWidget:
         icon_color = self._current_theme.icon_color

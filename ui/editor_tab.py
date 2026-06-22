@@ -51,7 +51,7 @@ class EditorTab(QWidget):
 
         self._file_path: Path | None = None
         self._modified = False
-        self._syncing_scroll = False
+        self._syncing_scroll = 0
         self._last_anchor: str = ""
         self._line_anchor_map: list[int] = []
         self._line_anchor_map_hash: int = 0
@@ -82,6 +82,7 @@ class EditorTab(QWidget):
 
         # --- Scroll sync ---
         self.editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
+        self.preview.verticalScrollBar().valueChanged.connect(self._on_preview_scrolled)
 
         # --- Debounce timer ---
         self._preview_timer = QTimer(self)
@@ -353,9 +354,9 @@ class EditorTab(QWidget):
             "</body>\n</html>"
         )
 
-        self._syncing_scroll = True
+        self._syncing_scroll += 1
         self.preview.setHtml(html)
-        self._syncing_scroll = False
+        self._syncing_scroll -= 1
 
         self._pending_sync_anchor = self._last_anchor
         self._sync_retries = 0
@@ -368,16 +369,16 @@ class EditorTab(QWidget):
         range yet, so we retry on subsequent event-loop ticks up to
         10 times.
         """
-        if self._syncing_scroll:
+        if self._syncing_scroll > 0:
             return
         anchor = self._pending_sync_anchor
         if not anchor:
             return
         preview_sb = self.preview.verticalScrollBar()
         if preview_sb.maximum() > 0:
-            self._syncing_scroll = True
+            self._syncing_scroll += 1
             self.preview.scrollToAnchor(anchor)
-            self._syncing_scroll = False
+            self._syncing_scroll -= 1
             self._pending_sync_anchor = ""
         else:
             if self._sync_retries < 10:
@@ -394,7 +395,7 @@ class EditorTab(QWidget):
         to the first visible line in the editor, then calls
         scrollToAnchor() on the preview.
         """
-        if self._syncing_scroll or not self._preview_visible:
+        if self._syncing_scroll > 0 or not self._preview_visible:
             return
         line_map = self._line_anchor_map
         if not line_map:
@@ -411,9 +412,29 @@ class EditorTab(QWidget):
         preview_sb = self.preview.verticalScrollBar()
         if preview_sb.maximum() <= 0:
             return
-        self._syncing_scroll = True
+        self._syncing_scroll += 1
         self.preview.scrollToAnchor(anchor)
-        self._syncing_scroll = False
+        self._syncing_scroll -= 1
+
+    def _on_preview_scrolled(self, _value: int = 0) -> None:
+        """Scroll the editor proportionally to match the preview position."""
+        if self._syncing_scroll > 0 or not self._preview_visible:
+            return
+        preview_sb = self.preview.verticalScrollBar()
+        max_pv = preview_sb.maximum()
+        if max_pv <= 0:
+            return
+        editor_sb = self.editor.verticalScrollBar()
+        max_ed = editor_sb.maximum()
+        if max_ed <= 0:
+            return
+        ratio = preview_sb.value() / max_pv
+        target = int(ratio * max_ed)
+        if abs(editor_sb.value() - target) < 5:
+            return
+        self._syncing_scroll += 1
+        editor_sb.setValue(target)
+        self._syncing_scroll -= 1
 
     # ------------------------------------------------------------------
     # Qt overrides
