@@ -181,7 +181,6 @@ QMenu::item:selected {
 QToolTip {
     background: ${TOOLTIP_BASE};
     color: ${TOOLTIP_TEXT};
-    border: 1px solid ${MID};
-    border-radius: 4px;
+    border: none;
     padding: 4px 8px;
 }

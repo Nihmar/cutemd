@@ -10,7 +10,6 @@ from PySide6.QtGui import (
     QAction,
     QColor,
     QIcon,
-    QImage,
     QKeySequence,
     QPainter,
     QPixmap,
@@ -313,30 +312,25 @@ class MainWindow(QMainWindow):
     # Editor toolbar
     # ------------------------------------------------------------------
     def _make_colored_icon(self, name: str, color: QColor, size: int = 18) -> QIcon:
-        """Render an SVG icon tinted with *color*.
-
-        Uses QImage (ARGB32) so alpha is reliable on all platforms.
-        """
+        """Render an SVG icon tinted with *color*."""
         path = str(_ICONS_DIR / f"{name}.svg")
         renderer = QSvgRenderer(path)
 
-        mask = QImage(size, size, QImage.Format.Format_ARGB32)
-        mask.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(mask)
+        svg = QPixmap(size, size)
+        svg.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(svg)
         renderer.render(painter)
         painter.end()
 
-        result = QImage(size, size, QImage.Format.Format_ARGB32)
+        result = QPixmap(size, size)
         result.fill(Qt.GlobalColor.transparent)
         painter = QPainter(result)
+        painter.drawPixmap(0, 0, svg)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
         painter.fillRect(result.rect(), color)
-        painter.setCompositionMode(
-            QPainter.CompositionMode.CompositionMode_DestinationIn
-        )
-        painter.drawImage(0, 0, mask)
         painter.end()
 
-        return QIcon(QPixmap.fromImage(result))
+        return QIcon(result)
 
     def _make_editor_toolbar(self) -> QWidget:
         icon_color = self._current_theme.icon_color
@@ -379,32 +373,32 @@ class MainWindow(QMainWindow):
         _sep()
 
         # --- Blocks: lists ---
-        _btn("list-unordered", "- ", self.tr("Unordered list"))
-        _btn("list-ordered", "1. ", self.tr("Ordered list"))
-        _btn("list-task", "- [ ] ", self.tr("Task list"))
+        _btn("list-unordered", "- ", self.tr("Unordered list (- )"))
+        _btn("list-ordered", "1. ", self.tr("Ordered list (1. )"))
+        _btn("list-task", "- [ ] ", self.tr("Task list (- [ ])"))
         _sep()
 
         # --- Blocks: other ---
-        _btn("quote", "> ", self.tr("Blockquote"))
-        _btn("code-block", "```", self.tr("Code block"))
+        _btn("quote", "> ", self.tr("Blockquote (> )"))
+        _btn("code-block", "```", self.tr("Code block (```)"))
         _btn(
             "table",
             "\n| Col 1 | Col 2 |\n|------|------|\n|      |      |\n",
             self.tr("Insert table"),
         )
-        _btn("hr", "---\n", self.tr("Horizontal rule"))
+        _btn("hr", "---\n", self.tr("Horizontal rule (---)"))
         _sep()
 
         # --- Inline ---
-        _btn("bold", "**", self.tr("Bold"))
-        _btn("italic", "*", self.tr("Italic"))
-        _btn("strikethrough", "~~", self.tr("Strikethrough"))
-        _btn("code", "`", self.tr("Inline code"))
+        _btn("bold", "**", self.tr("Bold (**text**)"))
+        _btn("italic", "*", self.tr("Italic (*text*)"))
+        _btn("strikethrough", "~~", self.tr("Strikethrough (~~text~~)"))
+        _btn("code", "`", self.tr("Inline code (`text`)"))
         _sep()
 
         # --- Links & media ---
-        _btn("link", "[]()", self.tr("Insert link"))
-        _btn("image", "![]()", self.tr("Insert image"))
+        _btn("link", "[]()", self.tr("Insert link ([]())"))
+        _btn("image", "![]()", self.tr("Insert image (![]())"))
 
         layout.addStretch()
         return tb
@@ -816,19 +810,19 @@ class MainWindow(QMainWindow):
         # Toolbar tooltips
         self._heading_combo.setToolTip(self.tr("Heading level"))
         tips = [
-            self.tr("Unordered list"),
-            self.tr("Ordered list"),
-            self.tr("Task list"),
-            self.tr("Blockquote"),
-            self.tr("Code block"),
+            self.tr("Unordered list (- )"),
+            self.tr("Ordered list (1. )"),
+            self.tr("Task list (- [ ])"),
+            self.tr("Blockquote (> )"),
+            self.tr("Code block (```)"),
             self.tr("Insert table"),
-            self.tr("Horizontal rule"),
-            self.tr("Bold"),
-            self.tr("Italic"),
-            self.tr("Strikethrough"),
-            self.tr("Inline code"),
-            self.tr("Insert link"),
-            self.tr("Insert image"),
+            self.tr("Horizontal rule (---)"),
+            self.tr("Bold (**text**)"),
+            self.tr("Italic (*text*)"),
+            self.tr("Strikethrough (~~text~~)"),
+            self.tr("Inline code (`text`)"),
+            self.tr("Insert link ([]())"),
+            self.tr("Insert image (![]())"),
         ]
         for (btn, _), tip in zip(self._toolbar_buttons, tips):
             btn.setToolTip(tip)

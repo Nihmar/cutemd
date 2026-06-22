@@ -314,7 +314,7 @@ def system_theme() -> Theme:
             midlight=QColor(50, 50, 50),
             dark=QColor(120, 120, 120),
             link=QColor(42, 130, 218),
-            tooltip_base=QColor(208, 208, 208),
-            tooltip_text=QColor(208, 208, 208),
+            tooltip_base=QColor(45, 45, 45),
+            tooltip_text=QColor(235, 235, 235),
         )
     return SYSTEM

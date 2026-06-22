@@ -50,7 +50,8 @@ class EditorTab(QWidget):
         self._theme = theme
 
         self._file_path: Path | None = None
-        self._modified = False
+        self._saved_text: str = ""
+        self._dirty = False
         self._syncing_scroll = 0
         self._last_anchor: str = ""
         self._line_anchor_map: list[int] = []
@@ -109,12 +110,12 @@ class EditorTab(QWidget):
 
     @property
     def is_modified(self) -> bool:
-        return self._modified
+        return self.editor.toPlainText() != self._saved_text
 
     def display_name(self) -> str:
         """Tab title: file name or 'Untitled' with optional *."""
         name = self._file_path.name if self._file_path else self.tr("Untitled")
-        return f"{name} *" if self._modified else name
+        return f"{name} *" if self.is_modified else name
 
     def tooltip(self) -> str:
         """Full path for the tab tooltip."""
@@ -162,7 +163,8 @@ class EditorTab(QWidget):
             return
         self.editor.setPlainText(text)
         self._file_path = path
-        self._set_modified(False)
+        self._saved_text = text
+        self.title_changed.emit()
 
     def save(self) -> bool:
         """Save to the current path.  Returns True on success."""
@@ -176,7 +178,7 @@ class EditorTab(QWidget):
 
     def maybe_save(self) -> bool:
         """Ask to save if modified.  Returns False if user cancels."""
-        if not self._modified:
+        if not self.is_modified:
             return True
         name = self._file_path.name if self._file_path else self.tr("Untitled")
         ret = QMessageBox.question(
@@ -193,7 +195,7 @@ class EditorTab(QWidget):
             else:
                 # The caller should handle Save As for untitled files
                 return False
-            return not self._modified
+            return not self.is_modified
         return ret != QMessageBox.StandardButton.Cancel
 
     # ------------------------------------------------------------------
@@ -209,7 +211,8 @@ class EditorTab(QWidget):
 
     def _write_file(self, path: Path) -> bool:
         try:
-            path.write_text(self.editor.toPlainText(), encoding="utf-8")
+            text = self.editor.toPlainText()
+            path.write_text(text, encoding="utf-8")
         except OSError as e:
             QMessageBox.critical(
                 self,
@@ -218,17 +221,20 @@ class EditorTab(QWidget):
             )
             return False
         self._file_path = path
-        self._set_modified(False)
+        self._saved_text = text
+        self.title_changed.emit()
         return True
 
-    def _set_modified(self, value: bool) -> None:
-        if value != self._modified:
-            self._modified = value
-            self.modified_changed.emit(value)
+    def _check_modified(self) -> None:
+        """Emit modified_changed if the dirty state toggled."""
+        dirty = self.editor.toPlainText() != self._saved_text
+        if dirty != getattr(self, "_dirty", False):
+            self._dirty = dirty
+            self.modified_changed.emit(dirty)
             self.title_changed.emit()
 
     def _on_text_changed(self) -> None:
-        self._set_modified(True)
+        self._check_modified()
         self._preview_timer.start()
         self._emit_status()
         self._line_anchor_map_hash = 0
