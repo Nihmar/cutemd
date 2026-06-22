@@ -437,7 +437,38 @@ class EditorTab(QWidget):
     _PDF_EXTS = frozenset({".pdf"})
 
     _PARA_IMG_RE = re.compile(r'<p>\s*(<a\b[^>]*></a>)?\s*(<img\b[^>]+>)\s*</p>')
+    _IMG_DIMS_RE = re.compile(r'(<img\s+)(src="([^"]*)")')
     _WIKILINK_IMG_RE = re.compile(r'!\[\[([^\]]+?)(?:\|([^\]]*?))?\]\]')
+
+    @staticmethod
+    def _add_img_dims(html: str, base_dir: Path, max_width: int) -> str:
+        """Add width/height attributes to local <img> tags so QTextDocument
+        uses the correct size during layout."""
+        def _repl(m: re.Match) -> str:
+            prefix = m.group(1)
+            src_attr = m.group(2)
+            src = m.group(3)
+            if not src or "://" in src or src.startswith("data:") or src.startswith("file:"):
+                return m.group(0)
+            p = Path(src)
+            if p.is_absolute():
+                return m.group(0)
+            resolved = (base_dir / p).resolve()
+            if not resolved.exists():
+                found = EditorTab._search_image(p.name, base_dir)
+                if found:
+                    resolved = found
+                else:
+                    return m.group(0)
+            try:
+                img = QImage(str(resolved))
+            except Exception:
+                return m.group(0)
+            if img.isNull():
+                return m.group(0)
+            img = EditorTab._fit_image(img, max_width)
+            return f'{prefix}{src_attr} width="{img.width()}" height="{img.height()}"'
+        return EditorTab._IMG_DIMS_RE.sub(_repl, html)
 
     @staticmethod
     def _preprocess_wikilink_images(text: str) -> str:
@@ -832,6 +863,7 @@ class EditorTab(QWidget):
 
         base_dir = self._file_path.parent if self._file_path else Path.cwd()
         self.preview.set_base_dir(base_dir)
+        body_html = self._add_img_dims(body_html, base_dir, max_width=max(pw, 200))
         body_html = EditorTab._PARA_IMG_RE.sub(
             r'<p style="margin:0;padding:0;">\2</p>', body_html
         )
