@@ -39,6 +39,10 @@ class _ExtraSelection:
     """Lightweight replacement for QPlainTextEdit.ExtraSelection (not exposed in PySide6)."""
     __slots__ = ("format", "cursor")
 
+    def __init__(self) -> None:
+        self.format = QTextCharFormat()
+        self.cursor = QTextCursor()
+
 
 class LineNumberArea(QWidget):
     """Widget that paints line numbers alongside the editor.
