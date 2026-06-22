@@ -436,6 +436,7 @@ class EditorTab(QWidget):
     _IMG_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"})
     _PDF_EXTS = frozenset({".pdf"})
 
+    _PARA_IMG_RE = re.compile(r'<p>\s*(<img\s[^>]+>)\s*</p>')
     _WIKILINK_IMG_RE = re.compile(r'!\[\[([^\]]+?)(?:\|([^\]]*?))?\]\]')
 
     @staticmethod
@@ -832,6 +833,7 @@ class EditorTab(QWidget):
 
         base_dir = self._file_path.parent if self._file_path else Path.cwd()
         self.preview.set_base_dir(base_dir)
+        body_html = EditorTab._PARA_IMG_RE.sub(r'\1', body_html)
 
         theme_class = "dark" if self._theme == "dark" else "light"
 
