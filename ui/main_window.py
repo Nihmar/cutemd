@@ -532,46 +532,52 @@ class MainWindow(QMainWindow):
         """Right-click menu on the editor with formatting actions."""
         menu = QMenu(self)
 
-        menu.addAction(self.tr("Bold")).triggered.connect(lambda: self._insert_md("**"))
-        menu.addAction(self.tr("Italic")).triggered.connect(
+        inline_menu = menu.addMenu(self.tr("Inline &Formatting"))
+        inline_menu.addAction(self.tr("&Bold")).triggered.connect(
+            lambda: self._insert_md("**")
+        )
+        inline_menu.addAction(self.tr("&Italic")).triggered.connect(
             lambda: self._insert_md("*")
         )
-        menu.addAction(self.tr("Strikethrough")).triggered.connect(
+        inline_menu.addAction(self.tr("&Strikethrough")).triggered.connect(
             lambda: self._insert_md("~~")
         )
-        menu.addAction(self.tr("Inline code")).triggered.connect(
+        inline_menu.addAction(self.tr("Inline &Code")).triggered.connect(
             lambda: self._insert_md("`")
         )
-        menu.addSeparator()
-        menu.addAction(self.tr("Unordered list")).triggered.connect(
+
+        lists_menu = menu.addMenu(self.tr("&Lists"))
+        lists_menu.addAction(self.tr("&Unordered list")).triggered.connect(
             lambda: self._insert_md("- ")
         )
-        menu.addAction(self.tr("Ordered list")).triggered.connect(
+        lists_menu.addAction(self.tr("&Ordered list")).triggered.connect(
             lambda: self._insert_md("1. ")
         )
-        menu.addAction(self.tr("Task list")).triggered.connect(
+        lists_menu.addAction(self.tr("&Task list")).triggered.connect(
             lambda: self._insert_md("- [ ] ")
         )
-        menu.addSeparator()
-        menu.addAction(self.tr("Blockquote")).triggered.connect(
+
+        blocks_menu = menu.addMenu(self.tr("&Blocks"))
+        blocks_menu.addAction(self.tr("Block&quote")).triggered.connect(
             lambda: self._insert_md("> ")
         )
-        menu.addAction(self.tr("Code block")).triggered.connect(
+        blocks_menu.addAction(self.tr("Code &block")).triggered.connect(
             lambda: self._insert_md("```")
         )
-        menu.addAction(self.tr("Table")).triggered.connect(
+        blocks_menu.addAction(self.tr("&Table")).triggered.connect(
             lambda: self._insert_md(
                 "\n| Col 1 | Col 2 |\n|------|------|\n|      |      |\n"
             )
         )
-        menu.addAction(self.tr("Horizontal rule")).triggered.connect(
+        blocks_menu.addAction(self.tr("&Horizontal rule")).triggered.connect(
             lambda: self._insert_md("---\n")
         )
-        menu.addSeparator()
-        menu.addAction(self.tr("Insert link")).triggered.connect(
+
+        insert_menu = menu.addMenu(self.tr("&Insert"))
+        insert_menu.addAction(self.tr("&Link")).triggered.connect(
             lambda: self._insert_md("[]()")
         )
-        menu.addAction(self.tr("Insert image")).triggered.connect(
+        insert_menu.addAction(self.tr("&Image")).triggered.connect(
             lambda: self._insert_md("![]()")
         )
 

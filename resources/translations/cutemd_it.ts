@@ -4,81 +4,81 @@
 <context>
     <name>EditorTab</name>
     <message>
-        <location filename="../../ui/editor_tab.py" line="204"/>
+        <location filename="../../ui/editor_tab.py" line="210"/>
         <source>Find…</source>
         <translation>Cerca…</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="215"/>
+        <location filename="../../ui/editor_tab.py" line="221"/>
         <source>Match case</source>
         <translation>Maiuscole/minuscole</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="221"/>
+        <location filename="../../ui/editor_tab.py" line="227"/>
         <source>Previous match</source>
         <translation>Precedente</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="227"/>
+        <location filename="../../ui/editor_tab.py" line="233"/>
         <source>Next match</source>
         <translation>Successivo</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="233"/>
+        <location filename="../../ui/editor_tab.py" line="239"/>
         <source>Close find bar</source>
         <translation>Chiudi ricerca</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="262"/>
-        <location filename="../../ui/editor_tab.py" line="267"/>
-        <location filename="../../ui/editor_tab.py" line="333"/>
+        <location filename="../../ui/editor_tab.py" line="268"/>
+        <location filename="../../ui/editor_tab.py" line="273"/>
+        <location filename="../../ui/editor_tab.py" line="339"/>
         <source>Untitled</source>
         <translation>Senza titolo</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="310"/>
-        <location filename="../../ui/editor_tab.py" line="412"/>
+        <location filename="../../ui/editor_tab.py" line="316"/>
+        <location filename="../../ui/editor_tab.py" line="418"/>
         <source>Error</source>
         <translation>Errore</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="311"/>
+        <location filename="../../ui/editor_tab.py" line="317"/>
         <source>Could not open file:
 {}</source>
         <translation>Impossibile aprire il file:
 {}</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="336"/>
+        <location filename="../../ui/editor_tab.py" line="342"/>
         <source>Unsaved changes</source>
         <translation>Modifiche non salvate</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="337"/>
+        <location filename="../../ui/editor_tab.py" line="343"/>
         <source>&quot;{}&quot; has been modified.
 Save changes?</source>
         <translation>&quot;{}&quot; è stato modificato.
 Salvare le modifiche?</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="413"/>
+        <location filename="../../ui/editor_tab.py" line="419"/>
         <source>Could not save file:
 {}</source>
         <translation>Impossibile salvare il file:
 {}</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="442"/>
+        <location filename="../../ui/editor_tab.py" line="448"/>
         <source>Ln {}, Col {}</source>
         <translation>Riga {}, Col. {}</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="443"/>
+        <location filename="../../ui/editor_tab.py" line="449"/>
         <source>{} words</source>
         <translation>{} parole</translation>
     </message>
     <message>
-        <location filename="../../ui/editor_tab.py" line="685"/>
+        <location filename="../../ui/editor_tab.py" line="691"/>
         <source>{}/{}</source>
         <translation>{}/{}</translation>
     </message>
@@ -106,187 +106,187 @@ Salvare le modifiche?</translation>
     <name>MainWindow</name>
     <message>
         <location filename="../../ui/main_window.py" line="127"/>
-        <location filename="../../ui/main_window.py" line="913"/>
+        <location filename="../../ui/main_window.py" line="919"/>
         <source>Open &amp;Folder…</source>
         <translation>Apri &amp;Cartella…</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="131"/>
-        <location filename="../../ui/main_window.py" line="914"/>
+        <location filename="../../ui/main_window.py" line="920"/>
         <source>Close Folder</source>
         <translation>Chiudi Cartella</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="134"/>
-        <location filename="../../ui/main_window.py" line="915"/>
+        <location filename="../../ui/main_window.py" line="921"/>
         <source>&amp;New File…</source>
         <translation>&amp;Nuovo File…</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="138"/>
-        <location filename="../../ui/main_window.py" line="916"/>
+        <location filename="../../ui/main_window.py" line="922"/>
         <source>&amp;Save</source>
         <translation>&amp;Salva</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="142"/>
-        <location filename="../../ui/main_window.py" line="917"/>
+        <location filename="../../ui/main_window.py" line="923"/>
         <source>Save &amp;As…</source>
         <translation>Salva &amp;Come…</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="146"/>
-        <location filename="../../ui/main_window.py" line="918"/>
+        <location filename="../../ui/main_window.py" line="924"/>
         <source>Close Tab</source>
         <translation>Chiudi Scheda</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="150"/>
-        <location filename="../../ui/main_window.py" line="919"/>
+        <location filename="../../ui/main_window.py" line="925"/>
         <source>E&amp;xit</source>
         <translation>E&amp;sci</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="155"/>
-        <location filename="../../ui/main_window.py" line="920"/>
+        <location filename="../../ui/main_window.py" line="926"/>
         <source>&amp;Undo</source>
         <translation>&amp;Annulla</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="158"/>
-        <location filename="../../ui/main_window.py" line="921"/>
+        <location filename="../../ui/main_window.py" line="927"/>
         <source>&amp;Redo</source>
         <translation>&amp;Ripeti</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="161"/>
-        <location filename="../../ui/main_window.py" line="922"/>
+        <location filename="../../ui/main_window.py" line="928"/>
         <source>&amp;Find…</source>
         <translation>&amp;Cerca…</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="165"/>
-        <location filename="../../ui/main_window.py" line="923"/>
+        <location filename="../../ui/main_window.py" line="929"/>
         <source>Find in &amp;Files…</source>
         <translation>Cerca nei &amp;File…</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="172"/>
-        <location filename="../../ui/main_window.py" line="924"/>
+        <location filename="../../ui/main_window.py" line="930"/>
         <source>Toggle &amp;Preview</source>
         <translation>Mostra/Nascondi &amp;Anteprima</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="177"/>
-        <location filename="../../ui/main_window.py" line="925"/>
+        <location filename="../../ui/main_window.py" line="931"/>
         <source>Toggle Split &amp;Orientation</source>
         <translation>Cambia &amp;Orientamento</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="180"/>
-        <location filename="../../ui/main_window.py" line="926"/>
+        <location filename="../../ui/main_window.py" line="932"/>
         <source>&amp;Settings…</source>
         <translation>&amp;Impostazioni…</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="189"/>
-        <location filename="../../ui/main_window.py" line="929"/>
+        <location filename="../../ui/main_window.py" line="935"/>
         <source>&amp;File</source>
         <translation>&amp;File</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="201"/>
-        <location filename="../../ui/main_window.py" line="930"/>
+        <location filename="../../ui/main_window.py" line="936"/>
         <source>&amp;Edit</source>
         <translation>&amp;Modifica</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="208"/>
-        <location filename="../../ui/main_window.py" line="931"/>
+        <location filename="../../ui/main_window.py" line="937"/>
         <source>&amp;View</source>
         <translation>&amp;Visualizza</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="212"/>
-        <location filename="../../ui/main_window.py" line="932"/>
+        <location filename="../../ui/main_window.py" line="938"/>
         <source>&amp;Settings</source>
         <translation>&amp;Impostazioni</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="397"/>
-        <location filename="../../ui/main_window.py" line="935"/>
+        <location filename="../../ui/main_window.py" line="941"/>
         <source>Heading level</source>
         <translation>Livello intestazione</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="407"/>
-        <location filename="../../ui/main_window.py" line="937"/>
+        <location filename="../../ui/main_window.py" line="943"/>
         <source>Unordered list (- )</source>
         <translation>Elenco puntato (- )</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="408"/>
-        <location filename="../../ui/main_window.py" line="938"/>
+        <location filename="../../ui/main_window.py" line="944"/>
         <source>Ordered list (1. )</source>
         <translation>Elenco numerato (1. )</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="409"/>
-        <location filename="../../ui/main_window.py" line="939"/>
+        <location filename="../../ui/main_window.py" line="945"/>
         <source>Task list (- [ ])</source>
         <translation>Elenco attività (- [ ])</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="413"/>
-        <location filename="../../ui/main_window.py" line="940"/>
+        <location filename="../../ui/main_window.py" line="946"/>
         <source>Blockquote (&gt; )</source>
         <translation>Citazione (&gt; )</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="414"/>
-        <location filename="../../ui/main_window.py" line="941"/>
+        <location filename="../../ui/main_window.py" line="947"/>
         <source>Code block (```)</source>
         <translation>Blocco codice (```)</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="420"/>
-        <location filename="../../ui/main_window.py" line="943"/>
+        <location filename="../../ui/main_window.py" line="949"/>
         <source>Horizontal rule (---)</source>
         <translation>Linea orizzontale (---)</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="424"/>
-        <location filename="../../ui/main_window.py" line="944"/>
+        <location filename="../../ui/main_window.py" line="950"/>
         <source>Bold (**text**)</source>
         <translation>Grassetto (**testo**)</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="425"/>
-        <location filename="../../ui/main_window.py" line="945"/>
+        <location filename="../../ui/main_window.py" line="951"/>
         <source>Italic (*text*)</source>
         <translation>Corsivo (*testo*)</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="426"/>
-        <location filename="../../ui/main_window.py" line="946"/>
+        <location filename="../../ui/main_window.py" line="952"/>
         <source>Strikethrough (~~text~~)</source>
         <translation>Barrato (~~testo~~)</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="427"/>
-        <location filename="../../ui/main_window.py" line="947"/>
+        <location filename="../../ui/main_window.py" line="953"/>
         <source>Inline code (`text`)</source>
         <translation>Codice inline (`testo`)</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="431"/>
-        <location filename="../../ui/main_window.py" line="948"/>
+        <location filename="../../ui/main_window.py" line="954"/>
         <source>Insert link ([]())</source>
         <translation>Inserisci link ([]())</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="432"/>
-        <location filename="../../ui/main_window.py" line="949"/>
+        <location filename="../../ui/main_window.py" line="955"/>
         <source>Insert image (![]())</source>
         <translation>Inserisci immagine (![]())</translation>
     </message>
@@ -301,80 +301,100 @@ Salvare le modifiche?</translation>
         <translation>Maiuscole/minuscole</translation>
     </message>
     <message>
-        <location filename="../../ui/main_window.py" line="546"/>
-        <source>Unordered list</source>
-        <translation>Elenco puntato</translation>
+        <location filename="../../ui/main_window.py" line="535"/>
+        <source>Inline &amp;Formatting</source>
+        <translation>&amp;Formattazione inline</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="536"/>
+        <source>&amp;Bold</source>
+        <translation>&amp;Grassetto</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="539"/>
+        <source>&amp;Italic</source>
+        <translation>&amp;Corsivo</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="542"/>
+        <source>&amp;Strikethrough</source>
+        <translation>&amp;Barrato</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="545"/>
+        <source>Inline &amp;Code</source>
+        <translation>Codice &amp;inline</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="549"/>
-        <source>Ordered list</source>
-        <translation>Elenco numerato</translation>
+        <source>&amp;Lists</source>
+        <translation>E&amp;lenchi</translation>
     </message>
     <message>
-        <location filename="../../ui/main_window.py" line="552"/>
-        <source>Task list</source>
-        <translation>Elenco attività</translation>
+        <location filename="../../ui/main_window.py" line="550"/>
+        <source>&amp;Unordered list</source>
+        <translation>Elen&amp;co puntato</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="553"/>
+        <source>&amp;Ordered list</source>
+        <translation>Elenco &amp;numerato</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="556"/>
-        <source>Blockquote</source>
-        <translation>Citazione</translation>
+        <source>&amp;Task list</source>
+        <translation>Elenco a&amp;ttività</translation>
     </message>
     <message>
-        <location filename="../../ui/main_window.py" line="559"/>
-        <source>Code block</source>
-        <translation>Blocco codice</translation>
+        <location filename="../../ui/main_window.py" line="560"/>
+        <source>&amp;Blocks</source>
+        <translation>&amp;Blocchi</translation>
     </message>
     <message>
-        <location filename="../../ui/main_window.py" line="418"/>
-        <location filename="../../ui/main_window.py" line="942"/>
-        <source>Insert table</source>
-        <translation>Inserisci tabella</translation>
+        <location filename="../../ui/main_window.py" line="561"/>
+        <source>Block&amp;quote</source>
+        <translation>Cita&amp;zione</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="564"/>
+        <source>Code &amp;block</source>
+        <translation>Blocco &amp;codice</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="567"/>
-        <source>Horizontal rule</source>
-        <translation>Linea orizzontale</translation>
+        <source>&amp;Table</source>
+        <translation>&amp;Tabella</translation>
     </message>
     <message>
-        <location filename="../../ui/main_window.py" line="535"/>
-        <source>Bold</source>
-        <translation>Grassetto</translation>
+        <location filename="../../ui/main_window.py" line="572"/>
+        <source>&amp;Horizontal rule</source>
+        <translation>Linea &amp;orizzontale</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="576"/>
+        <source>&amp;Insert</source>
+        <translation>&amp;Inserisci</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="577"/>
+        <source>&amp;Link</source>
+        <translation>&amp;Link</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="580"/>
+        <source>&amp;Image</source>
+        <translation>&amp;Immagine</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="418"/>
+        <location filename="../../ui/main_window.py" line="948"/>
+        <source>Insert table</source>
+        <translation>Inserisci tabella</translation>
     </message>
     <message>
         <location filename="../../ui/main_window.py" line="464"/>
         <source>Search…</source>
         <translation>Cerca…</translation>
-    </message>
-    <message>
-        <location filename="../../ui/main_window.py" line="536"/>
-        <source>Italic</source>
-        <translation>Corsivo</translation>
-    </message>
-    <message>
-        <location filename="../../ui/main_window.py" line="539"/>
-        <source>Strikethrough</source>
-        <translation>Barrato</translation>
-    </message>
-    <message>
-        <location filename="../../ui/main_window.py" line="542"/>
-        <source>Inline code</source>
-        <translation>Codice inline</translation>
-    </message>
-    <message>
-        <location filename="../../ui/main_window.py" line="571"/>
-        <source>Insert link</source>
-        <translation>Inserisci link</translation>
-    </message>
-    <message>
-        <location filename="../../ui/main_window.py" line="574"/>
-        <source>Insert image</source>
-        <translation>Inserisci immagine</translation>
-    </message>
-    <message>
-        <location filename="../../ui/main_window.py" line="562"/>
-        <source>Table</source>
-        <translation>Tabella</translation>
     </message>
 </context>
 <context>
