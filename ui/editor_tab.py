@@ -47,20 +47,52 @@ from ui.syntax_highlighter import MarkdownHighlighter
 
 
 class PreviewTextBrowser(QTextBrowser):
-    """QTextBrowser that loads images from a local cache dict."""
+    """QTextBrowser that loads local images via loadResource() override."""
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._base_dir: Path | None = None
         self._image_cache: dict[tuple[int, str], QImage] = {}
 
+    def set_base_dir(self, d: Path) -> None:
+        resolved = d.resolve()
+        if self._base_dir != resolved:
+            self._image_cache.clear()
+            self._base_dir = resolved
+
+    @property
+    def _max_width(self) -> int:
+        return max(self.width(), 200)
+
     def loadResource(self, resource_type: int, url: QUrl):
-        key = (resource_type, url.toString())
-        img = self._image_cache.get(key)
-        if img is not None:
-            return img
+        url_str = url.toString()
+        cache_key = (resource_type, url_str)
+        full = self._image_cache.get(cache_key)
+        if full is not None:
+            return EditorTab._fit_image(full, self._max_width)
+
+        if resource_type == int(QTextDocument.ImageResource) and self._base_dir is not None:
+            resolved = self._resolve_image_path(url_str)
+            if resolved is not None:
+                try:
+                    img = QImage(str(resolved))
+                except Exception:
+                    img = QImage()
+                if not img.isNull():
+                    self._image_cache[cache_key] = img
+                    return EditorTab._fit_image(img, self._max_width)
+
         return super().loadResource(resource_type, url)
 
-    def cache_image(self, resource_type: int, url: QUrl, img: QImage) -> None:
-        self._image_cache[(resource_type, url.toString())] = img
+    def _resolve_image_path(self, src: str) -> Path | None:
+        p = Path(src)
+        if "://" in src or src.startswith("data:") or src.startswith("file:"):
+            return None
+        if p.is_absolute():
+            return p if p.is_file() else None
+        resolved = (self._base_dir / p).resolve()
+        if resolved.is_file():
+            return resolved
+        return EditorTab._search_image(p.name, self._base_dir)
 
 
 
@@ -404,8 +436,6 @@ class EditorTab(QWidget):
     _IMG_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"})
     _PDF_EXTS = frozenset({".pdf"})
 
-    _IMG_SRC_RE = re.compile(r'<img\s+src="([^"]*)"')
-    _P_IMG_P_RE = re.compile(r'<p>(<img\s[^>]+>)</p>')
     _WIKILINK_IMG_RE = re.compile(r'!\[\[([^\]]+?)(?:\|([^\]]*?))?\]\]')
 
     @staticmethod
@@ -458,44 +488,6 @@ class EditorTab(QWidget):
         if img.width() <= max_width:
             return img
         return img.scaledToWidth(max_width, Qt.TransformationMode.SmoothTransformation)
-
-    @staticmethod
-    def _extract_images(html: str, base_dir: Path, max_width: int = 800) -> tuple[str, list[tuple[str, QImage]]]:
-        """Replace relative <img src='...'> with cache keys and return
-        the modified HTML plus a list of (key, QImage) to add to the
-        document resource cache."""
-        resources: list[tuple[str, QImage]] = []
-        img_count = 0
-        def _repl(m: re.Match) -> str:
-            nonlocal img_count
-            src = m.group(1)
-            if not src or "://" in src or src.startswith("data:") or src.startswith("file:"):
-                return m.group(0)
-            p = Path(src)
-            if p.is_absolute():
-                return m.group(0)
-            resolved = (base_dir / p).resolve()
-            if not resolved.exists():
-                found = EditorTab._search_image(p.name, base_dir)
-                if found:
-                    resolved = found
-                else:
-                    return m.group(0)
-            if not resolved.exists():
-                return m.group(0)
-            try:
-                img = QImage(str(resolved))
-            except Exception:
-                img = QImage()
-            if img.isNull():
-                return m.group(0)
-            img = EditorTab._fit_image(img, max_width)
-            key = f"_cutemd_img_{img_count}"
-            img_count += 1
-            resources.append((key, img))
-            return f'<img src="{key}" width="{img.width()}" height="{img.height()}" style="margin:0;display:block">'
-        html = EditorTab._IMG_SRC_RE.sub(_repl, html)
-        return html, resources
 
     def load_file(self, path: Path) -> None:
         """Load *path* into the editor, replacing current content."""
@@ -838,11 +830,8 @@ class EditorTab(QWidget):
                 + "</pre>"
             )
 
-        img_resources: list[tuple[str, QImage]] = []
         base_dir = self._file_path.parent if self._file_path else Path.cwd()
-        pw = self.preview.width()
-        body_html, img_resources = self._extract_images(body_html, base_dir, max_width=max(pw, 200))
-        body_html = EditorTab._P_IMG_P_RE.sub(r'\1', body_html)
+        self.preview.set_base_dir(base_dir)
 
         theme_class = "dark" if self._theme == "dark" else "light"
 
@@ -863,8 +852,6 @@ class EditorTab(QWidget):
         )
 
         self._syncing_scroll += 1
-        for key, img in img_resources:
-            self.preview.cache_image(QTextDocument.ImageResource, QUrl(key), img)
         self.preview.setHtml(html)
         self._syncing_scroll -= 1
 
