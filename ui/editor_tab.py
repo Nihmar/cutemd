@@ -854,12 +854,12 @@ class EditorTab(QWidget):
             "</body>\n</html>"
         )
 
-        _DUMP = Path.home() / "preview_dump.html"
-        _DUMP.write_text(html, encoding="utf-8")
-
         self._syncing_scroll += 1
         self.preview.setHtml(html)
         self._syncing_scroll -= 1
+
+        _DUMP = Path.home() / "preview_dump.html"
+        _DUMP.write_text(self.preview.toHtml(), encoding="utf-8")
 
         self._pending_sync_anchor = self._last_anchor
         self._sync_retries = 0
