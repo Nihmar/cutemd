@@ -9,20 +9,88 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
+    QWidget,
 )
 
 from ui.themes import ALL_THEMES, get_theme
 from ui.translations import LANGUAGES
 
 
-class _ScrollingCombo(QComboBox):
-    """QComboBox that limits popup height via setMaxVisibleItems."""
+class _FontPicker(QWidget):
+    """Search field + scrollable filtered list for font selection."""
+
+    _LIST_HEIGHT = 150
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+
+        self._edit = QLineEdit()
+        self._edit.setClearButtonEnabled(True)
+        lay.addWidget(self._edit)
+
+        self._list = QListWidget()
+        self._list.setFixedHeight(self._LIST_HEIGHT)
+        lay.addWidget(self._list)
+
+        self._edit.textChanged.connect(self._apply_filter)
+
+    # --- populate / select ---
+
+    def add_item(self, text: str, data: str) -> None:
+        item = QListWidgetItem(text)
+        item.setData(Qt.ItemDataRole.UserRole, data)
+        self._list.addItem(item)
+
+    def select_by_data(self, data: str) -> None:
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == data:
+                self._list.setCurrentRow(i)
+                self._list.scrollToItem(item)
+                return
+        if self._list.count():
+            self._list.setCurrentRow(0)
+
+    def select_first(self) -> None:
+        self._edit.clear()
+        if self._list.count():
+            self._list.setCurrentRow(0)
+            self._list.scrollToItem(self._list.item(0))
+
+    # --- filter ---
+
+    def _apply_filter(self, text: str) -> None:
+        ft = text.lower()
+        first_visible = None
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            visible = (not ft) or (ft in item.text().lower())
+            item.setHidden(not visible)
+            if visible and first_visible is None:
+                first_visible = item
+        # auto-select first visible when current selection is hidden
+        cur = self._list.currentItem()
+        if cur is None or cur.isHidden():
+            if first_visible is not None:
+                self._list.setCurrentItem(first_visible)
+                self._list.scrollToItem(first_visible)
+
+    # --- result ---
+
+    def current_data(self) -> str:
+        item = self._list.currentItem()
+        if item is not None:
+            return item.data(Qt.ItemDataRole.UserRole)
+        return "System"
 
 
 class SettingsDialog(QDialog):
@@ -90,8 +158,8 @@ class SettingsDialog(QDialog):
         editor_group = QGroupBox(self.tr("Editor"))
         editor_layout = QFormLayout(editor_group)
 
-        self._editor_font_combo = _ScrollingCombo()
-        self._populate_font_combo(self._editor_font_combo, current_editor_font)
+        self._editor_font_combo = _FontPicker()
+        self._populate_font_picker(self._editor_font_combo, current_editor_font)
         editor_layout.addRow(self.tr("Font family:"), self._editor_font_combo)
 
         self._editor_font_size = QSpinBox()
@@ -115,8 +183,8 @@ class SettingsDialog(QDialog):
         preview_group = QGroupBox(self.tr("Preview Font"))
         preview_layout = QFormLayout(preview_group)
 
-        self._preview_font_combo = _ScrollingCombo()
-        self._populate_font_combo(self._preview_font_combo, current_preview_font)
+        self._preview_font_combo = _FontPicker()
+        self._populate_font_picker(self._preview_font_combo, current_preview_font)
         preview_layout.addRow(self.tr("Family:"), self._preview_font_combo)
 
         self._preview_font_size = QSpinBox()
@@ -144,17 +212,14 @@ class SettingsDialog(QDialog):
     # Helpers
     # ------------------------------------------------------------------
 
-    def _populate_font_combo(self, combo: QComboBox, current: str) -> None:
-        """Fill a combo box with 'System' + all available font families."""
-        combo.addItem(self.tr("System"), "System")
+    def _populate_font_picker(self, picker: _FontPicker, current: str) -> None:
+        """Fill a font picker with 'System' + all available font families."""
+        picker._edit.setPlaceholderText(self.tr("Type to filter\u2026"))
+        picker.add_item(self.tr("System"), "System")
         db = QFontDatabase()
-        families = sorted(db.families())
-        for i, family in enumerate(families, start=1):
-            combo.addItem(family, family)
-            if family == current:
-                combo.setCurrentIndex(i)
-        # If current is "System" (or not found), leave at index 0
-        combo.setMaxVisibleItems(20)
+        for family in sorted(db.families()):
+            picker.add_item(family, family)
+        picker.select_by_data(current if current else "System")
 
     def _reset_defaults(self) -> None:
         """Reset all fields to their factory defaults."""
@@ -163,10 +228,10 @@ class SettingsDialog(QDialog):
             if self._theme_combo.itemData(i) == "system":
                 self._theme_combo.setCurrentIndex(i)
                 break
-        self._editor_font_combo.setCurrentIndex(0)
+        self._editor_font_combo.select_first()
         self._editor_font_size.setValue(11)
         self._line_number_combo.setCurrentIndex(1)  # all lines
-        self._preview_font_combo.setCurrentIndex(0)
+        self._preview_font_combo.select_first()
         self._preview_font_size.setValue(16)
 
     # ------------------------------------------------------------------
@@ -177,13 +242,13 @@ class SettingsDialog(QDialog):
         return self._theme_combo.currentData()
 
     def selected_editor_font(self) -> str:
-        return self._editor_font_combo.currentData()
+        return self._editor_font_combo.current_data()
 
     def selected_editor_font_size(self) -> int:
         return self._editor_font_size.value()
 
     def selected_preview_font(self) -> str:
-        return self._preview_font_combo.currentData()
+        return self._preview_font_combo.current_data()
 
     def selected_preview_font_size(self) -> int:
         return self._preview_font_size.value()
