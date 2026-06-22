@@ -47,6 +47,7 @@ class SettingsDialog(QDialog):
         current_preview_font: str,
         current_preview_font_size: int,
         current_language: str = "",
+        current_line_number_mode: int = 1,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -92,18 +93,28 @@ class SettingsDialog(QDialog):
         self._theme_combo.currentIndexChanged.connect(self._update_preview)
         layout.addWidget(theme_group)
 
-        # --- Editor Font section ---
-        editor_group = QGroupBox(self.tr("Editor Font"))
+        # --- Editor section ---
+        editor_group = QGroupBox(self.tr("Editor"))
         editor_layout = QFormLayout(editor_group)
 
         self._editor_font_combo = _ScrollingCombo()
         self._populate_font_combo(self._editor_font_combo, current_editor_font)
-        editor_layout.addRow(self.tr("Family:"), self._editor_font_combo)
+        editor_layout.addRow(self.tr("Font family:"), self._editor_font_combo)
 
         self._editor_font_size = QSpinBox()
         self._editor_font_size.setRange(8, 72)
         self._editor_font_size.setValue(current_editor_font_size)
-        editor_layout.addRow(self.tr("Size:"), self._editor_font_size)
+        editor_layout.addRow(self.tr("Font size:"), self._editor_font_size)
+
+        self._line_number_combo = QComboBox()
+        self._line_number_combo.addItem(self.tr("Off"), 0)
+        self._line_number_combo.addItem(self.tr("All lines"), 1)
+        self._line_number_combo.addItem(self.tr("Every 5th line"), 2)
+        for i in range(self._line_number_combo.count()):
+            if self._line_number_combo.itemData(i) == current_line_number_mode:
+                self._line_number_combo.setCurrentIndex(i)
+                break
+        editor_layout.addRow(self.tr("Line numbers:"), self._line_number_combo)
 
         layout.addWidget(editor_group)
 
@@ -154,17 +165,14 @@ class SettingsDialog(QDialog):
 
     def _reset_defaults(self) -> None:
         """Reset all fields to their factory defaults."""
-        # Language → System default (first entry, code "")
         self._lang_combo.setCurrentIndex(0)
-        # Theme → system
         for i in range(self._theme_combo.count()):
             if self._theme_combo.itemData(i) == "system":
                 self._theme_combo.setCurrentIndex(i)
                 break
-        # Editor font → System, 11
         self._editor_font_combo.setCurrentIndex(0)
         self._editor_font_size.setValue(11)
-        # Preview font → System, 16
+        self._line_number_combo.setCurrentIndex(1)  # all lines
         self._preview_font_combo.setCurrentIndex(0)
         self._preview_font_size.setValue(16)
 
@@ -189,6 +197,9 @@ class SettingsDialog(QDialog):
 
     def selected_language(self) -> str:
         return self._lang_combo.currentData()
+
+    def selected_line_number_mode(self) -> int:
+        return self._line_number_combo.currentData()
 
     # ------------------------------------------------------------------
     # Preview

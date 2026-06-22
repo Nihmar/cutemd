@@ -36,13 +36,26 @@ from ui.syntax_highlighter import MarkdownHighlighter
 
 
 class LineNumberArea(QWidget):
-    """Widget that paints line numbers alongside the editor."""
+    """Widget that paints line numbers alongside the editor.
+
+    Mode values:
+        0 — hidden
+        1 — every line
+        2 — multiples of 5 (plus line 1 and the last line)
+    """
 
     def __init__(self, editor: QPlainTextEdit) -> None:
         super().__init__(editor)
         self._editor = editor
+        self._mode = 1
+
+    def set_mode(self, mode: int) -> None:
+        self._mode = mode
+        self.update()
 
     def sizeHint(self) -> QSize:
+        if self._mode == 0:
+            return QSize(0, 0)
         return QSize(self._line_number_area_width(), 0)
 
     def _line_number_area_width(self) -> int:
@@ -52,6 +65,8 @@ class LineNumberArea(QWidget):
 
     def paintEvent(self, event: object) -> None:
         super().paintEvent(event)
+        if self._mode == 0:
+            return
         painter = QPainter(self)
         painter.fillRect(event.rect(), QColor(self._editor.palette().color(self._editor.palette().ColorRole.Window)))
 
@@ -63,18 +78,25 @@ class LineNumberArea(QWidget):
         fg = self._editor.palette().color(self._editor.palette().ColorRole.Mid)
         painter.setPen(fg)
         painter.setFont(self._editor.font())
+        total_blocks = self._editor.blockCount()
 
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
-                number = str(block_num + 1)
-                painter.drawText(
-                    0, top, self.width() - 4, self._editor.fontMetrics().height(),
-                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, number,
-                )
+                line = block_num + 1
+                if self._mode == 1 or self._should_draw_line(line, total_blocks):
+                    number = str(line)
+                    painter.drawText(
+                        0, top, self.width() - 4, self._editor.fontMetrics().height(),
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, number,
+                    )
             block = block.next()
             top = bottom
             bottom = top + int(self._editor.blockBoundingRect(block).height()) if block.isValid() else top
             block_num += 1
+
+    @staticmethod
+    def _should_draw_line(line: int, total: int) -> bool:
+        return line == 1 or line == total or line % 5 == 0
 
 
 class EditorTab(QWidget):
@@ -266,6 +288,11 @@ class EditorTab(QWidget):
         self._editor_font_family = family
         self._editor_font_size = size
         self._apply_editor_font()
+
+    def set_line_number_mode(self, mode: int) -> None:
+        """Set line number display mode (0=off, 1=all, 2=every 5th)."""
+        self._line_number_area.set_mode(mode)
+        self._update_line_number_area_width()
 
     def set_preview_font(self, family: str, size: int) -> None:
         """Change the preview font family and size and re-render."""

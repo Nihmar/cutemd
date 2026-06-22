@@ -89,6 +89,8 @@ class MainWindow(QMainWindow):
         _raw = settings.value("preview_font_size", 16)
         self._preview_font_size = _raw if isinstance(_raw, int) else 16
         self._language = str(settings.value("language", ""))
+        _raw = settings.value("line_number_mode", 1)
+        self._line_number_mode = _raw if isinstance(_raw, int) else 1
 
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
@@ -261,6 +263,7 @@ class MainWindow(QMainWindow):
             preview_font_family=self._preview_font_family,
             preview_font_size=self._preview_font_size,
         )
+        tab.set_line_number_mode(self._line_number_mode)
         tab.modified_changed.connect(self._on_tab_modified)
         tab.status_changed.connect(self._on_tab_status)
         tab.title_changed.connect(lambda: self._refresh_tab_title(tab))
@@ -669,6 +672,7 @@ class MainWindow(QMainWindow):
             self._preview_font_family,
             self._preview_font_size,
             self._language,
+            self._line_number_mode,
             self,
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
@@ -728,6 +732,16 @@ class MainWindow(QMainWindow):
                     tab.set_preview_font(
                         self._preview_font_family, self._preview_font_size
                     )
+
+        # --- Line numbers ---
+        new_ln = dlg.selected_line_number_mode()
+        if new_ln != self._line_number_mode:
+            self._line_number_mode = new_ln
+            settings.setValue("line_number_mode", new_ln)
+            for i in range(self._tabs.count()):
+                tab = self._tabs.widget(i)
+                if isinstance(tab, EditorTab):
+                    tab.set_line_number_mode(new_ln)
 
     def _on_toggle_preview(self, checked: bool) -> None:
         self._preview_visible = checked
