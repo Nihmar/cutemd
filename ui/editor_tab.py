@@ -436,7 +436,7 @@ class EditorTab(QWidget):
     _IMG_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"})
     _PDF_EXTS = frozenset({".pdf"})
 
-    _PARA_IMG_RE = re.compile(r'<p>(<a\b[^>]*></a>)?\s*(<img\b[^>]+>)\s*</p>')
+    _PARA_IMG_RE = re.compile(r'<p>\s*(<a\b[^>]*></a>)?\s*(<img\b[^>]+>)\s*</p>')
     _WIKILINK_IMG_RE = re.compile(r'!\[\[([^\]]+?)(?:\|([^\]]*?))?\]\]')
 
     @staticmethod
@@ -853,6 +853,9 @@ class EditorTab(QWidget):
             f"{body_html}\n"
             "</body>\n</html>"
         )
+
+        _DUMP = Path.home() / "preview_dump.html"
+        _DUMP.write_text(html, encoding="utf-8")
 
         self._syncing_scroll += 1
         self.preview.setHtml(html)
