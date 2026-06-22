@@ -27,6 +27,8 @@ from ui.markdown_completer import DEFAULT_SMART_EDITING
 from ui.themes import ALL_THEMES, get_theme
 from ui.translations import LANGUAGES
 
+_FONT_FAMILIES: list[str] | None = None
+
 
 class _FontPicker(QWidget):
     """Search field + scrollable filtered list for font selection."""
@@ -115,6 +117,7 @@ class SettingsDialog(QDialog):
         current_preview_font_size: int,
         current_language: str = "",
         current_line_number_mode: int = 1,
+        current_link_style: str = "md",
         current_smart_editing: dict[str, Any] | None = None,
         parent=None,
     ) -> None:
@@ -202,6 +205,16 @@ class SettingsDialog(QDialog):
                 self._line_number_combo.setCurrentIndex(i)
                 break
         editor_form.addRow(self.tr("Line numbers:"), self._line_number_combo)
+
+        self._link_style_combo = QComboBox()
+        self._link_style_combo.addItem(self.tr("Markdown [text](url)"), "md")
+        self._link_style_combo.addItem(self.tr("Wikilink [[page]]"), "wiki")
+        for i in range(self._link_style_combo.count()):
+            if self._link_style_combo.itemData(i) == current_link_style:
+                self._link_style_combo.setCurrentIndex(i)
+                break
+        editor_form.addRow(self.tr("Link style:"), self._link_style_combo)
+
         editor_page_layout.addLayout(editor_form)
 
         # Smart editing checkboxes
@@ -300,10 +313,12 @@ class SettingsDialog(QDialog):
 
     def _populate_font_picker(self, picker: _FontPicker, current: str) -> None:
         """Fill a font picker with 'System' + all available font families."""
+        global _FONT_FAMILIES
         picker._edit.setPlaceholderText(self.tr("Type to filter\u2026"))
         picker.add_item(self.tr("System"), "System")
-        db = QFontDatabase()
-        for family in sorted(db.families()):
+        if _FONT_FAMILIES is None:
+            _FONT_FAMILIES = sorted(QFontDatabase().families())
+        for family in _FONT_FAMILIES:
             picker.add_item(family, family)
         picker.select_by_data(current if current else "System")
 
@@ -317,6 +332,7 @@ class SettingsDialog(QDialog):
         self._editor_font_combo.select_first()
         self._editor_font_size.setValue(11)
         self._line_number_combo.setCurrentIndex(1)  # all lines
+        self._link_style_combo.setCurrentIndex(0)    # markdown links
         self._preview_font_combo.select_first()
         self._preview_font_size.setValue(16)
         # Smart editing defaults
@@ -350,6 +366,9 @@ class SettingsDialog(QDialog):
 
     def selected_line_number_mode(self) -> int:
         return self._line_number_combo.currentData()
+
+    def selected_link_style(self) -> str:
+        return self._link_style_combo.currentData()
 
     def selected_smart_editing(self) -> dict[str, Any]:
         return {

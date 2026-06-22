@@ -1,22 +1,28 @@
 """Single editor+preview tab for the tabbed interface."""
 
+import re
 from pathlib import Path
 from typing import Any
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
+    QImage,
     QKeySequence,
+    QMouseEvent,
     QPainter,
+    QPixmap,
     QShortcut,
     QTextCharFormat,
     QTextCursor,
     QTextDocument,
     QTextFormat,
+    QWheelEvent,
 )
+from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -25,7 +31,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
     QSplitter,
+    QStackedWidget,
     QTextBrowser,
     QTextEdit,
     QToolButton,
@@ -120,6 +128,7 @@ class EditorTab(QWidget):
     modified_changed = Signal(bool)
     status_changed = Signal(str, str)
     title_changed = Signal()
+    file_link_clicked = Signal(str)
 
     def __init__(
         self,
@@ -149,6 +158,11 @@ class EditorTab(QWidget):
         self._sync_retries = 0
         self._preview_visible = True
         self._current_line_sel: object = None
+        self._is_binary_preview = False
+        self._pan_active = False
+
+        # Hover state for clickable links
+        self._hover_link_key: tuple[int, int, int] | None = None  # (block, start, end)
 
         self._editor_font_family = editor_font_family
         self._editor_font_size = editor_font_size
@@ -175,12 +189,63 @@ class EditorTab(QWidget):
         self.editor.updateRequest.connect(self._update_line_number_area)
         self.editor.cursorPositionChanged.connect(self._on_highlight_current_line)
         self.editor.installEventFilter(self)
+        self._viewport = self.editor.viewport()
+        self._viewport.setMouseTracking(True)
+        self._viewport.installEventFilter(self)
         self._completer = MarkdownAutoCompleter(self.editor, smart_editing, self)
 
-        # --- Preview ---
+        # --- Preview stack (page 0 = text browser, page 1 = image, page 2 = PDF) ---
         self.preview = QTextBrowser()
         self.preview.setReadOnly(True)
         self.preview.setOpenExternalLinks(True)
+
+        self._image_view = QLabel()
+        self._image_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._image_scroll = QScrollArea()
+        self._image_scroll.setWidgetResizable(True)
+        self._image_scroll.setWidget(self._image_view)
+        self._image_scroll.viewport().installEventFilter(self)
+
+        self._pdf_view = QWidget()
+        pdf_lay = QVBoxLayout(self._pdf_view)
+        pdf_lay.setContentsMargins(0, 0, 0, 0)
+
+        # Navigation bar
+        nav = QHBoxLayout()
+        self._pdf_prev_btn = QPushButton("\u25c0")  # ◀
+        self._pdf_prev_btn.setFixedWidth(32)
+        self._pdf_page_label = QLabel("0 / 0")
+        self._pdf_page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._pdf_next_btn = QPushButton("\u25b6")  # ▶
+        self._pdf_next_btn.setFixedWidth(32)
+        self._pdf_open_btn = QPushButton(self.tr("Open externally"))
+        nav.addStretch()
+        nav.addWidget(self._pdf_prev_btn)
+        nav.addWidget(self._pdf_page_label)
+        nav.addWidget(self._pdf_next_btn)
+        nav.addSpacing(10)
+        nav.addWidget(self._pdf_open_btn)
+        nav.addStretch()
+        nav_widget = QWidget()
+        nav_widget.setLayout(nav)
+
+        self._pdf_page_view = QLabel()
+        self._pdf_page_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._pdf_scroll = QScrollArea()
+        self._pdf_scroll.setWidgetResizable(True)
+        self._pdf_scroll.setWidget(self._pdf_page_view)
+        self._pdf_scroll.viewport().installEventFilter(self)
+
+        pdf_lay.addWidget(nav_widget)
+        pdf_lay.addWidget(self._pdf_scroll)
+        self._pdf_prev_btn.clicked.connect(self._pdf_prev_page)
+        self._pdf_next_btn.clicked.connect(self._pdf_next_page)
+        self._pdf_open_btn.clicked.connect(self._on_open_pdf_externally)
+
+        self._preview_stack = QStackedWidget()
+        self._preview_stack.addWidget(self.preview)       # index 0
+        self._preview_stack.addWidget(self._image_scroll) # index 1
+        self._preview_stack.addWidget(self._pdf_view)     # index 2
 
         # --- Scroll sync ---
         self.editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
@@ -195,8 +260,9 @@ class EditorTab(QWidget):
         # --- Layout ---
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.editor)
-        splitter.addWidget(self.preview)
+        splitter.addWidget(self._preview_stack)
         splitter.setSizes([500, 500])
+        self._splitter = splitter
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -265,6 +331,8 @@ class EditorTab(QWidget):
 
     @property
     def is_modified(self) -> bool:
+        if self._is_binary_preview:
+            return False
         return self.editor.toPlainText() != self._saved_text
 
     def display_name(self) -> str:
@@ -289,7 +357,7 @@ class EditorTab(QWidget):
         if visible == self._preview_visible:
             return
         self._preview_visible = visible
-        self.preview.setVisible(visible)
+        self._preview_stack.setVisible(visible)
         if visible:
             self._update_preview()
 
@@ -313,8 +381,26 @@ class EditorTab(QWidget):
         self._preview_font_size = size
         self._update_preview()
 
+    _MD_EXTS = frozenset({".md", ".markdown"})
+    _IMG_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"})
+    _PDF_EXTS = frozenset({".pdf"})
+
     def load_file(self, path: Path) -> None:
         """Load *path* into the editor, replacing current content."""
+        ext = path.suffix.lower()
+
+        if ext in self._IMG_EXTS:
+            self._file_path = path
+            self._load_image(path)
+            self.title_changed.emit()
+            return
+
+        if ext in self._PDF_EXTS:
+            self._file_path = path
+            self._load_pdf(path)
+            self.title_changed.emit()
+            return
+
         try:
             text = path.read_text(encoding="utf-8")
         except OSError as e:
@@ -324,10 +410,101 @@ class EditorTab(QWidget):
                 self.tr("Could not open file:\n{}").format(e),
             )
             return
+
         self.editor.setPlainText(text)
         self._file_path = path
         self._saved_text = text
+        self._is_binary_preview = False
+        self.editor.setReadOnly(False)
+        self._preview_stack.setCurrentIndex(0)
+        self._splitter.setSizes([500, 500])
         self.title_changed.emit()
+
+        # Enable syntax highlighting only for Markdown files
+        if ext in self._MD_EXTS:
+            self._highlighter.setDocument(self.editor.document())
+        else:
+            self._highlighter.setDocument(None)  # type: ignore[arg-type]
+
+    def _load_image(self, path: Path) -> None:
+        """Display an image in a dedicated QLabel."""
+        self.editor.setPlainText(
+            self.tr("Image preview — {}").format(path.name)
+        )
+        self.editor.setReadOnly(True)
+        self._highlighter.setDocument(None)  # type: ignore[arg-type]
+        self._saved_text = ""
+
+        self._original_pixmap = QPixmap(str(path))
+        self._image_zoom = 1.0
+        if not self._original_pixmap.isNull():
+            self._rescale_image()
+        else:
+            self._image_view.setText(self.tr("Cannot display this image format."))
+        self._preview_stack.setCurrentIndex(1)
+        self._is_binary_preview = True
+        self._splitter.setSizes([0, 1000])
+
+    def _rescale_image(self) -> None:
+        """Rescale the stored pixmap to fit the current viewport size * zoom."""
+        if not hasattr(self, "_original_pixmap") or self._original_pixmap.isNull():
+            return
+        zoom = getattr(self, "_image_zoom", 1.0)
+        size = self._image_scroll.viewport().size()
+        scaled = self._original_pixmap.scaled(
+            size * zoom, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+        )
+        self._image_view.setPixmap(scaled)
+        self._image_view.setToolTip(f"Zoom: {int(zoom * 100)}%")
+
+    def _load_pdf(self, path: Path) -> None:
+        """Display PDF pages via QPdfDocument."""
+        self.editor.setPlainText(
+            self.tr("PDF — {}").format(path.name)
+        )
+        self.editor.setReadOnly(True)
+        self._highlighter.setDocument(None)  # type: ignore[arg-type]
+        self._saved_text = ""
+        self._pdf_path = path.resolve()
+
+        self._pdf_doc = QPdfDocument()
+        self._pdf_doc.load(str(self._pdf_path))
+        self._pdf_page = 0
+        self._pdf_zoom = 1.0
+        self._pdf_page_count = max(self._pdf_doc.pageCount(), 0)
+        self._render_pdf_page()
+        self._preview_stack.setCurrentIndex(2)
+        self._is_binary_preview = True
+        self._splitter.setSizes([0, 1000])
+
+    def _render_pdf_page(self) -> None:
+        if self._pdf_page_count == 0:
+            self._pdf_page_view.setText(self.tr("Cannot render this PDF."))
+            self._pdf_page_label.setText("0 / 0")
+            return
+        zoom = getattr(self, "_pdf_zoom", 1.0)
+        size = self._pdf_scroll.viewport().size() * zoom
+        img = self._pdf_doc.render(self._pdf_page, QSize(int(size.width()), int(size.height())))
+        self._pdf_page_view.setPixmap(QPixmap.fromImage(img))
+        self._pdf_page_label.setText(f"{self._pdf_page + 1} / {self._pdf_page_count}")
+        self._pdf_prev_btn.setEnabled(self._pdf_page > 0)
+        self._pdf_next_btn.setEnabled(self._pdf_page < self._pdf_page_count - 1)
+
+    def _pdf_prev_page(self) -> None:
+        if self._pdf_page > 0:
+            self._pdf_page -= 1
+            self._render_pdf_page()
+
+    def _pdf_next_page(self) -> None:
+        if self._pdf_page < self._pdf_page_count - 1:
+            self._pdf_page += 1
+            self._render_pdf_page()
+
+    def _on_open_pdf_externally(self) -> None:
+        from PySide6.QtGui import QDesktopServices
+
+        if hasattr(self, "_pdf_path"):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._pdf_path)))
 
     def save(self) -> bool:
         """Save to the current path.  Returns True on success."""
@@ -523,7 +700,7 @@ class EditorTab(QWidget):
         return mapping
 
     def _update_preview(self) -> None:
-        if not self._preview_visible:
+        if not self._preview_visible or self._is_binary_preview:
             return
         text = self.editor.toPlainText()
         text_hash = hash(text)
@@ -567,6 +744,8 @@ class EditorTab(QWidget):
         )
 
         self._syncing_scroll += 1
+        if self._file_path:
+            self.preview.setSearchPaths([str(self._file_path.parent)])
         self.preview.setHtml(html)
         self._syncing_scroll -= 1
 
@@ -607,7 +786,7 @@ class EditorTab(QWidget):
         to the first visible line in the editor, then calls
         scrollToAnchor() on the preview.
         """
-        if self._syncing_scroll > 0 or not self._preview_visible:
+        if self._syncing_scroll > 0 or not self._preview_visible or self._is_binary_preview:
             return
         line_map = self._line_anchor_map
         if not line_map:
@@ -630,7 +809,7 @@ class EditorTab(QWidget):
 
     def _on_preview_scrolled(self, _value: int = 0) -> None:
         """Scroll the editor proportionally to match the preview position."""
-        if self._syncing_scroll > 0 or not self._preview_visible:
+        if self._syncing_scroll > 0 or not self._preview_visible or self._is_binary_preview:
             return
         preview_sb = self.preview.verticalScrollBar()
         max_pv = preview_sb.maximum()
@@ -766,12 +945,148 @@ class EditorTab(QWidget):
     # Qt overrides
     # ------------------------------------------------------------------
     def eventFilter(self, obj: object, event: QEvent) -> bool:
-        if obj is self.editor and event.type() == QEvent.Type.Resize:
-            cr = self.editor.contentsRect()
-            self._line_number_area.setGeometry(
-                QRect(cr.left(), cr.top(), self._line_number_area.sizeHint().width(), cr.height())
-            )
+        if obj is self.editor:
+            if event.type() == QEvent.Type.Resize:
+                cr = self.editor.contentsRect()
+                self._line_number_area.setGeometry(
+                    QRect(cr.left(), cr.top(), self._line_number_area.sizeHint().width(), cr.height())
+                )
+                return super().eventFilter(obj, event)
+
+        elif obj is self._viewport:
+            if event.type() == QEvent.Type.MouseMove:
+                self._on_mouse_move(event)  # type: ignore[arg-type]
+            elif event.type() == QEvent.Type.MouseButtonRelease:
+                return self._on_mouse_click(event)  # type: ignore[arg-type]
+
+        elif obj in (self._image_scroll.viewport(), self._pdf_scroll.viewport()):
+            return self._on_media_viewport_event(obj, event)
+
         return super().eventFilter(obj, event)
+
+    # ------------------------------------------------------------------
+    # Shared zoom + pan for image / PDF viewports
+    # ------------------------------------------------------------------
+
+    def _on_media_viewport_event(self, obj: object, event: QEvent) -> bool:
+        vp = obj
+        if event.type() == QEvent.Type.Resize:
+            self._media_refresh(obj)
+            return False
+
+        if event.type() == QEvent.Type.Wheel:
+            we: QWheelEvent = event  # type: ignore[assignment]
+            if we.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                delta = we.angleDelta().y() / 120.0
+                zoom_attr = "_image_zoom" if obj is self._image_scroll.viewport() else "_pdf_zoom"
+                cur = getattr(self, zoom_attr, 1.0)
+                setattr(self, zoom_attr, max(0.1, min(10.0, cur + delta * 0.15)))
+                self._media_refresh(obj)
+                return True
+
+        if event.type() == QEvent.Type.MouseButtonPress:
+            me: QMouseEvent = event  # type: ignore[assignment]
+            if me.button() == Qt.MouseButton.MiddleButton:
+                self._pan_active = True
+                self._pan_last = me.position().toPoint()
+                vp.setCursor(Qt.CursorShape.ClosedHandCursor)
+                return True
+
+        if event.type() == QEvent.Type.MouseMove:
+            if getattr(self, "_pan_active", False):
+                me: QMouseEvent = event  # type: ignore[assignment]
+                pt = me.position().toPoint()
+                delta = self._pan_last - pt
+                self._pan_last = pt
+                h = vp.horizontalScrollBar()
+                v = vp.verticalScrollBar()
+                if h:
+                    h.setValue(h.value() + delta.x())
+                if v:
+                    v.setValue(v.value() + delta.y())
+                return True
+
+        if event.type() == QEvent.Type.MouseButtonRelease:
+            me: QMouseEvent = event  # type: ignore[assignment]
+            if me.button() == Qt.MouseButton.MiddleButton:
+                self._pan_active = False
+                vp.setCursor(Qt.CursorShape.ArrowCursor)
+                return True
+
+        return False
+
+    def _media_refresh(self, obj: object) -> None:
+        if obj is self._image_scroll.viewport():
+            self._rescale_image()
+        elif obj is self._pdf_scroll.viewport():
+            self._render_pdf_page()
+
+    # ------------------------------------------------------------------
+    # Clickable link navigation (hover underline + click to open)
+    # ------------------------------------------------------------------
+
+    _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+    _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+
+    @classmethod
+    def _link_range_at(cls, pos_in_block: int, text: str) -> tuple[str, int, int] | None:
+        """Return (target, start, end) if *pos_in_block* falls inside a
+        markdown link or wikilink, else None."""
+        for m in cls._WIKILINK_RE.finditer(text):
+            if m.start() <= pos_in_block <= m.end():
+                return (m.group(1).split("|")[0].strip(), m.start(), m.end())
+        for m in cls._LINK_RE.finditer(text):
+            if m.start() <= pos_in_block <= m.end():
+                return (m.group(2).strip(), m.start(), m.end())
+        return None
+
+    def _on_mouse_move(self, event: QMouseEvent) -> None:
+        pt = event.position().toPoint()
+        cursor = self.editor.cursorForPosition(pt)
+        block = cursor.block()
+        block_text = block.text()
+        pos = cursor.positionInBlock()
+        link = self._link_range_at(pos, block_text)
+
+        if link:
+            _target, start, end = link
+            new_key = (block.blockNumber(), start, end)
+            if new_key == self._hover_link_key:
+                return
+            self._hover_link_key = new_key
+
+            block_start = block.position()
+            sel = QTextCursor(self.editor.document())
+            sel.setPosition(block_start + start)
+            sel.setPosition(block_start + end, QTextCursor.MoveMode.KeepAnchor)
+
+            fmt = QTextCharFormat()
+            fmt.setFontUnderline(True)
+            fmt.setUnderlineColor(QColor("#61afef"))
+            extra = QTextEdit.ExtraSelection()
+            extra.format = fmt
+            extra.cursor = sel
+            self.editor.setExtraSelections([extra])
+            self._viewport.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            if self._hover_link_key is not None:
+                self._hover_link_key = None
+                self.editor.setExtraSelections([])
+                self._viewport.setCursor(Qt.CursorShape.IBeamCursor)
+
+    def _on_mouse_click(self, event: QMouseEvent) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+
+        pt = event.position().toPoint()
+        cursor = self.editor.cursorForPosition(pt)
+        block_text = cursor.block().text()
+        pos = cursor.positionInBlock()
+        link = self._link_range_at(pos, block_text)
+        if link:
+            self.file_link_clicked.emit(link[0])
+            return True
+        return False
 
     def changeEvent(self, event) -> None:
         if event.type() == QEvent.Type.LanguageChange:

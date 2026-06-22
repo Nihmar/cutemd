@@ -44,6 +44,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     MATH_FENCE_RE = re.compile(r"^\$\$")
     MATH_INLINE_RE = re.compile(r"\$[^$\n]+\$")
     LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+    WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
     LIST_RE = re.compile(r"^(\s{0,3})([-*+]|\d+\.)\s")
     BLOCKQUOTE_RE = re.compile(r"^>\s?.*$")
 
@@ -76,6 +77,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             self.code_fence_fmt = _make_format("#abb2bf", bg="#282c34")
             self.math_fmt = _make_format("#56b6c2")  # teal
             self.link_fmt = _make_format("#61afef")
+            self.wikilink_fmt = _make_format("#56b6c2")  # teal — distinct from blue links
             self.list_fmt = _make_format("#c678dd")
             self.blockquote_fmt = _make_format("#5c6370")
             self.heading_global_fmt = _make_format("#e06c75", bold=True)
@@ -87,6 +89,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             self.code_fence_fmt = _make_format("#383a42", bg="#fafafa")
             self.math_fmt = _make_format("#1a8ea8")  # teal
             self.link_fmt = _make_format("#4078f2")
+            self.wikilink_fmt = _make_format("#1a8ea8")  # teal — distinct from blue links
             self.list_fmt = _make_format("#0184bc")
             self.blockquote_fmt = _make_format("#a0a1a7")
             self.heading_global_fmt = _make_format("#a626a4", bold=True)
@@ -135,6 +138,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         self._apply_rule(self.INLINE_CODE_RE, text, self.inline_code_fmt)
         self._apply_rule(self.MATH_INLINE_RE, text, self.math_fmt)
         self._apply_rule(self.LINK_RE, text, self.link_fmt)
+        self._apply_rule(self.WIKILINK_RE, text, self.wikilink_fmt)
         self._apply_rule(self.LIST_RE, text, self.list_fmt)
         self._apply_rule(self.BLOCKQUOTE_RE, text, self.blockquote_fmt)
 

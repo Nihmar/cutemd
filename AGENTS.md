@@ -52,7 +52,7 @@ If you add new resource dirs or data packages, update both build scripts in `scr
 
 ## Build quirks
 
-- Windows: `--onefile` produces a single `.exe`
+- Windows: `--onedir` produces a folder (faster startup, no temp extraction)
 - Linux: `--onedir` + AppDir structure → AppImage
 - Both use `--strip --optimize 2 --noupx`
 - `--windowed` means no console on Windows

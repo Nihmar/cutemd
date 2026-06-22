@@ -5,8 +5,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-from markdown_it import MarkdownIt
-from mdit_py_plugins.dollarmath import dollarmath_plugin
 from PySide6.QtCore import QEvent, QPoint, QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
@@ -17,7 +15,6 @@ from PySide6.QtGui import (
     QPixmap,
     QTextCursor,
 )
-from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -40,13 +37,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from markdown.math_renderers import (
-    render_math_block,
-    render_math_block_label,
-    render_math_inline,
-    render_math_inline_double,
-)
-from markdown.tools import highlight_code
 from ui import theme
 from ui.editor_tab import EditorTab
 from ui.file_tree_panel import FileTreePanel
@@ -99,12 +89,23 @@ class MainWindow(QMainWindow):
             "auto_pair_brackets": bool(settings.value("smart_editing/auto_pair_brackets", True)),
             "continue_lists": bool(settings.value("smart_editing/continue_lists", True)),
             "backspace_pairs": bool(settings.value("smart_editing/backspace_pairs", True)),
+            "link_style": str(settings.value("link_style", "md")),
         }
 
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
 
         # --- Markdown parser (shared across all tabs) ---
+        from markdown_it import MarkdownIt
+        from mdit_py_plugins.dollarmath import dollarmath_plugin
+        from markdown.math_renderers import (
+            render_math_block,
+            render_math_block_label,
+            render_math_inline,
+            render_math_inline_double,
+        )
+        from markdown.tools import highlight_code
+
         self._md = (
             MarkdownIt("commonmark", {"highlight": highlight_code})
             .enable(["table", "strikethrough"])
@@ -277,6 +278,7 @@ class MainWindow(QMainWindow):
         tab.modified_changed.connect(self._on_tab_modified)
         tab.status_changed.connect(self._on_tab_status)
         tab.title_changed.connect(lambda: self._refresh_tab_title(tab))
+        tab.file_link_clicked.connect(lambda target, t=tab: self._on_file_link_clicked(t, target))
 
         # Right-click context menu on the editor
         tab.editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -354,6 +356,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _make_colored_icon(self, name: str, color: QColor, size: int = 18) -> QIcon:
         """Render an SVG icon tinted with *color*."""
+        from PySide6.QtSvg import QSvgRenderer
+
         path = str(_ICONS_DIR / f"{name}.svg")
         renderer = QSvgRenderer(path)
 
@@ -694,6 +698,7 @@ class MainWindow(QMainWindow):
             self._preview_font_size,
             self._language,
             self._line_number_mode,
+            self._smart_editing.get("link_style", "md"),
             self._smart_editing,
             self,
         )
@@ -767,6 +772,8 @@ class MainWindow(QMainWindow):
 
         # --- Smart editing ---
         new_se = dlg.selected_smart_editing()
+        new_ls = dlg.selected_link_style()
+        new_se["link_style"] = new_ls
         if new_se != self._smart_editing:
             self._smart_editing = new_se
             settings.setValue("smart_editing/enabled", new_se["enabled"])
@@ -774,6 +781,7 @@ class MainWindow(QMainWindow):
             settings.setValue("smart_editing/auto_pair_brackets", new_se["auto_pair_brackets"])
             settings.setValue("smart_editing/continue_lists", new_se["continue_lists"])
             settings.setValue("smart_editing/backspace_pairs", new_se["backspace_pairs"])
+            settings.setValue("link_style", new_ls)
             for i in range(self._tabs.count()):
                 tab = self._tabs.widget(i)
                 if isinstance(tab, EditorTab):
@@ -880,6 +888,61 @@ class MainWindow(QMainWindow):
         self._refresh_tab_title(tab)
         self._update_window_title()
         self._tree_panel.select_file(p)
+
+    def _on_file_link_clicked(self, source_tab: EditorTab, target: str) -> None:
+        """Click on a link/wikilink — open URL in browser or file in a tab."""
+        # URLs → open in browser
+        if target.startswith(("http://", "https://", "www.")):
+            from PySide6.QtGui import QDesktopServices
+            from PySide6.QtCore import QUrl
+
+            url = target if "://" in target else "https://" + target
+            QDesktopServices.openUrl(QUrl(url))
+            return
+
+        path = self._resolve_link_target(target, source_tab.file_path)
+        if path is None and self._folder_path is not None:
+            stem = Path(target).stem.lower()
+            for p in self._folder_path.rglob("*.md"):
+                if p.stem.lower() == stem:
+                    path = p.resolve()
+                    break
+        if path is None:
+            return
+
+        idx = self._find_tab_for_file(path)
+        if idx >= 0:
+            self._tabs.setCurrentIndex(idx)
+            return
+
+        tab = self._add_tab()
+        tab.load_file(path)
+        self._refresh_tab_title(tab)
+        self._update_window_title()
+
+    @staticmethod
+    def _resolve_link_target(target: str, source: Path | None) -> Path | None:
+        """Resolve a link/wikilink target to an absolute ``Path``, or ``None``."""
+        target_path = Path(target)
+        if target_path.is_absolute():
+            return target_path if target_path.exists() else None
+
+        # Resolve relative to the source file's directory, if known
+        if source is not None:
+            base = source.parent
+        else:
+            base = Path.cwd()
+
+        candidates = [base / target_path]
+        if target_path.suffix.lower() not in (".md", ".markdown"):
+            candidates.append(base / (target + ".md"))
+            candidates.append(base / (target + ".markdown"))
+
+        for p in candidates:
+            if p.is_file():
+                return p.resolve()
+
+        return None
 
     def _on_new(self) -> None:
         self._add_tab()

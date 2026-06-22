@@ -27,6 +27,7 @@ DEFAULT_SMART_EDITING = {
     "auto_pair_brackets": True,
     "continue_lists": True,
     "backspace_pairs": True,
+    "link_style": "md",
 }
 
 # ---------------------------------------------------------------------------
@@ -37,6 +38,7 @@ _RE_UNORDERED = re.compile(r"^(\s*)([-*+])\s+(.*)")
 _RE_ORDERED = re.compile(r"^(\s*)(\d+)\.\s+(.*)")
 _RE_TASK = re.compile(r"^(\s*)([-*+])\s+\[([ xX])\]\s+(.*)")
 _RE_BLOCKQUOTE = re.compile(r"^(\s*)(>\s*)(.*)")
+_RE_LIST_MARKER = re.compile(r"^(\s*)([-*+]|\d+\.)\s+")
 
 # Delimiters that are auto-doubled (cursor placed AFTER the pair)
 _PAIR_AFTER = {"*"}
@@ -164,25 +166,58 @@ class MarkdownAutoCompleter(QObject):
     # ------------------------------------------------------------------
 
     def _auto_bracket(self, open_char: str) -> bool:
-        close_char = "]" if open_char == "[" else ")"
         cursor = self._editor.textCursor()
+
+        # --- [ on a list line → insert checkbox ---
+        if open_char == "[" and self._at_list_marker(cursor):
+            self._insert_checkbox(cursor)
+            return True
+
+        close_char = "]" if open_char == "[" else ")"
+        link_style = self._cfg.get("link_style", "md")
 
         if cursor.hasSelection():
             sel = cursor.selectedText()
-            cursor.insertText(open_char + sel + close_char)
+            if open_char == "[" and link_style == "wiki":
+                cursor.insertText("[[" + sel + "]]")
+            else:
+                cursor.insertText(open_char + sel + close_char)
             return True
 
         if open_char == "[":
-            # [ → []()  with cursor between the brackets
-            cursor.insertText("[]()")
-            cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, 3)
+            if link_style == "wiki":
+                # [[ → [[|]]  cursor between double brackets
+                cursor.insertText("[[ ]]")
+                cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, 2)
+            else:
+                # [ → []()  cursor between brackets
+                cursor.insertText("[]()")
+                cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, 3)
         else:
-            # ( → ()  with cursor between
+            # ( → ()  cursor between
             cursor.insertText("()")
             cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, 1)
 
         self._editor.setTextCursor(cursor)
         return True
+
+    # ------------------------------------------------------------------
+    # List-marker detection  →  checkbox insertion
+    # ------------------------------------------------------------------
+
+    def _at_list_marker(self, cursor: QTextCursor) -> bool:
+        """Return True if the cursor is inside the list-marker zone
+        (indent + marker + space), meaning the user wants a checkbox."""
+        text = cursor.block().text()
+        pos = cursor.positionInBlock()
+        m = _RE_LIST_MARKER.match(text)
+        if m:
+            return pos <= m.end()
+        return False
+
+    def _insert_checkbox(self, cursor: QTextCursor) -> None:
+        cursor.insertText("[ ] ")
+        self._editor.setTextCursor(cursor)
 
     # ------------------------------------------------------------------
     # List / blockquote continuation on Enter

@@ -46,8 +46,8 @@ uv run pyinstaller \
     --add-data "resources/translations:resources/translations" \
     --add-data "resources/cutemd.svg:resources" \
     --collect-data latex2mathml \
-    --collect-data pygments \
     --hidden-import PySide6.QtSvg \
+    --hidden-import PySide6.QtPdf \
     main.py
 
 echo "==> Creating AppDir structure …"

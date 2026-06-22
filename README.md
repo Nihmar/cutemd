@@ -96,7 +96,7 @@ The AppImage is self-contained — no dependencies needed on the target system. 
 # On Windows (Git Bash, WSL, or PowerShell)
 uv pip install pyinstaller
 bash scripts/build_windows.sh
-# → dist/cutemd.exe
+# → dist/cutemd/cutemd.exe
 ```
 
 Or from a native Windows prompt:
@@ -105,10 +105,10 @@ Or from a native Windows prompt:
 REM cmd.exe or PowerShell
 uv pip install pyinstaller
 scripts\build_windows.bat
-REM → dist\cutemd.exe
+REM → dist\cutemd\cutemd.exe
 ```
 
-The `.exe` is a single self-contained file — no installer needed.
+The output is a folder — distribute the entire `dist\cutemd\` directory. `--onedir` starts instantly (no temp extraction).
 
 ## Keyboard shortcuts
 

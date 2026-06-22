@@ -17,7 +17,7 @@ uv pip install pyinstaller
 echo ==> Building Windows executable (optimised for speed) ...
 uv run pyinstaller ^
     --name %APP% ^
-    --onefile ^
+    --onedir ^
     --windowed ^
     --strip ^
     --optimize 2 ^
@@ -29,9 +29,9 @@ uv run pyinstaller ^
     --add-data "resources/translations;resources/translations" ^
     --add-data "resources/cutemd.svg;resources" ^
     --collect-data latex2mathml ^
-    --collect-data pygments ^
     --hidden-import PySide6.QtSvg ^
+    --hidden-import PySide6.QtPdf ^
     main.py
 
-echo ==> ✅  Executable built: dist\%APP%.exe
-echo     Self-contained -- distribute this single file.
+echo ==> ✅  Executable built: dist\%APP%\%APP%.exe
+echo     Distribute the entire dist\%APP%\ folder.

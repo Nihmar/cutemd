@@ -31,8 +31,6 @@ class FileTreePanel(QWidget):
         self._model.setFilter(
             QDir.Filter.Files | QDir.Filter.AllDirs | QDir.Filter.NoDotAndDotDot
         )
-        self._model.setNameFilters(["*.md", "*.markdown"])
-        self._model.setNameFilterDisables(False)
 
         self._tree = QTreeView()
         self._tree.setModel(self._model)
