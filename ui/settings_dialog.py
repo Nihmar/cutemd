@@ -2,7 +2,10 @@
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontDatabase
+from typing import Any
+
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -20,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ui.markdown_completer import DEFAULT_SMART_EDITING
 from ui.themes import ALL_THEMES, get_theme
 from ui.translations import LANGUAGES
 
@@ -111,11 +115,16 @@ class SettingsDialog(QDialog):
         current_preview_font_size: int,
         current_language: str = "",
         current_line_number_mode: int = 1,
+        current_smart_editing: dict[str, Any] | None = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
         self.setMinimumWidth(600)
+
+        smart = dict(DEFAULT_SMART_EDITING)
+        if current_smart_editing:
+            smart.update(current_smart_editing)
 
         main_layout = QHBoxLayout(self)
 
@@ -194,6 +203,53 @@ class SettingsDialog(QDialog):
                 break
         editor_form.addRow(self.tr("Line numbers:"), self._line_number_combo)
         editor_page_layout.addLayout(editor_form)
+
+        # Smart editing checkboxes
+        smart_group = QGroupBox(self.tr("Smart Editing"))
+        smart_layout = QVBoxLayout(smart_group)
+
+        self._smart_enabled = QCheckBox(self.tr("Enable smart editing"))
+        self._smart_enabled.setChecked(smart["enabled"])
+
+        self._auto_pair_cb = QCheckBox(
+            self.tr("Auto-pair delimiters (*, _, ~, `)")
+        )
+        self._auto_pair_cb.setChecked(smart["auto_pair"])
+
+        self._auto_brackets_cb = QCheckBox(
+            self.tr("Auto-pair brackets ([], ())")
+        )
+        self._auto_brackets_cb.setChecked(smart["auto_pair_brackets"])
+
+        self._continue_lists_cb = QCheckBox(
+            self.tr("Continue lists on Enter")
+        )
+        self._continue_lists_cb.setChecked(smart["continue_lists"])
+
+        self._backspace_pairs_cb = QCheckBox(
+            self.tr("Remove empty pairs on Backspace")
+        )
+        self._backspace_pairs_cb.setChecked(smart["backspace_pairs"])
+
+        smart_layout.addWidget(self._smart_enabled)
+        smart_layout.addWidget(self._auto_pair_cb)
+        smart_layout.addWidget(self._auto_brackets_cb)
+        smart_layout.addWidget(self._continue_lists_cb)
+        smart_layout.addWidget(self._backspace_pairs_cb)
+
+        # Slave sub-checkboxes to master
+        self._smart_enabled.toggled.connect(self._auto_pair_cb.setEnabled)
+        self._smart_enabled.toggled.connect(self._auto_brackets_cb.setEnabled)
+        self._smart_enabled.toggled.connect(self._continue_lists_cb.setEnabled)
+        self._smart_enabled.toggled.connect(self._backspace_pairs_cb.setEnabled)
+        # Initial enabled state
+        enabled = smart["enabled"]
+        self._auto_pair_cb.setEnabled(enabled)
+        self._auto_brackets_cb.setEnabled(enabled)
+        self._continue_lists_cb.setEnabled(enabled)
+        self._backspace_pairs_cb.setEnabled(enabled)
+
+        editor_page_layout.addWidget(smart_group)
         editor_page_layout.addStretch()
         self._stack.addWidget(editor_page)
 
@@ -263,6 +319,12 @@ class SettingsDialog(QDialog):
         self._line_number_combo.setCurrentIndex(1)  # all lines
         self._preview_font_combo.select_first()
         self._preview_font_size.setValue(16)
+        # Smart editing defaults
+        self._smart_enabled.setChecked(True)
+        self._auto_pair_cb.setChecked(True)
+        self._auto_brackets_cb.setChecked(True)
+        self._continue_lists_cb.setChecked(True)
+        self._backspace_pairs_cb.setChecked(True)
 
     # ------------------------------------------------------------------
     # Results
@@ -288,6 +350,15 @@ class SettingsDialog(QDialog):
 
     def selected_line_number_mode(self) -> int:
         return self._line_number_combo.currentData()
+
+    def selected_smart_editing(self) -> dict[str, Any]:
+        return {
+            "enabled": self._smart_enabled.isChecked(),
+            "auto_pair": self._auto_pair_cb.isChecked(),
+            "auto_pair_brackets": self._auto_brackets_cb.isChecked(),
+            "continue_lists": self._continue_lists_cb.isChecked(),
+            "backspace_pairs": self._backspace_pairs_cb.isChecked(),
+        }
 
     # ------------------------------------------------------------------
     # Preview

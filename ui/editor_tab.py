@@ -1,6 +1,7 @@
 """Single editor+preview tab for the tabbed interface."""
 
 from pathlib import Path
+from typing import Any
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
@@ -33,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from markdown.tools import BLOCK_OPEN_TYPES, add_heading_ids
+from ui.markdown_completer import DEFAULT_SMART_EDITING, MarkdownAutoCompleter
 from ui.syntax_highlighter import MarkdownHighlighter
 
 
@@ -128,6 +130,7 @@ class EditorTab(QWidget):
         editor_font_size: int = 11,
         preview_font_family: str = "System",
         preview_font_size: int = 16,
+        smart_editing: dict[str, Any] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -172,6 +175,7 @@ class EditorTab(QWidget):
         self.editor.updateRequest.connect(self._update_line_number_area)
         self.editor.cursorPositionChanged.connect(self._on_highlight_current_line)
         self.editor.installEventFilter(self)
+        self._completer = MarkdownAutoCompleter(self.editor, smart_editing, self)
 
         # --- Preview ---
         self.preview = QTextBrowser()
@@ -299,6 +303,9 @@ class EditorTab(QWidget):
         """Set line number display mode (0=off, 1=all, 2=every 5th)."""
         self._line_number_area.set_mode(mode)
         self._update_line_number_area_width()
+
+    def set_smart_editing(self, settings: dict[str, Any]) -> None:
+        self._completer.update_settings(settings)
 
     def set_preview_font(self, family: str, size: int) -> None:
         """Change the preview font family and size and re-render."""

@@ -3,6 +3,7 @@
 import sys
 import re
 from pathlib import Path
+from typing import Any
 
 from markdown_it import MarkdownIt
 from mdit_py_plugins.dollarmath import dollarmath_plugin
@@ -91,6 +92,14 @@ class MainWindow(QMainWindow):
         self._language = str(settings.value("language", ""))
         _raw = settings.value("line_number_mode", 1)
         self._line_number_mode = _raw if isinstance(_raw, int) else 1
+
+        self._smart_editing: dict[str, Any] = {
+            "enabled": bool(settings.value("smart_editing/enabled", True)),
+            "auto_pair": bool(settings.value("smart_editing/auto_pair", True)),
+            "auto_pair_brackets": bool(settings.value("smart_editing/auto_pair_brackets", True)),
+            "continue_lists": bool(settings.value("smart_editing/continue_lists", True)),
+            "backspace_pairs": bool(settings.value("smart_editing/backspace_pairs", True)),
+        }
 
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
@@ -262,6 +271,7 @@ class MainWindow(QMainWindow):
             editor_font_size=self._editor_font_size,
             preview_font_family=self._preview_font_family,
             preview_font_size=self._preview_font_size,
+            smart_editing=self._smart_editing,
         )
         tab.set_line_number_mode(self._line_number_mode)
         tab.modified_changed.connect(self._on_tab_modified)
@@ -684,6 +694,7 @@ class MainWindow(QMainWindow):
             self._preview_font_size,
             self._language,
             self._line_number_mode,
+            self._smart_editing,
             self,
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
@@ -753,6 +764,20 @@ class MainWindow(QMainWindow):
                 tab = self._tabs.widget(i)
                 if isinstance(tab, EditorTab):
                     tab.set_line_number_mode(new_ln)
+
+        # --- Smart editing ---
+        new_se = dlg.selected_smart_editing()
+        if new_se != self._smart_editing:
+            self._smart_editing = new_se
+            settings.setValue("smart_editing/enabled", new_se["enabled"])
+            settings.setValue("smart_editing/auto_pair", new_se["auto_pair"])
+            settings.setValue("smart_editing/auto_pair_brackets", new_se["auto_pair_brackets"])
+            settings.setValue("smart_editing/continue_lists", new_se["continue_lists"])
+            settings.setValue("smart_editing/backspace_pairs", new_se["backspace_pairs"])
+            for i in range(self._tabs.count()):
+                tab = self._tabs.widget(i)
+                if isinstance(tab, EditorTab):
+                    tab.set_smart_editing(new_se)
 
     def _on_toggle_preview(self, checked: bool) -> None:
         self._preview_visible = checked
