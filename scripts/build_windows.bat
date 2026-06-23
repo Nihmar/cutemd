@@ -36,5 +36,13 @@ uv run pyinstaller ^
 echo ==> ✅  Executable built: dist\%APP%\%APP%.exe
 echo     Distribute the entire dist\%APP%\ folder.
 echo.
-echo     To register as default Markdown editor, run:
-echo       powershell -ExecutionPolicy Bypass -File scripts\register_windows.ps1 -ExePath "dist\%APP%\%APP%.exe"
+echo ==> Creating installer with Inno Setup ...
+where iscc >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    iscc scripts\cutemd_setup.iss
+    echo ==> ✅  Installer built: dist\CuteMD_Setup.exe
+) else (
+    echo     Inno Setup not found on PATH -- skipping installer.
+    echo     Install from https://jrsoftware.org/isinfo.php and run:
+    echo       iscc scripts\cutemd_setup.iss
+)
