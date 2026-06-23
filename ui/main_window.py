@@ -118,7 +118,13 @@ class MainWindow(QMainWindow):
 
         # --- UI ---
         self.setWindowTitle("CuteMD - Markdown Editor")
-        self.resize(1200, 750)
+
+        # Restore saved window geometry, or fall back to default size
+        geometry = settings.value("window_geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+        else:
+            self.resize(1200, 750)
 
         self._setup_actions()
         self._setup_menubar()
@@ -188,10 +194,8 @@ class MainWindow(QMainWindow):
         self.act_toggle_split.triggered.connect(self._toggle_split)
 
         self.act_settings = QAction(self.tr("&Settings…"), self)
+        self.act_settings.setShortcut(QKeySequence("Ctrl+,"))
         self.act_settings.triggered.connect(self._on_settings)
-
-        self.act_install_desktop = QAction(self.tr("Install Desktop &Integration"), self)
-        self.act_install_desktop.triggered.connect(self._on_install_desktop)
 
     # ------------------------------------------------------------------
     # Menubar
@@ -226,7 +230,6 @@ class MainWindow(QMainWindow):
         self._settings_menu.addAction(self.act_settings)
 
         self._help_menu = mb.addMenu(self.tr("&Help"))
-        self._help_menu.addAction(self.act_install_desktop)
 
     # ------------------------------------------------------------------
     # Central widget
@@ -419,7 +422,7 @@ class MainWindow(QMainWindow):
         for i in range(1, 7):
             self._heading_combo.addItem(f"H{i}", "#" * i + " ")
         self._heading_combo.currentIndexChanged.connect(self._on_heading_combo)
-        self._heading_combo.setFixedWidth(48)
+        self._heading_combo.setFixedWidth(40)
         layout.addWidget(self._heading_combo)
         _sep()
 
@@ -793,27 +796,6 @@ class MainWindow(QMainWindow):
                 if isinstance(tab, EditorTab):
                     tab.set_smart_editing(new_se)
 
-    def _on_install_desktop(self) -> None:
-        from ui.desktop_integration import install_desktop, is_desktop_installed
-
-        if is_desktop_installed():
-            QMessageBox.information(self, self.tr("Desktop Integration"),
-                                    self.tr("Desktop integration is already installed."))
-            return
-
-        try:
-            install_desktop()
-            QMessageBox.information(
-                self, self.tr("Desktop Integration"),
-                self.tr("Desktop integration installed.\n"
-                        "CuteMD now appears in your application menu."),
-            )
-        except OSError as e:
-            QMessageBox.warning(
-                self, self.tr("Desktop Integration"),
-                self.tr("Could not install desktop integration:\n{}").format(e),
-            )
-
     def _on_toggle_preview(self, checked: bool) -> None:
         self._preview_visible = checked
         for i in range(self._tabs.count()):
@@ -1089,6 +1071,7 @@ class MainWindow(QMainWindow):
             if isinstance(tab, EditorTab) and not tab.maybe_save():
                 event.ignore()
                 return
+        QSettings("cutemd", "cutemd").setValue("window_geometry", self.saveGeometry())
         event.accept()
 
     def sizeHint(self) -> QSize:
