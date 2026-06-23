@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QPlainTextEdit,
     QSplitter,
     QStackedWidget,
@@ -42,6 +43,7 @@ from ui.file_tree_panel import FileTreePanel
 from ui.folder_settings import FolderSettings
 from ui.shortcut_manager import ShortcutManager
 from ui.themes import get_theme, system_theme
+from ui.webdav_sync import sync_folder
 
 # ---------------------------------------------------------------------------
 # Paths (supports PyInstaller one-file bundles)
@@ -150,6 +152,7 @@ class MainWindow(QMainWindow):
             "act_toggle_statusbar": self.act_toggle_statusbar,
             "act_settings": self.act_settings,
             "act_shortcuts": self.act_shortcuts,
+            "act_webdav_sync": self.act_webdav_sync,
         }
         self._shortcut_mgr = ShortcutManager(None)
         self._shortcut_mgr.apply(self._all_actions)
@@ -238,6 +241,10 @@ class MainWindow(QMainWindow):
         self.act_shortcuts.setShortcut(QKeySequence("Ctrl+/"))
         self.act_shortcuts.triggered.connect(self._on_show_shortcuts)
 
+        self.act_webdav_sync = QAction(self.tr("&Sync Now"), self)
+        self.act_webdav_sync.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        self.act_webdav_sync.triggered.connect(self._on_webdav_sync)
+
     # ------------------------------------------------------------------
     # Menubar
     # ------------------------------------------------------------------
@@ -248,6 +255,8 @@ class MainWindow(QMainWindow):
         self._file_menu.addAction(self.act_new)
         self._file_menu.addAction(self.act_save)
         self._file_menu.addAction(self.act_save_as)
+        self._file_menu.addSeparator()
+        self._file_menu.addAction(self.act_webdav_sync)
         self._file_menu.addSeparator()
         self._file_menu.addAction(self.act_close_tab)
         self._file_menu.addSeparator()
@@ -348,6 +357,7 @@ class MainWindow(QMainWindow):
 
         # --- Inline status bar ---
         self._status_file = QLabel("...")
+        self._status_sync = QLabel("")
         self._status_cursor = QLabel("Ln 1, Col 1")
         self._status_words = QLabel("0 words")
         status_widget = QWidget()
@@ -355,6 +365,7 @@ class MainWindow(QMainWindow):
         sl = QHBoxLayout(status_widget)
         sl.setContentsMargins(8, 1, 8, 1)
         sl.addWidget(self._status_file, 1)
+        sl.addWidget(self._status_sync)
         sl.addWidget(self._status_cursor)
         sl.addWidget(self._status_words)
 
@@ -902,6 +913,17 @@ class MainWindow(QMainWindow):
     def _on_settings(self) -> None:
         from ui.settings_dialog import SettingsDialog
 
+        webdav_url = ""
+        webdav_user = ""
+        webdav_pass = ""
+
+        if self._folder_settings is not None:
+            cfg = self._folder_settings.load_webdav_config()
+            if cfg:
+                webdav_url = cfg.get("url", "")
+                webdav_user = cfg.get("username", "")
+                webdav_pass = cfg.get("password", "")
+
         dlg = SettingsDialog(
             self._theme_id,
             self._editor_font_family,
@@ -914,6 +936,9 @@ class MainWindow(QMainWindow):
             self._smart_editing,
             self._folder_settings,
             self,
+            current_webdav_url=webdav_url,
+            current_webdav_user=webdav_user,
+            current_webdav_pass=webdav_pass,
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -1012,12 +1037,114 @@ class MainWindow(QMainWindow):
             self._shortcut_mgr = ShortcutManager(self._folder_settings)
             self._shortcut_mgr.apply(self._all_actions)
 
+            # --- WebDAV config ---
+            new_url = dlg.selected_webdav_url()
+            new_user = dlg.selected_webdav_username()
+            new_pass = dlg.selected_webdav_password()
+
+            if new_url or new_user or new_pass:
+                self._folder_settings.save_webdav_config({
+                    "url": new_url,
+                    "username": new_user,
+                    "password": new_pass,
+                })
+            else:
+                self._folder_settings.clear_webdav_config()
+
+            self._update_menu_state()
+
     def _on_toggle_preview(self, checked: bool) -> None:
         self._preview_visible = checked
         for i in range(self._tabs.count()):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab):
                 tab.set_preview_visible(checked)
+
+    def _on_webdav_sync(self) -> None:
+        if self._folder_settings is None or self._folder_path is None:
+            return
+
+        cfg = self._folder_settings.load_webdav_config()
+        if not cfg:
+            QMessageBox.information(
+                self, self.tr("Sync"),
+                self.tr("No WebDAV configuration found for this folder.\n"
+                        "Set it up in Settings \u2192 Sync."),
+            )
+            return
+
+        webdav_url = cfg.get("url", "")
+        user = cfg.get("username", "")
+        pwd = cfg.get("password", "")
+
+        if not webdav_url:
+            QMessageBox.warning(self, self.tr("Sync"), self.tr("WebDAV URL is not configured."))
+            return
+
+        from PySide6.QtCore import QThread, Signal
+
+        class _SyncThread(QThread):
+            progress = Signal(str)
+            finished = Signal(object)
+
+            def __init__(self, local_root, url, username, password):
+                super().__init__()
+                self._local_root = local_root
+                self._url = url
+                self._username = username
+                self._password = password
+
+            def run(self):
+                result = sync_folder(
+                    self._local_root,
+                    self._url,
+                    self._username,
+                    self._password,
+                    progress_callback=lambda msg: self.progress.emit(msg),
+                )
+                self.finished.emit(result)
+
+        self._status_sync.setText(self.tr("Syncing..."))
+        self._sync_thread = _SyncThread(
+            self._folder_path, webdav_url, user, pwd
+        )
+
+        def _on_progress(msg: str) -> None:
+            self._status_sync.setText(self.tr("Sync: {}").format(msg))
+
+        def _on_finished(result) -> None:
+            from ui.webdav_sync import SyncResult
+            r: SyncResult = result
+            if r.errors:
+                self._status_sync.setText(self.tr("Sync completed with errors"))
+            else:
+                self._status_sync.setText(self.tr("Sync completed"))
+
+            msg_parts = []
+            if r.uploaded:
+                msg_parts.append(self.tr("{} uploaded").format(len(r.uploaded)))
+            if r.downloaded:
+                msg_parts.append(self.tr("{} downloaded").format(len(r.downloaded)))
+            if r.deleted:
+                msg_parts.append(self.tr("{} deleted").format(len(r.deleted)))
+            if r.conflicts_skipped:
+                msg_parts.append(self.tr("{} up to date").format(len(r.conflicts_skipped)))
+            if r.errors:
+                msg_parts.append(self.tr("{} errors").format(len(r.errors)))
+
+            summary = "\n".join(msg_parts)
+            if r.errors:
+                summary += "\n\n" + "\n".join(r.errors[:5])
+                if len(r.errors) > 5:
+                    summary += self.tr("\n...and {} more").format(len(r.errors) - 5)
+
+            QMessageBox.information(self, self.tr("Sync Result"), summary)
+
+            self._tree_panel.set_root_path(self._folder_path)
+
+        self._sync_thread.progress.connect(_on_progress)
+        self._sync_thread.finished.connect(_on_finished)
+        self._sync_thread.start()
 
     def _on_show_shortcuts(self) -> None:
         from ui.shortcuts_dialog import ShortcutsDialog
@@ -1184,6 +1311,9 @@ class MainWindow(QMainWindow):
         self.act_close_folder.setEnabled(folder_mode)
         self.act_find_files.setVisible(folder_mode)
         self.act_find_files.setEnabled(folder_mode)
+        webdav_ready = folder_mode and self._folder_settings is not None and self._folder_settings.has_webdav_config()
+        self.act_webdav_sync.setVisible(webdav_ready)
+        self.act_webdav_sync.setEnabled(webdav_ready)
         if not folder_mode:
             self._side_tree_btn.blockSignals(True)
             self._side_search_btn.blockSignals(True)
@@ -1408,6 +1538,7 @@ class MainWindow(QMainWindow):
         self.act_toggle_statusbar.setText(self.tr("Toggle Status &Bar"))
         self.act_settings.setText(self.tr("&Settings…"))
         self.act_shortcuts.setText(self.tr("&Keyboard Shortcuts…"))
+        self.act_webdav_sync.setText(self.tr("&Sync Now"))
 
         # Menu titles
         self._file_menu.setTitle(self.tr("&File"))

@@ -14,6 +14,7 @@ There are **no tests, no linter, and no type checker** configured. Don't run com
 
 - `markdown/` — pure Markdown processing, **no Qt imports**. Used by `ui/`.
 - `ui/` — PySide6 GUI layer. Imports from `markdown/` but not the reverse.
+- `ui/webdav_sync.py` — WebDAV client (`WebDAVClient`) + sync engine (`sync_folder`). Exposes `WebDAVConfig`, `SyncResult`. Uses `requests` for HTTP, parses PROPFIND responses with `xml.etree.ElementTree`. Sync algorithm uses Depth-1 PROPFIND with manual BFS recursion (most servers block Depth infinity). Maintains `.cutemd/sync_state.json` to track last-synced timestamps and avoid redundant transfers.
 - `main.py` — entry point. Creates `QApplication`, sets app/org name, loads translations, applies theme, shows `MainWindow`.
 - `markdown/tools.py` exposes `set_pygments_style(name)` — call this from the UI layer when the theme changes, never import `ui.themes` from `markdown/`.
 
@@ -33,6 +34,7 @@ Always use `_resolve_path()` from `ui/theme.py` (or equivalent `getattr(sys, "fr
 --collect-data latex2mathml
 --hidden-import PySide6.QtSvg
 --hidden-import PySide6.QtPdf
+--hidden-import requests
 ```
 
 If you add new resource dirs or data packages, update all three build scripts in `scripts/` (`build_windows.bat`, `build_windows.sh`, `build_appimage.sh`).
@@ -73,7 +75,15 @@ On Linux/AppImage, version is read from `pyproject.toml` / `main.py.__version__`
 
 ## QSettings keys
 
-`translations.py` hardcodes `QSettings("cutemd", "cutemd")` (org, app). `main_window.py` likely uses the same or reads `QSettings()` after `setOrganizationName`/`setApplicationName`. Don't change the org/app names without updating both.
+`translations.py` hardcodes `QSettings("cutemd", "cutemd")` (org, app). `main_window.py` uses the same. Don't change the org/app names without updating both.
+
+## WebDAV sync notes
+
+- Credentials are stored **plaintext** in `.cutemd/webdav.json` as `{"url", "username", "password"}`.
+- The sync engine stores a local state in `.cutemd/sync_state.json` — `{relpath: mtime}`. This enables detecting which files were modified locally or remotely since the last sync.
+- `Depth: infinity` is avoided because many servers (nginx, OpenMediaVault) reject it with 403. Instead, Depth-1 PROPFIND is used recursively (BFS).
+- Href paths from the server are resolved relative to the first `is_dir` entry in each PROPFIND response, not relative to the configured URL — this handles reverse-proxy path rewrites correctly.
+- Downloaded files get their `mtime` set via `os.utime()` to match the server's `getlastmodified`.
 
 ## Build quirks
 

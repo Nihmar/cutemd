@@ -12,6 +12,7 @@ class FolderSettings:
         self._dotdir = self._folder / ".cutemd"
         self._config_path = self._dotdir / "settings.json"
         self._shortcuts_path = self._dotdir / "shortcuts.json"
+        self._webdav_path = self._dotdir / "webdav.json"
         self._values: dict = {}
 
     @property
@@ -103,3 +104,24 @@ class FolderSettings:
     def get_preview_font_size(self) -> int | None:
         v = self._values.get("preview_font_size")
         return int(v) if isinstance(v, (int, float)) and v > 0 else None
+
+    def load_webdav_config(self) -> dict | None:
+        if self._webdav_path.is_file():
+            try:
+                return json.loads(self._webdav_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                return None
+        return None
+
+    def save_webdav_config(self, data: dict) -> None:
+        self._dotdir.mkdir(parents=True, exist_ok=True)
+        self._webdav_path.write_text(
+            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+    def clear_webdav_config(self) -> None:
+        if self._webdav_path.is_file():
+            self._webdav_path.unlink()
+
+    def has_webdav_config(self) -> bool:
+        return self._webdav_path.is_file()

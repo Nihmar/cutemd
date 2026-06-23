@@ -1,6 +1,6 @@
 # CuteMD
 
-A non-WYSIWYG Markdown editor with live preview, syntax highlighting, and folder-based project navigation. Supports both vault-style folder management and single-file edit mode.
+A non-WYSIWYG Markdown editor with live preview, syntax highlighting, folder-based project navigation, and WebDAV cloud sync. Supports both vault-style folder management and single-file edit mode.
 
 ![theme](resources/cutemd.svg)
 
@@ -15,12 +15,13 @@ A non-WYSIWYG Markdown editor with live preview, syntax highlighting, and folder
 - **Right-click context menus** on the file tree (open in explorer, open with default app, open in new tab) and on the editor (all formatting actions)
 - **9 built-in themes** — System, Nord, Gruvbox, Catppuccin Mocha/Latte, Tokyo Night, Dracula, Solarized Dark, Everforest
 - **Modern UI** — Fusion style, custom QSS stylesheet, SVG toolbar icons
+- **WebDAV sync** — per-folder bidirectional sync via WebDAV (http/https), with mtime-based conflict resolution and local sync state
 - **Keyboard shortcuts** for all common actions
 - **Persistent state** — last folder, theme choice, window size remembered via QSettings
 
 ## Requirements
 
-- Python ≥ 3.14
+- Python ≥ 3.11
 - [uv](https://docs.astral.sh/uv/) — package manager
 
 ## Quick start
@@ -51,9 +52,10 @@ cutemd/
 │   ├── markdown_completer.py  # MarkdownAutoCompleter — smart editing
 │   ├── theme.py               # QSS generation from palette
 │   ├── themes.py              # Theme definitions (9 built-in)
-│   ├── settings_dialog.py     # Settings dialog (theme, font, storage info)
+│   ├── settings_dialog.py     # Settings dialog (theme, font, shortcuts, storage, WebDAV sync)
 │   ├── welcome_dialog.py      # First-launch folder selector
-│   ├── preview_browser.py     # PreviewTextBrowser + image helpers
+│   ├── webdav_sync.py          # WebDAV client + sync engine with local sync state
+│   ├── preview_browser.py      # PreviewTextBrowser + image helpers
 │   ├── image_viewer.py        # ImageViewer with zoom/pan
 │   ├── pdf_viewer.py          # PdfViewer with fit-width
 │   ├── style.qss              # Qt stylesheet template
@@ -147,7 +149,7 @@ powershell -ExecutionPolicy Bypass -File scripts\register_windows.ps1 -ExePath "
 | `Ctrl+O` | Open folder |
 | `Ctrl+N` | New file |
 | `Ctrl+S` | Save |
-| `Ctrl+Shift+S` | Save as… |
+| `Ctrl+Shift+S` | WebDAV Sync Now |
 | `Ctrl+W` | Close tab |
 | `Ctrl+Q` | Quit |
 | `Ctrl+Z` | Undo |
@@ -185,6 +187,23 @@ Settings → Settings… opens the theme picker. Choose from:
 | Dracula | Dark |
 | Solarized Dark | Dark |
 | Everforest | Dark |
+
+## WebDAV Sync
+
+CuteMD can synchronise a folder with any WebDAV server (Nextcloud, OpenMediaVault, Synology, Apache, Nginx…).
+
+**Setup:**
+1. Open a folder, then Settings → Sync
+2. Enter the WebDAV URL (`https://server.com/dav/notes`), username, and password
+3. Click **Test Connection** to verify
+4. Save with OK — credentials are saved in `.cutemd/webdav.json`
+
+**Usage:**
+- `Ctrl+Shift+S` or File → Sync Now to synchronise
+- All files in the folder (excluding `.cutemd/`, `.git/`) are synced
+- Sync is bidirectional: new local files are uploaded, new remote files are downloaded
+- If a file was modified on both sides, the newest version wins
+- A `.cutemd/sync_state.json` keeps track of last-synced timestamps to avoid redundant transfers
 
 ## License
 

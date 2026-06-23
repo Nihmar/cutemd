@@ -34,6 +34,7 @@ from ui.markdown_completer import DEFAULT_SMART_EDITING
 from ui.shortcut_manager import DEFAULT_SHORTCUTS
 from ui.themes import ALL_THEMES, get_theme
 from ui.translations import LANGUAGES
+from ui.webdav_sync import WebDAVClient
 
 _FONT_FAMILIES: list[str] | None = None
 
@@ -129,6 +130,9 @@ class SettingsDialog(QDialog):
         current_smart_editing: dict[str, Any] | None = None,
         folder_settings: Any = None,
         parent=None,
+        current_webdav_url: str = "",
+        current_webdav_user: str = "",
+        current_webdav_pass: str = "",
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -152,9 +156,12 @@ class SettingsDialog(QDialog):
             self.tr("Storage"),
         ]
         self._shortcuts_idx = -1
+        self._sync_idx = -1
         if folder_settings is not None:
             sections.append(self.tr("Shortcuts"))
             self._shortcuts_idx = len(sections) - 1
+            sections.append(self.tr("Sync"))
+            self._sync_idx = len(sections) - 1
         for name in sections:
             self._section_list.addItem(name)
         main_layout.addWidget(self._section_list)
@@ -372,6 +379,39 @@ class SettingsDialog(QDialog):
             shortcuts_page_layout.addStretch()
             self._stack.addWidget(shortcuts_page)
 
+        # Page N: Sync (only when folder is open)
+        self._webdav_url_edit: QLineEdit | None = None
+        self._webdav_user_edit: QLineEdit | None = None
+        self._webdav_pass_edit: QLineEdit | None = None
+        if folder_settings is not None:
+            sync_page = self._build_page(self.tr("Sync"))
+            sync_page_layout = sync_page.layout()
+            sync_form = QFormLayout()
+
+            self._webdav_url_edit = QLineEdit()
+            self._webdav_url_edit.setPlaceholderText("https://dav.example.com/notes")
+            self._webdav_url_edit.setText(current_webdav_url)
+            sync_form.addRow(self.tr("URL:"), self._webdav_url_edit)
+
+            self._webdav_user_edit = QLineEdit()
+            self._webdav_user_edit.setPlaceholderText(self.tr("Username"))
+            self._webdav_user_edit.setText(current_webdav_user)
+            sync_form.addRow(self.tr("Username:"), self._webdav_user_edit)
+
+            self._webdav_pass_edit = QLineEdit()
+            self._webdav_pass_edit.setEchoMode(QLineEdit.EchoMode.Password)
+            self._webdav_pass_edit.setPlaceholderText(self.tr("Password"))
+            self._webdav_pass_edit.setText(current_webdav_pass)
+            sync_form.addRow(self.tr("Password:"), self._webdav_pass_edit)
+
+            test_btn = QPushButton(self.tr("Test Connection"))
+            test_btn.clicked.connect(self._on_test_webdav)
+            sync_form.addRow("", test_btn)
+
+            sync_page_layout.addLayout(sync_form)
+            sync_page_layout.addStretch()
+            self._stack.addWidget(sync_page)
+
         right.addWidget(self._stack)
 
         # Buttons
@@ -488,6 +528,21 @@ class SettingsDialog(QDialog):
             return self._images_dir_edit.text().strip() or None
         return None
 
+    def selected_webdav_url(self) -> str:
+        if self._webdav_url_edit is not None:
+            return self._webdav_url_edit.text().strip()
+        return ""
+
+    def selected_webdav_username(self) -> str:
+        if self._webdav_user_edit is not None:
+            return self._webdav_user_edit.text().strip()
+        return ""
+
+    def selected_webdav_password(self) -> str:
+        if self._webdav_pass_edit is not None:
+            return self._webdav_pass_edit.text()
+        return ""
+
     # ------------------------------------------------------------------
     # Storage
     # ------------------------------------------------------------------
@@ -531,3 +586,29 @@ class SettingsDialog(QDialog):
             f"color: {theme.text.name()};"
             "padding: 12px; border-radius: 6px; font-size: 13px;"
         )
+
+    # ------------------------------------------------------------------
+    # Sync helpers
+    # ------------------------------------------------------------------
+
+    def _on_test_webdav(self) -> None:
+        url = self._webdav_url_edit.text().strip() if self._webdav_url_edit else ""
+        user = self._webdav_user_edit.text().strip() if self._webdav_user_edit else ""
+        pw = self._webdav_pass_edit.text() if self._webdav_pass_edit else ""
+
+        if not url:
+            QMessageBox.warning(self, self.tr("Test Connection"), self.tr("Please enter a URL."))
+            return
+
+        client = WebDAVClient(url, user, pw)
+        ok, err = client.test_connection()
+        if ok:
+            QMessageBox.information(
+                self, self.tr("Test Connection"),
+                self.tr("Connection successful!"),
+            )
+        else:
+            QMessageBox.warning(
+                self, self.tr("Test Connection"),
+                self.tr("Connection failed:\n{}").format(err),
+            )
