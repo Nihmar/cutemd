@@ -343,10 +343,8 @@ class MainWindow(QMainWindow):
         self._splitter.addWidget(self._left_stack)
         self._splitter.addWidget(editor_pane)
         self._splitter.setSizes([32, 220, 948])
-        # Hide handle between toolbar and stack (index 0), keep handle between stack and editor (index 1)
-        handle0 = self._splitter.handle(0)
-        handle0.setFixedWidth(0)
-        handle0.setEnabled(False)
+        # Prevent toolbar (left_tb) from being collapsed by splitter
+        self._splitter.setCollapsible(0, False)
 
         self.setCentralWidget(self._splitter)
 
