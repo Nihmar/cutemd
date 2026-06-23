@@ -139,14 +139,29 @@ class PreviewWebView(QWebEngineView):
         # JSON-encode the body HTML for safe injection into JavaScript
         body_json = json.dumps(body_html)
 
+        anchor_json = json.dumps(anchor)
+
         js = (
-            # Update body content
             f"document.body.className = '{theme_class}';"
             f"document.body.style.cssText = '{font_style}';"
             f"document.body.innerHTML = {body_json};"
-            # Re-process math with MathJax (if loaded)
+            # Re-typeset math with MathJax
             "if(window.MathJax && MathJax.typesetPromise) {"
-            "  MathJax.typesetPromise();"
+            "  MathJax.typesetPromise().then(function() {"
+            # After typesetting, scroll to anchor
+            f"    var a = {anchor_json};"
+            "    if(a) {"
+            "      var el = document.querySelector('a[name=' + a + ']');"
+            "      if(el) el.scrollIntoView({behavior:'instant', block:'start'});"
+            "    }"
+            "  });"
+            "} else {"
+            # No MathJax: scroll immediately
+            f"  var a = {anchor_json};"
+            "  if(a) {"
+            "    var el = document.querySelector('a[name=' + a + ']');"
+            "    if(el) el.scrollIntoView({behavior:'instant', block:'start'});"
+            "  }"
             "}"
         )
         self.page().runJavaScript(js)

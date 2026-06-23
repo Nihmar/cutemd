@@ -75,6 +75,27 @@ _MATHJAX_HEAD = (
 )
 
 
+_MATHJAX_HEAD = (
+    "<script>\n"
+    "MathJax = {\n"
+    "  tex: {\n"
+    "    inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],\n"
+    "    displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],\n"
+    "    processEscapes: true,\n"
+    "  },\n"
+    "  chtml: {\n"
+    "    displayAlign: 'center',\n"
+    "    displayIndent: '0',\n"
+    "  },\n"
+    "};\n"
+    "</script>\n"
+    '<script id="MathJax-script" async'
+    ' src="https://cdn.jsdelivr.net/npm/mathjax@4.1.2/tex-chtml.js">'
+    "</script>\n"
+)
+
+
+
 def _render_body(
     *,
     text: str,
@@ -136,7 +157,8 @@ def build_html(
         "<html>\n<head>\n"
         "<meta charset='utf-8'>\n"
         f"<style>\n{preview_css}\n</style>\n"
-        "</head>\n"
+        + _MATHJAX_HEAD
+        + "</head>\n"
         f"<body class='{theme_class}' style='{font_style}'>\n"
         f"{body_html}\n"
         "</body>\n</html>"
