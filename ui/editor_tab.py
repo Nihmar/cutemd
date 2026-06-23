@@ -31,13 +31,12 @@ from PySide6.QtWidgets import (
 )
 
 from markdown.html_builder import build_html, preprocess_wikilink_images
-from ui.markdown_completer import MarkdownAutoCompleter
-from ui.syntax_highlighter import MarkdownHighlighter
-from ui.image_viewer import ImageViewer
-from ui.pdf_viewer import PdfViewer
 from ui.find_bar import FindBar
-from ui.preview_browser import PreviewTextBrowser, get_image_size
-
+from ui.image_viewer import ImageViewer
+from ui.markdown_completer import MarkdownAutoCompleter
+from ui.pdf_viewer import PdfViewer
+from ui.preview_webview import PreviewWebView
+from ui.syntax_highlighter import MarkdownHighlighter
 
 # ---------------------------------------------------------------------------
 # LineNumberArea
@@ -77,11 +76,20 @@ class LineNumberArea(QWidget):
         if self._mode == 0:
             return
         painter = QPainter(self)
-        painter.fillRect(event.rect(), QColor(self._editor.palette().color(self._editor.palette().ColorRole.Window)))
+        painter.fillRect(
+            event.rect(),
+            QColor(
+                self._editor.palette().color(self._editor.palette().ColorRole.Window)
+            ),
+        )
 
         block = self._editor.firstVisibleBlock()
         block_num = block.blockNumber()
-        top = int(self._editor.blockBoundingGeometry(block).translated(self._editor.contentOffset()).top())
+        top = int(
+            self._editor.blockBoundingGeometry(block)
+            .translated(self._editor.contentOffset())
+            .top()
+        )
         bottom = top + int(self._editor.blockBoundingRect(block).height())
 
         fg = self._editor.palette().color(self._editor.palette().ColorRole.Mid)
@@ -95,17 +103,29 @@ class LineNumberArea(QWidget):
                 if self._mode == 1 or self._should_draw_line(line, total_blocks):
                     number = str(line)
                     painter.drawText(
-                        0, top, self.width() - 4, self._editor.fontMetrics().height(),
-                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, number,
+                        0,
+                        top,
+                        self.width() - 4,
+                        self._editor.fontMetrics().height(),
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                        number,
                     )
                 elif self._mode == 2:
                     painter.drawText(
-                        0, top, self.width() - 4, self._editor.fontMetrics().height(),
-                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, "·",
+                        0,
+                        top,
+                        self.width() - 4,
+                        self._editor.fontMetrics().height(),
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                        "·",
                     )
             block = block.next()
             top = bottom
-            bottom = top + int(self._editor.blockBoundingRect(block).height()) if block.isValid() else top
+            bottom = (
+                top + int(self._editor.blockBoundingRect(block).height())
+                if block.isValid()
+                else top
+            )
             block_num += 1
 
     @staticmethod
@@ -135,7 +155,9 @@ class EditorTab(QWidget):
     file_link_clicked = Signal(str)
 
     _MD_EXTS = frozenset({".md", ".markdown"})
-    _IMG_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"})
+    _IMG_EXTS = frozenset(
+        {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"}
+    )
     _PDF_EXTS = frozenset({".pdf"})
 
     # -- Link detection in the editor (clickable links + hover underline) --
@@ -180,6 +202,14 @@ class EditorTab(QWidget):
         self._preview_font_family = preview_font_family
         self._preview_font_size = preview_font_size
 
+        # --- Debounce timer (must be created before editor signals are connected,
+        # since set_theme() on the highlighter triggers rehighlight() which
+        # emits textChanged) ---
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(300)
+        self._preview_timer.timeout.connect(self._update_preview)
+
         # --- Editor ---
         self.editor = QPlainTextEdit()
         self._apply_editor_font()
@@ -204,9 +234,8 @@ class EditorTab(QWidget):
         self._completer = MarkdownAutoCompleter(self.editor, smart_editing, self)
 
         # --- Preview stack ---
-        self.preview = PreviewTextBrowser()
-        self.preview.setReadOnly(True)
-        self.preview.setOpenExternalLinks(True)
+        self.preview = PreviewWebView()
+        self.preview.link_clicked.connect(self._on_preview_link_clicked)
 
         self._image_viewer = ImageViewer()
         self._image_viewer.viewport().installEventFilter(self._image_viewer)
@@ -222,13 +251,7 @@ class EditorTab(QWidget):
 
         # --- Scroll sync ---
         self.editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
-        self.preview.verticalScrollBar().valueChanged.connect(self._on_preview_scrolled)
-
-        # --- Debounce timer ---
-        self._preview_timer = QTimer(self)
-        self._preview_timer.setSingleShot(True)
-        self._preview_timer.setInterval(300)
-        self._preview_timer.timeout.connect(self._update_preview)
+        self.preview.scroll_ratio_changed.connect(self._on_preview_scrolled)
 
         # --- Layout ---
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -244,7 +267,9 @@ class EditorTab(QWidget):
         # --- Find bar ---
         self._find_bar = FindBar(self.editor, self)
         self._find_bar.highlights_changed.connect(self._apply_all_selections)
-        self._find_bar.closed.connect(lambda: (self._clear_highlights(), self.editor.setFocus()))
+        self._find_bar.closed.connect(
+            lambda: (self._clear_highlights(), self.editor.setFocus())
+        )
         layout.addWidget(self._find_bar)
 
     # ------------------------------------------------------------------
@@ -421,7 +446,9 @@ class EditorTab(QWidget):
         self.editor.setFont(font)
 
     def _update_line_number_area_width(self) -> None:
-        self.editor.setViewportMargins(self._line_number_area.sizeHint().width(), 0, 0, 0)
+        self.editor.setViewportMargins(
+            self._line_number_area.sizeHint().width(), 0, 0, 0
+        )
 
     def _update_line_number_area(self) -> None:
         self._line_number_area.update()
@@ -468,7 +495,9 @@ class EditorTab(QWidget):
         first_block = self.editor.firstVisibleBlock()
         current_line = first_block.blockNumber()
         line_map = self._line_anchor_map
-        current_anchor_idx = line_map[current_line] if current_line < len(line_map) else 0
+        current_anchor_idx = (
+            line_map[current_line] if current_line < len(line_map) else 0
+        )
         self._last_anchor = f"b{current_anchor_idx}"
 
         base_dir = self._file_path.parent if self._file_path else Path.cwd()
@@ -483,17 +512,11 @@ class EditorTab(QWidget):
             font_family=self._preview_font_family,
             font_size=self._preview_font_size,
             base_dir=base_dir,
-            max_width=max(pw, 200),
-            get_image_size=get_image_size,
         )
 
         self._syncing_scroll += 1
-        self.preview.setHtml(html)
+        self.preview.set_content(html, anchor=self._last_anchor)
         self._syncing_scroll -= 1
-
-        self._pending_sync_anchor = self._last_anchor
-        self._sync_retries = 0
-        self._sync_preview_scroll()
 
     def _build_line_anchor_map(self, text: str) -> list[int]:
         from markdown.tools import BLOCK_OPEN_TYPES
@@ -544,52 +567,45 @@ class EditorTab(QWidget):
         anchor = self._pending_sync_anchor
         if not anchor:
             return
-        preview_sb = self.preview.verticalScrollBar()
-        if preview_sb.maximum() > 0:
-            self._syncing_scroll += 1
-            self.preview.scrollToAnchor(anchor)
-            self._syncing_scroll -= 1
-            self._pending_sync_anchor = ""
-        else:
-            if self._sync_retries < 10:
-                self._sync_retries += 1
-                QTimer.singleShot(0, self._sync_preview_scroll)
-            else:
-                self._pending_sync_anchor = ""
-                self._sync_retries = 0
+        self._syncing_scroll += 1
+        self.preview.scroll_to_anchor(anchor)
+        self._syncing_scroll -= 1
+        self._pending_sync_anchor = ""
 
     def _on_editor_scrolled(self, _value: int = 0) -> None:
-        if self._syncing_scroll > 0 or not self._preview_visible or self._is_binary_preview:
+        if (
+            self._syncing_scroll > 0
+            or not self._preview_visible
+            or self._is_binary_preview
+        ):
             return
         line_map = self._line_anchor_map
         if not line_map:
             return
         first_block = self.editor.firstVisibleBlock()
         current_line = first_block.blockNumber()
+        if current_line >= len(line_map):
+            return
         anchor_idx = line_map[current_line]
         anchor = f"b{anchor_idx}"
         if anchor == self._last_anchor:
             return
         self._last_anchor = anchor
-        preview_sb = self.preview.verticalScrollBar()
-        if preview_sb.maximum() <= 0:
-            return
         self._syncing_scroll += 1
-        self.preview.scrollToAnchor(anchor)
+        self.preview.scroll_to_anchor(anchor)
         self._syncing_scroll -= 1
 
-    def _on_preview_scrolled(self, _value: int = 0) -> None:
-        if self._syncing_scroll > 0 or not self._preview_visible or self._is_binary_preview:
-            return
-        preview_sb = self.preview.verticalScrollBar()
-        max_pv = preview_sb.maximum()
-        if max_pv <= 0:
+    def _on_preview_scrolled(self, ratio: float) -> None:
+        if (
+            self._syncing_scroll > 0
+            or not self._preview_visible
+            or self._is_binary_preview
+        ):
             return
         editor_sb = self.editor.verticalScrollBar()
         max_ed = editor_sb.maximum()
         if max_ed <= 0:
             return
-        ratio = preview_sb.value() / max_pv
         target = int(ratio * max_ed)
         if abs(editor_sb.value() - target) < 5:
             return
@@ -602,7 +618,9 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
 
     @classmethod
-    def _link_range_at(cls, pos_in_block: int, text: str) -> tuple[str, int, int] | None:
+    def _link_range_at(
+        cls, pos_in_block: int, text: str
+    ) -> tuple[str, int, int] | None:
         for m in cls._WIKILINK_RE.finditer(text):
             if m.start() <= pos_in_block <= m.end():
                 return (m.group(1).split("|")[0].strip(), m.start(), m.end())
@@ -610,6 +628,23 @@ class EditorTab(QWidget):
             if m.start() <= pos_in_block <= m.end():
                 return (m.group(2).strip(), m.start(), m.end())
         return None
+
+    def _on_preview_link_clicked(self, url: str) -> None:
+        """Handle link clicks from the webview preview."""
+        # Ignore anchor links (internal navigation handled by the browser)
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        if not parsed.scheme or parsed.scheme == "file":
+            # Local file link – could open in editor
+            if parsed.path:
+                self.file_link_clicked.emit(parsed.path)
+        else:
+            # External link – open in system browser
+            from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
+
+            QDesktopServices.openUrl(QUrl(url))
 
     def _on_mouse_move(self, event: QMouseEvent) -> None:
         pt = event.position().toPoint()
@@ -679,7 +714,12 @@ class EditorTab(QWidget):
             if event.type() == QEvent.Type.Resize:
                 cr = self.editor.contentsRect()
                 self._line_number_area.setGeometry(
-                    QRect(cr.left(), cr.top(), self._line_number_area.sizeHint().width(), cr.height())
+                    QRect(
+                        cr.left(),
+                        cr.top(),
+                        self._line_number_area.sizeHint().width(),
+                        cr.height(),
+                    )
                 )
                 return super().eventFilter(obj, event)
 

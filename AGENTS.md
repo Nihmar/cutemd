@@ -34,6 +34,8 @@ Always use `_resolve_path()` from `ui/theme.py` (or equivalent `getattr(sys, "fr
 --collect-data latex2mathml
 --hidden-import PySide6.QtSvg
 --hidden-import PySide6.QtPdf
+--hidden-import PySide6.QtWebEngineWidgets
+--hidden-import PySide6.QtWebEngineCore
 --hidden-import requests
 ```
 
