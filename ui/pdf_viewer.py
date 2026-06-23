@@ -1,8 +1,8 @@
-"""Embedded PDF viewer using QPdfDocument — scroll-to-page, fit-width, zoom."""
+"""Embedded PDF viewer using QPdfDocument — scroll-to-page, fit-width/height, zoom."""
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QSize, QUrl
+from PySide6.QtCore import Qt, QSize, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import (
@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 
 
 class PdfViewer(QWidget):
-    """Paginated PDF viewer with navigation, zoom, fit-width, and scroll-to-page."""
+    """Paginated PDF viewer with navigation, zoom, fit-width, fit-height."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -27,6 +27,8 @@ class PdfViewer(QWidget):
         self._zoom = 1.0
         self._page_count = 0
         self._fit_width = True
+        self._fit_height = False
+        self._changing_page = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -39,9 +41,12 @@ class PdfViewer(QWidget):
         self._next_btn = QPushButton("\u25b6")
         self._next_btn.setFixedWidth(32)
 
-        self._fit_cb = QCheckBox(self.tr("Fit width"))
-        self._fit_cb.setChecked(True)
-        self._fit_cb.toggled.connect(self._on_fit_toggled)
+        self._fit_width_cb = QCheckBox(self.tr("Fit width"))
+        self._fit_width_cb.setChecked(True)
+        self._fit_width_cb.toggled.connect(self._on_fit_width_toggled)
+
+        self._fit_height_cb = QCheckBox(self.tr("Fit height"))
+        self._fit_height_cb.toggled.connect(self._on_fit_height_toggled)
 
         self._open_btn = QPushButton(self.tr("Open externally"))
         nav.addStretch()
@@ -49,7 +54,8 @@ class PdfViewer(QWidget):
         nav.addWidget(self._page_label)
         nav.addWidget(self._next_btn)
         nav.addSpacing(10)
-        nav.addWidget(self._fit_cb)
+        nav.addWidget(self._fit_width_cb)
+        nav.addWidget(self._fit_height_cb)
         nav.addSpacing(6)
         nav.addWidget(self._open_btn)
         nav.addStretch()
@@ -78,9 +84,7 @@ class PdfViewer(QWidget):
         self._zoom = 1.0
         self._page_count = max(self._doc.pageCount(), 0)
         if self._page_count == 0:
-            self._page_view.setText(
-                self.tr("Cannot render this PDF.")
-            )
+            self._page_view.setText(self.tr("Cannot render this PDF."))
             self._page_label.setText("0 / 0")
             self._prev_btn.setEnabled(False)
             self._next_btn.setEnabled(False)
@@ -95,11 +99,19 @@ class PdfViewer(QWidget):
             return
         vp = self._scroll.viewport()
         vp_w = max(vp.width(), 100)
-
+        vp_h = max(vp.height(), 100)
         aspect = page_size.height() / page_size.width()
-        if self._fit_width:
+
+        if self._fit_width and self._fit_height:
+            scale = min(vp_w / page_size.width(), vp_h / page_size.height())
+            render_w = int(page_size.width() * scale)
+            render_h = int(page_size.height() * scale)
+        elif self._fit_width:
             render_w = int(vp_w)
             render_h = int(vp_w * aspect)
+        elif self._fit_height:
+            render_h = int(vp_h)
+            render_w = int(vp_h / aspect) if aspect > 0 else 1
         else:
             render_w = max(int(vp_w * self._zoom), 1)
             render_h = int(render_w * aspect)
@@ -110,25 +122,40 @@ class PdfViewer(QWidget):
         self._prev_btn.setEnabled(self._page > 0)
         self._next_btn.setEnabled(self._page < self._page_count - 1)
 
+        # Reset scroll to top after pixmap is laid out
+        if self._changing_page:
+            QTimer.singleShot(0, self._reset_scroll)
+        self._changing_page = False
+
+    def _reset_scroll(self) -> None:
+        self._scroll.verticalScrollBar().setValue(0)
+        self._scroll.horizontalScrollBar().setValue(0)
+
     def _prev_page(self) -> None:
         if self._page > 0:
             self._page -= 1
-            self._scroll.verticalScrollBar().setValue(0)
+            self._changing_page = True
             self._render()
 
     def _next_page(self) -> None:
         if self._page < self._page_count - 1:
             self._page += 1
-            self._scroll.verticalScrollBar().setValue(0)
+            self._changing_page = True
             self._render()
 
     def _open_externally(self) -> None:
         if self._path is not None:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._path)))
 
-    def _on_fit_toggled(self, checked: bool) -> None:
+    def _on_fit_width_toggled(self, checked: bool) -> None:
         self._fit_width = checked
-        if not checked:
+        if not checked and not self._fit_height_cb.isChecked():
+            self._zoom = 1.0
+        self._render()
+
+    def _on_fit_height_toggled(self, checked: bool) -> None:
+        self._fit_height = checked
+        if not checked and not self._fit_width_cb.isChecked():
             self._zoom = 1.0
         self._render()
 
@@ -137,14 +164,14 @@ class PdfViewer(QWidget):
         return self._page_count
 
     def zoom_in(self) -> None:
-        self._fit_width = False
-        self._fit_cb.setChecked(False)
+        self._fit_width_cb.setChecked(False)
+        self._fit_height_cb.setChecked(False)
         self._zoom = min(5.0, self._zoom * 1.2)
         self._render()
 
     def zoom_out(self) -> None:
-        self._fit_width = False
-        self._fit_cb.setChecked(False)
+        self._fit_width_cb.setChecked(False)
+        self._fit_height_cb.setChecked(False)
         self._zoom = max(0.1, self._zoom / 1.2)
         self._render()
 
@@ -156,8 +183,8 @@ class PdfViewer(QWidget):
             if event.type() == event.Type.Wheel:
                 if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                     delta = event.angleDelta().y() / 120.0
-                    self._fit_width = False
-                    self._fit_cb.setChecked(False)
+                    self._fit_width_cb.setChecked(False)
+                    self._fit_height_cb.setChecked(False)
                     self._zoom = max(0.1, min(10.0, self._zoom + delta * 0.15))
                     self._render()
                     return True
