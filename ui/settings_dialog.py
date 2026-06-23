@@ -232,6 +232,18 @@ class SettingsDialog(QDialog):
 
         editor_page_layout.addLayout(editor_form)
 
+        # Per-folder: images directory
+        self._images_dir_edit: QLineEdit | None = None
+        if folder_settings is not None:
+            img_form = QFormLayout()
+            self._images_dir_edit = QLineEdit()
+            self._images_dir_edit.setText(
+                folder_settings.load().get("images_dir", "images")
+            )
+            self._images_dir_edit.setPlaceholderText("images")
+            img_form.addRow(self.tr("Images folder:"), self._images_dir_edit)
+            editor_page_layout.addLayout(img_form)
+
         # Smart editing checkboxes
         smart_group = QGroupBox(self.tr("Smart Editing"))
         smart_layout = QVBoxLayout(smart_group)
@@ -470,6 +482,11 @@ class SettingsDialog(QDialog):
                     if not seq.isEmpty():
                         shortcuts[name] = seq.toString(QKeySequence.SequenceFormat.PortableText)
         return shortcuts
+
+    def selected_images_dir(self) -> str | None:
+        if self._images_dir_edit is not None:
+            return self._images_dir_edit.text().strip() or None
+        return None
 
     # ------------------------------------------------------------------
     # Storage

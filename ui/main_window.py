@@ -1004,6 +1004,11 @@ class MainWindow(QMainWindow):
         if self._folder_settings is not None:
             new_sc = dlg.selected_shortcuts()
             self._folder_settings.save_shortcuts(new_sc)
+            new_id = dlg.selected_images_dir()
+            if new_id is not None:
+                cfg = self._folder_settings.load()
+                cfg["images_dir"] = new_id
+                self._folder_settings.save(cfg)
             self._shortcut_mgr = ShortcutManager(self._folder_settings)
             self._shortcut_mgr.apply(self._all_actions)
 
