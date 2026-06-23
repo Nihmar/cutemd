@@ -45,11 +45,15 @@ echo "==> ✅  Executable built: dist/$APP/$APP.exe"
 echo "    Distribute the entire dist/$APP/ folder."
 echo ""
 echo "==> Creating installer with Inno Setup …"
-if command -v iscc &> /dev/null; then
-    iscc scripts/cutemd_setup.iss
+ISCC=""
+for dir in "/c/Program Files (x86)/Inno Setup 6" "/c/Program Files/Inno Setup 6"; do
+    if [ -f "$dir/iscc.exe" ]; then ISCC="$dir/iscc.exe"; break; fi
+done
+if [ -z "$ISCC" ] && command -v iscc &> /dev/null; then ISCC="iscc"; fi
+if [ -n "$ISCC" ]; then
+    "$ISCC" scripts/cutemd_setup.iss
     echo "==> ✅  Installer built: dist/CuteMD_Setup.exe"
 else
-    echo "    Inno Setup not found on PATH – skipping installer."
-    echo "    Install from https://jrsoftware.org/isinfo.php and run:"
-    echo "      iscc scripts/cutemd_setup.iss"
+    echo "    Inno Setup not found – install from https://jrsoftware.org/isinfo.php"
+    echo "    Expected at: /c/Program Files (x86)/Inno Setup 6/iscc.exe"
 fi

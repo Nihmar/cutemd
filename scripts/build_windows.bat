@@ -38,14 +38,15 @@ echo ==> ✅  Executable built: dist\%APP%\%APP%.exe
 echo     Distribute the entire dist\%APP%\ folder.
 echo.
 echo ==> Creating installer with Inno Setup ...
-echo ==> DEBUG: searching iscc...
-where iscc >nul 2>&1
-echo ==> DEBUG: ERRORLEVEL=%ERRORLEVEL%
-if %ERRORLEVEL% equ 0 (
-    iscc scripts\cutemd_setup.iss
+set ISCC=
+for %%d in ("%ProgramFiles(x86)%\Inno Setup 6" "%ProgramFiles%\Inno Setup 6") do (
+    if exist "%%~d\iscc.exe" set ISCC="%%~d\iscc.exe"
+)
+if not defined ISCC where iscc >nul 2>&1 && set ISCC=iscc
+if defined ISCC (
+    %ISCC% scripts\cutemd_setup.iss
     echo ==> ✅  Installer built: dist\CuteMD_Setup.exe
 ) else (
-    echo     Inno Setup not found on PATH -- skipping installer.
-    echo     Install from https://jrsoftware.org/isinfo.php and run:
-    echo       iscc scripts\cutemd_setup.iss
+    echo     Inno Setup not found - install from https://jrsoftware.org/isinfo.php
+    echo     Expected at: "%ProgramFiles(x86)%\Inno Setup 6\iscc.exe"
 )
