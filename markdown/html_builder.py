@@ -86,8 +86,12 @@ def build_html(
 
     theme_class = "dark" if theme == "dark" else "light"
     font_style = f"font-size: {font_size}px;"
-    if font_family != "Sistema":
-        font_style += f" font-family: {font_family};"
+    if font_family not in ("System", "Sistema"):
+        # Quote multi-word names so CSS parses them correctly.
+        if " " in font_family:
+            font_style += f' font-family: "{font_family}";'
+        else:
+            font_style += f" font-family: {font_family};"
 
     return (
         "<!DOCTYPE html>\n"
