@@ -76,3 +76,25 @@ class FolderSettings:
                 except OSError:
                     pass
         return total
+
+    # -- typed accessors (return None when not overridden) --
+
+    def get_theme(self) -> str | None:
+        v = self._values.get("theme")
+        return str(v) if isinstance(v, str) and v else None
+
+    def get_editor_font_family(self) -> str | None:
+        v = self._values.get("editor_font_family")
+        return str(v) if isinstance(v, str) and v else None
+
+    def get_editor_font_size(self) -> int | None:
+        v = self._values.get("editor_font_size")
+        return int(v) if isinstance(v, (int, float)) and v > 0 else None
+
+    def get_preview_font_family(self) -> str | None:
+        v = self._values.get("preview_font_family")
+        return str(v) if isinstance(v, str) and v else None
+
+    def get_preview_font_size(self) -> int | None:
+        v = self._values.get("preview_font_size")
+        return int(v) if isinstance(v, (int, float)) and v > 0 else None

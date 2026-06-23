@@ -1094,6 +1094,25 @@ class MainWindow(QMainWindow):
         self._folder_path = path
         self._folder_settings = FolderSettings(path)
         self._folder_settings.load()
+
+        # Apply per-folder settings (fall back to global)
+        fs = self._folder_settings
+        folder_theme = fs.get_theme()
+        if folder_theme is not None and folder_theme != self._theme_id:
+            self._current_theme = (
+                system_theme() if folder_theme == "system" else get_theme(folder_theme)
+            )
+            self._theme_id = folder_theme
+            self._apply_theme()
+        self._editor_font_family = fs.get_editor_font_family() or self._editor_font_family
+        ef_size = fs.get_editor_font_size()
+        if ef_size is not None:
+            self._editor_font_size = ef_size
+        self._preview_font_family = fs.get_preview_font_family() or self._preview_font_family
+        pf_size = fs.get_preview_font_size()
+        if pf_size is not None:
+            self._preview_font_size = pf_size
+
         self._shortcut_mgr = ShortcutManager(self._folder_settings)
         self._shortcut_mgr.apply(self._all_actions)
         for i in range(self._tabs.count() - 1, -1, -1):
