@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 from ui import theme
 from ui.editor_tab import EditorTab
 from ui.file_tree_panel import FileTreePanel
+from ui.folder_settings import FolderSettings
 from ui.themes import get_theme, system_theme
 
 # ---------------------------------------------------------------------------
@@ -59,6 +60,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._folder_path: Path | None = None
+        self._folder_settings: FolderSettings | None = None
         self._preview_visible = True
 
         # Restore saved settings
@@ -214,9 +216,6 @@ class MainWindow(QMainWindow):
         mb = self.menuBar()
 
         self._file_menu = mb.addMenu(self.tr("&File"))
-        self._file_menu.addAction(self.act_open_folder)
-        self._file_menu.addAction(self.act_close_folder)
-        self._file_menu.addSeparator()
         self._file_menu.addAction(self.act_new)
         self._file_menu.addAction(self.act_save)
         self._file_menu.addAction(self.act_save_as)
@@ -427,6 +426,17 @@ class MainWindow(QMainWindow):
             layout.addWidget(b)
             self._toolbar_buttons.append((b, icon_name))
             self._toolbar_tooltips.append(tip)
+
+        # --- Folder button ---
+        self._folder_btn = QToolButton()
+        self._folder_btn.setIcon(self._make_colored_icon("folder", icon_color))
+        self._folder_btn.setToolTip(self.tr("Open folder"))
+        self._folder_btn.setAutoRaise(True)
+        self._folder_btn.setIconSize(QSize(18, 18))
+        self._folder_btn.setFixedSize(28, 26)
+        self._folder_btn.clicked.connect(self._on_open_folder)
+        layout.addWidget(self._folder_btn)
+        _sep()
 
         # --- Heading button ---
         self._heading_btn = QToolButton()
@@ -725,6 +735,7 @@ class MainWindow(QMainWindow):
             self._line_number_mode,
             self._smart_editing.get("link_style", "md"),
             self._smart_editing,
+            self._folder_settings,
             self,
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
@@ -861,32 +872,73 @@ class MainWindow(QMainWindow):
 
     def _set_folder(self, path: Path) -> None:
         self._folder_path = path
+        self._folder_settings = FolderSettings(path)
+        self._folder_settings.load()
         for i in range(self._tabs.count() - 1, -1, -1):
             self._tabs.removeTab(i)
         self._add_tab()
         self._tree_panel.set_root_path(path)
-        self._update_window_title()
+        self._add_recent_folder(path)
         QSettings("cutemd", "cutemd").setValue("last_folder", str(path))
+        self._update_menu_state()
 
     def _restore_last_folder(self) -> None:
         settings = QSettings("cutemd", "cutemd")
         last = str(settings.value("last_folder", ""))
         if last and Path(last).is_dir():
             self._set_folder(Path(last))
+            return
+
+        from ui.welcome_dialog import WelcomeDialog
+
+        dlg = WelcomeDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            self._update_menu_state()
+            return
+        folder = dlg.selected_folder()
+        if folder is not None:
+            self._set_folder(folder)
         else:
-            self._on_open_folder()
+            self._update_menu_state()
+
+    def _update_menu_state(self) -> None:
+        folder_mode = self._folder_path is not None
+        self.act_close_folder.setVisible(folder_mode)
+        self.act_close_folder.setEnabled(folder_mode)
+        self.act_find_files.setVisible(folder_mode)
+        self.act_find_files.setEnabled(folder_mode)
+        if not folder_mode:
+            self._tree_panel.setVisible(False)
+            self.act_toggle_tree.setChecked(False)
+        else:
+            self._tree_panel.setVisible(True)
+            self.act_toggle_tree.setChecked(True)
+        self._update_window_title()
+
+    def _add_recent_folder(self, path: Path) -> None:
+        settings = QSettings("cutemd", "cutemd")
+        recent = settings.value("recent_folders", [])
+        if isinstance(recent, str):
+            recent = [recent] if recent else []
+        if not isinstance(recent, list):
+            recent = []
+        sp = str(path.resolve())
+        recent = [p for p in recent if p != sp]
+        recent.insert(0, sp)
+        settings.setValue("recent_folders", recent[:10])
 
     def _on_close_folder(self) -> None:
         tab = self._current_tab()
         if tab and not tab.maybe_save():
             return
         self._folder_path = None
+        self._folder_settings = None
         for i in range(self._tabs.count() - 1, -1, -1):
             self._tabs.removeTab(i)
         self._add_tab()
         self._tree_panel.set_root_path("")
-        self._update_window_title()
         QSettings("cutemd", "cutemd").remove("last_folder")
+        self._update_menu_state()
 
     def _on_tree_file_activated(self, path: str) -> None:
         p = Path(path)

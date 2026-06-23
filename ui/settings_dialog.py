@@ -1,6 +1,8 @@
 """Settings dialog — theme and font selection."""
 
-from PySide6.QtCore import Qt
+from pathlib import Path
+
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QFontDatabase
 from typing import Any
 
@@ -16,6 +18,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QStackedWidget,
@@ -119,11 +122,13 @@ class SettingsDialog(QDialog):
         current_line_number_mode: int = 1,
         current_link_style: str = "md",
         current_smart_editing: dict[str, Any] | None = None,
+        folder_settings: Any = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
         self.setMinimumWidth(600)
+        self._folder_settings = folder_settings
 
         smart = dict(DEFAULT_SMART_EDITING)
         if current_smart_editing:
@@ -139,6 +144,7 @@ class SettingsDialog(QDialog):
             self.tr("Theme"),
             self.tr("Editor"),
             self.tr("Preview Font"),
+            self.tr("Storage"),
         ]
         for name in sections:
             self._section_list.addItem(name)
@@ -281,6 +287,28 @@ class SettingsDialog(QDialog):
         preview_page_layout.addStretch()
         self._stack.addWidget(preview_page)
 
+        # Page 4: Storage
+        storage_page = self._build_page(self.tr("Storage"))
+        storage_page_layout = storage_page.layout()
+        storage_form = QFormLayout()
+
+        qs_path = QSettings("cutemd", "cutemd").fileName()
+        qs_label = QLabel(qs_path)
+        qs_label.setWordWrap(True)
+        qs_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        storage_form.addRow(self.tr("Config file:"), qs_label)
+
+        self._dotdir_info = QLabel()
+        storage_form.addRow(self.tr("Folder data (.cutemd):"), self._dotdir_info)
+
+        clear_btn = QPushButton(self.tr("Clear last folder"))
+        clear_btn.clicked.connect(self._clear_last_folder)
+        storage_form.addRow("", clear_btn)
+
+        storage_page_layout.addLayout(storage_form)
+        storage_page_layout.addStretch()
+        self._stack.addWidget(storage_page)
+
         right.addWidget(self._stack)
 
         # Buttons
@@ -301,6 +329,7 @@ class SettingsDialog(QDialog):
         self._section_list.setCurrentRow(0)
 
         self._update_preview()
+        self._refresh_storage_info()
 
     # ------------------------------------------------------------------
     # Helpers
@@ -378,6 +407,36 @@ class SettingsDialog(QDialog):
             "continue_lists": self._continue_lists_cb.isChecked(),
             "backspace_pairs": self._backspace_pairs_cb.isChecked(),
         }
+
+    # ------------------------------------------------------------------
+    # Storage
+    # ------------------------------------------------------------------
+
+    def _refresh_storage_info(self) -> None:
+        if self._folder_settings is not None:
+            size = self._folder_settings.dotdir_size()
+            if size < 1024:
+                size_str = f"{size} B"
+            elif size < 1024 * 1024:
+                size_str = f"{size / 1024:.1f} KB"
+            else:
+                size_str = f"{size / (1024 * 1024):.1f} MB"
+            path_str = str(self._folder_settings.dotdir_path)
+            self._dotdir_info.setText(
+                self.tr("{} \u2014 {}").format(path_str, size_str)
+            )
+        else:
+            self._dotdir_info.setText(self.tr("No folder open"))
+
+    def _clear_last_folder(self) -> None:
+        QSettings("cutemd", "cutemd").remove("last_folder")
+        QSettings("cutemd", "cutemd").remove("recent_folders")
+        QMessageBox.information(
+            self,
+            self.tr("Storage"),
+            self.tr("Last folder and recent folders list cleared.\n"
+                     "You will be prompted to choose a folder on next launch."),
+        )
 
     # ------------------------------------------------------------------
     # Preview
