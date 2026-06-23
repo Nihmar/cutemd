@@ -405,22 +405,26 @@ class MainWindow(QMainWindow):
 
     def _on_side_tree_toggled(self, checked: bool) -> None:
         if checked:
+            self._side_search_btn.blockSignals(True)
             self._side_search_btn.setChecked(False)
+            self._side_search_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(0)
-            self._left_stack.setVisible(True)
+            self._left_stack.show()
             self.act_toggle_tree.setChecked(True)
         else:
-            self._left_stack.setVisible(False)
+            self._left_stack.hide()
             self.act_toggle_tree.setChecked(False)
 
     def _on_side_search_toggled(self, checked: bool) -> None:
         if checked:
+            self._side_tree_btn.blockSignals(True)
             self._side_tree_btn.setChecked(False)
+            self._side_tree_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(1)
-            self._left_stack.setVisible(True)
+            self._left_stack.show()
             self.act_toggle_tree.setChecked(True)
         else:
-            self._left_stack.setVisible(False)
+            self._left_stack.hide()
             self.act_toggle_tree.setChecked(False)
 
     # ------------------------------------------------------------------
@@ -632,12 +636,22 @@ class MainWindow(QMainWindow):
     def _on_find_in_files(self) -> None:
         if self._folder_path is None:
             return
-        if self._left_stack.currentIndex() == 1 and self._left_stack.isVisible():
+        if self._left_stack.currentIndex() == 1 and not self._left_stack.isHidden():
+            self._side_search_btn.blockSignals(True)
             self._side_search_btn.setChecked(False)
-            self._on_side_search_toggled(False)
+            self._side_search_btn.blockSignals(False)
+            self._left_stack.hide()
+            self.act_toggle_tree.setChecked(False)
         else:
+            self._side_search_btn.blockSignals(True)
             self._side_search_btn.setChecked(True)
-            self._on_side_search_toggled(True)
+            self._side_search_btn.blockSignals(False)
+            self._side_tree_btn.blockSignals(True)
+            self._side_tree_btn.setChecked(False)
+            self._side_tree_btn.blockSignals(False)
+            self._left_stack.setCurrentIndex(1)
+            self._left_stack.show()
+            self.act_toggle_tree.setChecked(True)
             self._search_input.setFocus()
             self._search_input.selectAll()
 
@@ -913,13 +927,19 @@ class MainWindow(QMainWindow):
 
     def _on_toggle_tree(self, visible: bool) -> None:
         if visible:
+            self._side_tree_btn.blockSignals(True)
             self._side_tree_btn.setChecked(True)
+            self._side_tree_btn.blockSignals(False)
+            self._side_search_btn.blockSignals(True)
             self._side_search_btn.setChecked(False)
+            self._side_search_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(0)
+            self._left_stack.show()
+            self.act_toggle_tree.setChecked(True)
         else:
             self._side_tree_btn.setChecked(False)
             self._side_search_btn.setChecked(False)
-        self._left_stack.setVisible(visible)
+            self._left_stack.hide()
 
     def _on_toggle_statusbar(self, visible: bool) -> None:
         self._status_file.parent().setVisible(visible)
@@ -1002,16 +1022,24 @@ class MainWindow(QMainWindow):
         self.act_find_files.setVisible(folder_mode)
         self.act_find_files.setEnabled(folder_mode)
         if not folder_mode:
+            self._side_tree_btn.blockSignals(True)
+            self._side_search_btn.blockSignals(True)
             self._side_tree_btn.setChecked(False)
             self._side_search_btn.setChecked(False)
-            self._left_stack.setVisible(False)
+            self._side_tree_btn.blockSignals(False)
+            self._side_search_btn.blockSignals(False)
+            self._left_stack.hide()
             self.act_toggle_tree.setChecked(False)
             self._side_folder_btn.setText("...")
         else:
+            self._side_tree_btn.blockSignals(True)
+            self._side_search_btn.blockSignals(True)
             self._side_tree_btn.setChecked(True)
             self._side_search_btn.setChecked(False)
+            self._side_tree_btn.blockSignals(False)
+            self._side_search_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(0)
-            self._left_stack.setVisible(True)
+            self._left_stack.show()
             self.act_toggle_tree.setChecked(True)
             self._side_folder_btn.setText(self._folder_path.name)
         self._update_window_title()
