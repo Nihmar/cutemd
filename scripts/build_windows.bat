@@ -35,3 +35,6 @@ uv run pyinstaller ^
 
 echo ==> ✅  Executable built: dist\%APP%\%APP%.exe
 echo     Distribute the entire dist\%APP%\ folder.
+echo.
+echo     To register as default Markdown editor, run:
+echo       powershell -ExecutionPolicy Bypass -File scripts\register_windows.ps1 -ExePath "dist\%APP%\%APP%.exe"
