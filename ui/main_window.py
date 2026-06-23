@@ -307,6 +307,7 @@ class MainWindow(QMainWindow):
 
         # --- Left container: toolbar (fixed 32px) + stack (stretch), NO splitter between them ---
         left_container = QWidget()
+        left_container.setMinimumWidth(32)
         lc_layout = QHBoxLayout(left_container)
         lc_layout.setContentsMargins(0, 0, 0, 0)
         lc_layout.setSpacing(0)
