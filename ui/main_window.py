@@ -865,10 +865,16 @@ class MainWindow(QMainWindow):
         tab = self._current_tab()
         if tab and not tab.maybe_save():
             return
-        folder = QFileDialog.getExistingDirectory(self, "Open Folder", "")
-        if not folder:
+
+        from ui.welcome_dialog import WelcomeDialog
+
+        dlg = WelcomeDialog(self)
+        dlg.setWindowTitle(self.tr("Open Folder"))
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             return
-        self._set_folder(Path(folder))
+        folder = dlg.selected_folder()
+        if folder is not None:
+            self._set_folder(folder)
 
     def _set_folder(self, path: Path) -> None:
         self._folder_path = path
