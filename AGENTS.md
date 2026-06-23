@@ -26,18 +26,43 @@ Always use `_resolve_path()` from `ui/theme.py` (or equivalent `getattr(sys, "fr
 --add-data "ui/style.qss;ui"
 --add-data "ui/preview_styles.css;ui"
 --add-data "resources/translations;resources/translations"
+--add-data "resources/cutemd.svg;resources"
+--add-data "resources/cutemd.ico;resources"
+--icon resources/cutemd.ico
+--version-file scripts/file_version_info.txt
 --collect-data latex2mathml
---collect-data pygments
 --hidden-import PySide6.QtSvg
+--hidden-import PySide6.QtPdf
 ```
 
-If you add new resource dirs or data packages, update both build scripts in `scripts/`.
+If you add new resource dirs or data packages, update all three build scripts in `scripts/` (`build_windows.bat`, `build_windows.sh`, `build_appimage.sh`).
+
+### Windows installers
+
+- **Inno Setup**: `scripts/cutemd_setup.iss` — creates `CuteMD_Setup.exe`. Prerequisites: Inno Setup 6+.
+- **Standalone registration**: `scripts/register_windows.ps1` — registers `.md` file association without an installer. Run as admin.
+- **Icon generation**: `scripts/make_ico.py` — generates `resources/cutemd.ico` from the SVG. Run with `uv run`.
 
 ## Theme / QSS system
 
 - `ui/theme.py` reads `style.qss` and replaces `${KEY}` placeholders with `QPalette` colors at runtime.
 - `ui/themes.py` defines the 9 color palettes.
 - `ui/preview_styles.css` is plain CSS injected into the web preview pane — no `${KEY}` substitution.
+
+## Versioning
+
+The version is stored in four locations — **update all of them in sync** when bumping:
+
+| File | Field(s) | Platform |
+|---|---|---|
+| `pyproject.toml` | `version = "x.y.z"` | All |
+| `main.py` | `__version__ = "x.y.z"` | All |
+| `scripts/file_version_info.txt` | `filevers`, `prodvers`, `FileVersion`, `ProductVersion` | Windows EXE metadata |
+| `scripts/cutemd_setup.iss` | `#define MyAppVersion "x.y.z"` | Windows Inno Setup installer |
+
+The `--version-file` flag in the Windows build scripts embeds metadata into `cutemd.exe` (visible in File Properties → Details).
+
+On Linux/AppImage, version is read from `pyproject.toml` / `main.py.__version__` at build time.
 
 ## Translations
 

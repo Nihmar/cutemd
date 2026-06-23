@@ -1,6 +1,6 @@
 # CuteMD
 
-A non-WYSIWYG Markdown editor with live preview, syntax highlighting, and folder-based project navigation — inspired by Obsidian.
+A non-WYSIWYG Markdown editor with live preview, syntax highlighting, and folder-based project navigation. Supports both vault-style folder management and single-file edit mode.
 
 ![theme](resources/cutemd.svg)
 
@@ -41,28 +41,42 @@ uv run main.py
 
 ```
 cutemd/
-├── main.py                    # Entry point
+├── main.py                    # Entry point + __version__
 ├── ui/                        # Qt / PySide6
-│   ├── main_window.py         # MainWindow — tabs, toolbar, menus
+│   ├── main_window.py         # MainWindow — tabs, toolbar, menus, dual-mode
 │   ├── editor_tab.py          # EditorTab — editor + preview + scroll sync
 │   ├── file_tree_panel.py     # FileTreePanel — folder tree widget
+│   ├── folder_settings.py     # FolderSettings — per-folder .cutemd/ config
 │   ├── syntax_highlighter.py  # MarkdownHighlighter — editor highlighting
+│   ├── markdown_completer.py  # MarkdownAutoCompleter — smart editing
 │   ├── theme.py               # QSS generation from palette
 │   ├── themes.py              # Theme definitions (9 built-in)
-│   ├── settings_dialog.py     # Settings dialog (theme picker)
+│   ├── settings_dialog.py     # Settings dialog (theme, font, storage info)
+│   ├── welcome_dialog.py      # First-launch folder selector
+│   ├── preview_browser.py     # PreviewTextBrowser + image helpers
+│   ├── image_viewer.py        # ImageViewer with zoom/pan
+│   ├── pdf_viewer.py          # PdfViewer with fit-width
 │   ├── style.qss              # Qt stylesheet template
 │   ├── preview_styles.css     # Preview pane CSS
-│   └── icons/                 # SVG toolbar icons (13)
+│   └── icons/                 # SVG toolbar icons (16)
 ├── markdown/                  # Markdown processing (no Qt)
+│   ├── html_builder.py        # MD→HTML pipeline, anchors, wikilinks
 │   ├── math_renderers.py      # LaTeX → MathML for dollarmath plugin
 │   └── tools.py               # Pygments code highlight, heading IDs, anchors
 ├── resources/                 # Distribution assets
 │   ├── cutemd.desktop         # Linux .desktop entry
-│   └── cutemd.svg             # Application icon
-├── scripts/                   # Build scripts
+│   ├── cutemd.svg             # Application icon (SVG)
+│   ├── cutemd.ico             # Application icon (Windows)
+│   └── translations/          # Qt translation files (.ts / .qm)
+├── scripts/                   # Build & utility scripts
 │   ├── build_appimage.sh      # Linux AppImage builder
-│   ├── build_windows.sh       # Windows .exe builder (Git Bash / WSL)
-│   └── build_windows.bat      # Windows .exe builder (cmd / PowerShell)
+│   ├── build_windows.sh       # Windows .exe (Git Bash / WSL)
+│   ├── build_windows.bat      # Windows .exe (cmd / PowerShell)
+│   ├── cutemd_setup.iss       # Inno Setup installer script
+│   ├── file_version_info.txt  # Windows exe version metadata
+│   ├── make_ico.py            # Generate .ico from .svg
+│   ├── register_windows.ps1   # Windows file association (standalone)
+│   └── update_translations.sh # .ts → .qm compilation
 ├── pyproject.toml
 └── uv.lock
 ```
@@ -97,6 +111,10 @@ The AppImage is self-contained — no dependencies needed on the target system. 
 uv pip install pyinstaller
 bash scripts/build_windows.sh
 # → dist/cutemd/cutemd.exe
+
+# Optional: create installer with Inno Setup
+iscc scripts/cutemd_setup.iss
+# → dist/CuteMD_Setup.exe
 ```
 
 Or from a native Windows prompt:
@@ -106,9 +124,21 @@ REM cmd.exe or PowerShell
 uv pip install pyinstaller
 scripts\build_windows.bat
 REM → dist\cutemd\cutemd.exe
+REM → dist\CuteMD_Setup.exe  (if Inno Setup is installed)
 ```
 
-The output is a folder — distribute the entire `dist\cutemd\` directory. `--onedir` starts instantly (no temp extraction).
+The Inno Setup installer:
+- Installs to `C:\Program Files\CuteMD\`
+- Registers `.md` and `.markdown` file associations
+- Adds "Open with CuteMD" to the context menu
+- Creates Start Menu shortcuts
+- Supports upgrades (reinstall over previous version)
+- Provides clean uninstall
+
+To register file types without the installer, run:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\register_windows.ps1 -ExePath "dist\cutemd\cutemd.exe"
+```
 
 ## Keyboard shortcuts
 
@@ -122,6 +152,23 @@ The output is a folder — distribute the entire `dist\cutemd\` directory. `--on
 | `Ctrl+Q` | Quit |
 | `Ctrl+Z` | Undo |
 | `Ctrl+Shift+Z` | Redo |
+| `Ctrl+F` | Find in editor |
+| `Ctrl+Shift+F` | Find in files |
+| `Ctrl+B` | Toggle file tree |
+| `Ctrl+P` | Toggle preview |
+| `Ctrl+,` | Settings |
+| `Ctrl+/` | Keyboard shortcuts reference |
+
+## Versioning
+
+The version is stored in four places — update all of them in sync:
+
+| File | Key | Applies to |
+|---|---|---|
+| `pyproject.toml` | `version = "x.y.z"` | Python package metadata (all platforms) |
+| `main.py` | `__version__ = "x.y.z"` | Runtime version string (all platforms) |
+| `scripts/file_version_info.txt` | `filevers`, `prodvers`, etc. | Windows EXE metadata (via `--version-file`) |
+| `scripts/cutemd_setup.iss` | `#define MyAppVersion "x.y.z"` | Inno Setup installer (Windows)
 
 ## Themes
 
