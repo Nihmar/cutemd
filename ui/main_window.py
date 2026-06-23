@@ -336,6 +336,8 @@ class MainWindow(QMainWindow):
         self._tree_panel = FileTreePanel()
         self._tree_panel.file_activated.connect(self._on_tree_file_activated)
         self._tree_panel.file_open_new_tab.connect(self._on_tree_file_new_tab)
+        self._tree_panel.file_renamed.connect(self._on_tree_file_renamed)
+        self._tree_panel.file_deleted.connect(self._on_tree_file_deleted)
 
         # --- Search panel ---
         self._search_panel = self._make_search_panel()
@@ -1391,13 +1393,46 @@ class MainWindow(QMainWindow):
         self._tree_panel.select_file(p)
 
     def _on_tree_file_new_tab(self, path: str) -> None:
-        """Open *path* in a new tab unconditionally."""
+        """Open *path* in a new tab, or focus existing tab if already open."""
         p = Path(path)
+        idx = self._find_tab_for_file(p)
+        if idx >= 0:
+            self._tabs.setCurrentIndex(idx)
+            return
         tab = self._add_tab()
         tab.load_file(p)
         self._refresh_tab_title(tab)
         self._update_window_title()
         self._tree_panel.select_file(p)
+
+    def _on_tree_file_renamed(self, old_path: str, new_path: str) -> None:
+        """Update any open tab pointing to the old path."""
+        old = Path(old_path).resolve()
+        new = Path(new_path).resolve()
+        for i in range(self._tabs.count()):
+            tab = self._tabs.widget(i)
+            if isinstance(tab, EditorTab) and tab.file_path:
+                if tab.file_path.resolve() == old:
+                    tab._file_path = new
+                    self._refresh_tab_title(tab)
+                    self._tree_panel.select_file(new)
+                elif old in tab.file_path.resolve().parents:
+                    tab._file_path = new / tab.file_path.resolve().relative_to(old)
+                    self._refresh_tab_title(tab)
+        self._update_window_title()
+
+    def _on_tree_file_deleted(self, path: str) -> None:
+        """Close any open tab pointing to the deleted path."""
+        deleted = Path(path).resolve()
+        to_close = []
+        for i in range(self._tabs.count()):
+            tab = self._tabs.widget(i)
+            if isinstance(tab, EditorTab) and tab.file_path:
+                resolved = tab.file_path.resolve()
+                if resolved == deleted or deleted in resolved.parents:
+                    to_close.append(i)
+        for i in reversed(to_close):
+            self._on_tab_close_requested(i)
 
     def _on_file_link_clicked(self, source_tab: EditorTab, target: str) -> None:
         """Click on a link/wikilink — open URL in browser or file in a tab."""

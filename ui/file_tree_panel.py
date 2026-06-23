@@ -1,16 +1,101 @@
 """Folder tree panel --- shows markdown files in a QTreeView."""
 
+import shutil
 from pathlib import Path
 
 from PySide6.QtCore import QDir, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QFileSystemModel,
+    QInputDialog,
     QMenu,
+    QMessageBox,
     QTreeView,
     QVBoxLayout,
     QWidget,
 )
+
+
+class _FileTreeView(QTreeView):
+    """Custom tree view with keyboard shortcuts and drag-drop support."""
+
+    file_rename_requested = Signal(str)
+    file_delete_requested = Signal(str)
+    files_dropped = Signal(list, str)  # (source_paths, target_dir)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_F2:
+            index = self.currentIndex()
+            if index.isValid():
+                path = self.model().filePath(index)
+                if path:
+                    self.file_rename_requested.emit(path)
+            return
+        if event.key() == Qt.Key.Key_Delete:
+            for index in self.selectionModel().selectedRows():
+                path = self.model().filePath(index)
+                if path:
+                    self.file_delete_requested.emit(path)
+            return
+        super().keyPressEvent(event)
+
+    def dragEnterEvent(self, event) -> None:
+        if event.source() == self:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:
+        if event.source() != self:
+            event.ignore()
+            return
+        index = self.indexAt(event.position().toPoint())
+        if index.isValid():
+            path = self.model().filePath(index)
+            if path and Path(path).is_dir():
+                event.acceptProposedAction()
+            else:
+                event.ignore()
+        else:
+            event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:
+        if event.source() != self:
+            event.ignore()
+            return
+
+        index = self.indexAt(event.position().toPoint())
+        if index.isValid():
+            path = self.model().filePath(index)
+            if path:
+                target_dir = str(Path(path) if Path(path).is_dir() else Path(path).parent)
+            else:
+                target_dir = self.model().rootPath()
+        else:
+            target_dir = self.model().rootPath()
+
+        if not target_dir:
+            event.ignore()
+            return
+
+        urls = event.mimeData().urls()
+        source_paths = [url.toLocalFile() for url in urls if url.isLocalFile()]
+
+        if not source_paths:
+            event.ignore()
+            return
+
+        self.files_dropped.emit(source_paths, target_dir)
+        event.acceptProposedAction()
 
 
 class FileTreePanel(QWidget):
@@ -18,10 +103,15 @@ class FileTreePanel(QWidget):
 
     Emits:
         file_activated(str) --- absolute path of the file the user clicked.
+        file_open_new_tab(str) --- open file in a new tab unconditionally.
+        file_renamed(str, str) --- (old_path, new_path) after a rename.
+        file_deleted(str) --- path of a deleted file.
     """
 
     file_activated = Signal(str)
     file_open_new_tab = Signal(str)
+    file_renamed = Signal(str, str)
+    file_deleted = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -32,7 +122,7 @@ class FileTreePanel(QWidget):
             QDir.Filter.Files | QDir.Filter.AllDirs | QDir.Filter.NoDotAndDotDot
         )
 
-        self._tree = QTreeView()
+        self._tree = _FileTreeView()
         self._tree.setModel(self._model)
         self._tree.setHeaderHidden(True)
         self._tree.setAnimated(True)
@@ -47,6 +137,9 @@ class FileTreePanel(QWidget):
 
         self._tree.clicked.connect(self._on_activated)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
+        self._tree.file_rename_requested.connect(self._rename_item)
+        self._tree.file_delete_requested.connect(self._delete_item)
+        self._tree.files_dropped.connect(self._move_items)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -100,6 +193,11 @@ class FileTreePanel(QWidget):
         menu = QMenu(self._tree)
 
         if p.is_dir():
+            act_rename = menu.addAction(self.tr("Rename"))
+            act_rename.triggered.connect(lambda: self._rename_item(str(p)))
+            act_delete = menu.addAction(self.tr("Delete"))
+            act_delete.triggered.connect(lambda: self._delete_item(str(p)))
+            menu.addSeparator()
             act_explorer = menu.addAction(self.tr("Open in file explorer"))
             act_explorer.triggered.connect(
                 lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
@@ -107,6 +205,13 @@ class FileTreePanel(QWidget):
         else:
             act_new_tab = menu.addAction(self.tr("Open in new tab"))
             act_new_tab.triggered.connect(lambda: self.file_open_new_tab.emit(str(p)))
+            menu.addSeparator()
+            act_rename = menu.addAction(self.tr("Rename"))
+            act_rename.triggered.connect(lambda: self._rename_item(str(p)))
+            act_duplicate = menu.addAction(self.tr("Duplicate"))
+            act_duplicate.triggered.connect(lambda: self._duplicate_file(str(p)))
+            act_delete = menu.addAction(self.tr("Delete"))
+            act_delete.triggered.connect(lambda: self._delete_item(str(p)))
             menu.addSeparator()
             act_open = menu.addAction(self.tr("Open with default application"))
             act_open.triggered.connect(
@@ -118,3 +223,114 @@ class FileTreePanel(QWidget):
             )
 
         menu.exec(self._tree.viewport().mapToGlobal(point))
+
+    # ------------------------------------------------------------------
+    # File operations
+    # ------------------------------------------------------------------
+    def _rename_item(self, path_str: str) -> None:
+        p = Path(path_str)
+        new_name, ok = QInputDialog.getText(
+            self, self.tr("Rename"), self.tr("New name:"),
+            text=p.name,
+        )
+        if not ok or not new_name.strip() or new_name.strip() == p.name:
+            return
+        new_path = p.with_name(new_name.strip())
+        if new_path.exists():
+            QMessageBox.warning(
+                self, self.tr("Rename"),
+                self.tr("A file or folder with that name already exists."),
+            )
+            return
+        try:
+            p.rename(new_path)
+            self.file_renamed.emit(str(p), str(new_path))
+        except OSError as e:
+            QMessageBox.critical(
+                self, self.tr("Error"),
+                self.tr("Could not rename:\n{}").format(e),
+            )
+
+    def _duplicate_file(self, path_str: str) -> None:
+        p = Path(path_str)
+        stem = p.stem
+        ext = p.suffix
+        n = 1
+        while True:
+            suffix = f" ({n})" if n > 1 else " (copy)"
+            new_name = f"{stem}{suffix}{ext}"
+            new_path = p.with_name(new_name)
+            if not new_path.exists():
+                break
+            n += 1
+        try:
+            shutil.copy2(str(p), str(new_path))
+        except OSError as e:
+            QMessageBox.critical(
+                self, self.tr("Error"),
+                self.tr("Could not duplicate:\n{}").format(e),
+            )
+
+    def _delete_item(self, path_str: str) -> None:
+        p = Path(path_str)
+        is_dir = p.is_dir()
+        if is_dir:
+            msg = self.tr("Delete folder '{}' and all its contents?").format(p.name)
+        else:
+            msg = self.tr("Delete '{}'?").format(p.name)
+        ret = QMessageBox.question(
+            self, self.tr("Delete"), msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            if is_dir:
+                shutil.rmtree(p)
+            else:
+                p.unlink()
+            self.file_deleted.emit(str(p))
+        except OSError as e:
+            QMessageBox.critical(
+                self, self.tr("Error"),
+                self.tr("Could not delete:\n{}").format(e),
+            )
+
+    def _move_items(self, source_paths: list[str], target_dir: str) -> None:
+        dest = Path(target_dir)
+        moved_old_new = []
+        for sp in source_paths:
+            src = Path(sp)
+            if src.parent == dest:
+                continue
+            new_path = dest / src.name
+            if new_path.exists():
+                ret = QMessageBox.question(
+                    self, self.tr("Overwrite"),
+                    self.tr("'{}' already exists. Overwrite?").format(new_path.name),
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if ret != QMessageBox.StandardButton.Yes:
+                    continue
+                try:
+                    if new_path.is_dir():
+                        shutil.rmtree(new_path)
+                    else:
+                        new_path.unlink()
+                except OSError as e:
+                    QMessageBox.critical(
+                        self, self.tr("Error"),
+                        self.tr("Could not overwrite '{}':\n{}").format(new_path.name, e),
+                    )
+                    continue
+            try:
+                shutil.move(str(src), str(new_path))
+                moved_old_new.append((sp, str(new_path)))
+            except OSError as e:
+                QMessageBox.critical(
+                    self, self.tr("Error"),
+                    self.tr("Could not move '{}':\n{}").format(src.name, e),
+                )
+
+        for old_path, new_path in moved_old_new:
+            self.file_renamed.emit(old_path, new_path)
