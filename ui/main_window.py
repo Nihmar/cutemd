@@ -247,6 +247,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _setup_central(self) -> None:
         icon_color = self._current_theme.icon_color
+        self._toolbar_buttons: list[tuple[QToolButton, str]] = []
+        self._toolbar_tooltips: list[str] = []
 
         # --- Left vertical toolbar ---
         left_tb = QWidget()
@@ -523,8 +525,6 @@ class MainWindow(QMainWindow):
 
     def _make_editor_toolbar(self) -> QWidget:
         icon_color = self._current_theme.icon_color
-        self._toolbar_buttons: list[tuple[QToolButton, str]] = []
-        self._toolbar_tooltips: list[str] = []
 
         tb = QWidget()
         tb.setObjectName("editorToolbar")
