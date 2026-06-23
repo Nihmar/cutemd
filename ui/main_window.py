@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPlainTextEdit,
     QSplitter,
+    QStackedWidget,
     QTabWidget,
     QToolButton,
     QVBoxLayout,
@@ -274,14 +275,15 @@ class MainWindow(QMainWindow):
         self._side_tree_btn = _side_btn(
             "folder", self.tr("Toggle file tree"), slot=self._on_side_tree_toggled
         )
-        self._side_tree_btn.setChecked(True)
         lt_layout.addWidget(self._side_tree_btn)
 
         self._side_search_btn = _side_btn(
             "search", self.tr("Find in files"), slot=self._on_side_search_toggled
         )
-        self._side_search_btn.setChecked(False)
         lt_layout.addWidget(self._side_search_btn)
+
+        self._side_tree_btn.setChecked(True)
+        self._side_search_btn.setChecked(False)
 
         lt_layout.addStretch()
 
