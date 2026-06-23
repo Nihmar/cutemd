@@ -18,7 +18,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -415,15 +414,23 @@ class MainWindow(QMainWindow):
             self._toolbar_buttons.append((b, icon_name))
             self._toolbar_tooltips.append(tip)
 
-        # --- Heading dropdown ---
-        self._heading_combo = QComboBox()
-        self._heading_combo.setToolTip(self.tr("Heading level"))
-        self._heading_combo.addItem("H", "")
+        # --- Heading button ---
+        self._heading_btn = QToolButton()
+        self._heading_btn.setIcon(self._make_colored_icon("heading", icon_color))
+        self._heading_btn.setToolTip(self.tr("Heading level"))
+        self._heading_btn.setAutoRaise(True)
+        self._heading_btn.setIconSize(QSize(18, 18))
+        self._heading_btn.setFixedSize(28, 26)
+        self._heading_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        heading_menu = QMenu(self._heading_btn)
         for i in range(1, 7):
-            self._heading_combo.addItem(f"H{i}", "#" * i + " ")
-        self._heading_combo.currentIndexChanged.connect(self._on_heading_combo)
-        self._heading_combo.setFixedWidth(40)
-        layout.addWidget(self._heading_combo)
+            prefix = "#" * i + " "
+            action = heading_menu.addAction(f"H{i}")
+            action.triggered.connect(lambda checked=False, p=prefix: self._insert_md(p))
+        self._heading_btn.setMenu(heading_menu)
+        layout.addWidget(self._heading_btn)
+        self._toolbar_buttons.append((self._heading_btn, "heading"))
+        self._toolbar_tooltips.append(self.tr("Heading level"))
         _sep()
 
         # --- Blocks: lists ---
@@ -461,13 +468,6 @@ class MainWindow(QMainWindow):
         icon_color = self._current_theme.icon_color
         for button, name in getattr(self, "_toolbar_buttons", []):
             button.setIcon(self._make_colored_icon(name, icon_color))
-
-    def _on_heading_combo(self, index: int) -> None:
-        if index <= 0:
-            return
-        prefix = "#" * index + " "
-        self._insert_md(prefix)
-        self.sender().setCurrentIndex(0)  # type: ignore[union-attr]
 
     def _on_find(self) -> None:
         tab = self._current_tab()
@@ -1040,7 +1040,7 @@ class MainWindow(QMainWindow):
         self._settings_menu.setTitle(self.tr("&Settings"))
 
         # Toolbar tooltips
-        self._heading_combo.setToolTip(self.tr("Heading level"))
+        self._heading_btn.setToolTip(self.tr("Heading level"))
         tips = [
             self.tr("Unordered list (- )"),
             self.tr("Ordered list (1. )"),
