@@ -84,6 +84,11 @@ def build_html(
     )
     body_html = fix_image_paragraphs(body_html)
 
+    # Qt ignora border CSS su th/td ma usa l'attributo border del <table>.
+    # markdown-it emette border="0" — sostituiamo con "1" per avere griglia.
+    body_html = body_html.replace("<table>", '<table border="1">')
+    body_html = body_html.replace('<table border="0">', '<table border="1">')
+
     theme_class = "dark" if theme == "dark" else "light"
 
     # Qt non supporta px per font-size — usa pt.

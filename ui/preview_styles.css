@@ -172,8 +172,9 @@ hr {
 
 /* ---------- math ---------- */
 .math-inline {
-    font-family: "STIX Two Math", "Latin Modern Math", "Cambria Math",
-        Georgia, "Times New Roman", serif;
+    font-family:
+        "STIX Two Math", "Latin Modern Math", "Cambria Math", Georgia,
+        "Times New Roman", serif;
     font-size: 105%;
     font-style: italic;
 }
@@ -181,28 +182,65 @@ hr {
     display: block;
     text-align: center;
     margin: 0 0 16px;
-    font-family: "STIX Two Math", "Latin Modern Math", "Cambria Math",
-        Georgia, "Times New Roman", serif;
+    font-family:
+        "STIX Two Math", "Latin Modern Math", "Cambria Math", Georgia,
+        "Times New Roman", serif;
     font-size: 110%;
     font-style: italic;
 }
-.math-var { font-style: italic; }
-.math-op { white-space: nowrap; }
-.math-num { font-style: normal; }
-.math-text { font-style: normal; font-family: inherit; }
-.math-sup sup, .math-subsup sup { font-size: 75%; vertical-align: super; }
-.math-sub sub, .math-subsup sub { font-size: 75%; vertical-align: sub; }
-.math-frac { display: inline-flex; flex-direction: column; vertical-align: middle; text-align: center; padding: 0 0.15em; }
-.math-frac-num { border-bottom: 1px solid; padding: 0 0.3em; }
-.math-frac-den { padding: 0 0.3em; }
-.math-sqrt-symbol { margin-right: 0.15em; }
+.math-var {
+    font-style: italic;
+}
+.math-op {
+    white-space: nowrap;
+}
+.math-num {
+    font-style: normal;
+}
+.math-text {
+    font-style: normal;
+    font-family: inherit;
+}
+.math-sup sup,
+.math-subsup sup {
+    font-size: 75%;
+    vertical-align: super;
+}
+.math-sub sub,
+.math-subsup sub {
+    font-size: 75%;
+    vertical-align: sub;
+}
+.math-frac {
+    display: inline-flex;
+    flex-direction: column;
+    vertical-align: middle;
+    text-align: center;
+    padding: 0 0.15em;
+}
+.math-frac-num {
+    border-bottom: 1px solid;
+    padding: 0 0.3em;
+}
+.math-frac-den {
+    padding: 0 0.3em;
+}
+.math-sqrt-symbol {
+    margin-right: 0.15em;
+}
 .math-inline-fallback {
-    font-family: ui-monospace, monospace; font-size: 90%;
-    padding: 0.1em 0.2em; border-radius: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 90%;
+    padding: 0.1em 0.2em;
+    border-radius: 4px;
     background-color: rgba(86, 182, 194, 0.1);
 }
 .math-block-fallback {
-    overflow: auto; margin: 0 0 16px; padding: 12px 16px; border-radius: 6px;
-    font-family: ui-monospace, monospace; font-size: 90%;
+    overflow: auto;
+    margin: 0 0 16px;
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-family: ui-monospace, monospace;
+    font-size: 90%;
     background-color: rgba(86, 182, 194, 0.08);
 }
