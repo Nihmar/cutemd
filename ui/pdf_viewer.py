@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QPixmap
+from PySide6.QtGui import QDesktopServices, QKeyEvent, QKeySequence, QPixmap, QShortcut
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -82,6 +82,12 @@ class PdfViewer(QWidget):
         self._next_btn.clicked.connect(self._next_page)
         self._open_btn.clicked.connect(self._open_externally)
 
+        # Keyboard navigation
+        QShortcut(QKeySequence(Qt.Key.Key_PageUp), self, self._prev_page)
+        QShortcut(QKeySequence(Qt.Key.Key_PageDown), self, self._next_page)
+        QShortcut(QKeySequence(Qt.CTRL | Qt.Key.Key_Home), self, self._first_page)
+        QShortcut(QKeySequence(Qt.CTRL | Qt.Key.Key_End), self, self._last_page)
+
     def load(self, path: Path) -> None:
         self._path = path.resolve()
         self._doc = QPdfDocument()
@@ -152,6 +158,18 @@ class PdfViewer(QWidget):
     def _open_externally(self) -> None:
         if self._path is not None:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._path)))
+
+    def _first_page(self) -> None:
+        if self._page > 0:
+            self._page = 0
+            self._changing_page = True
+            self._render()
+
+    def _last_page(self) -> None:
+        if self._page < self._page_count - 1:
+            self._page = self._page_count - 1
+            self._changing_page = True
+            self._render()
 
     def _on_fit_mode_changed(self) -> None:
         # Enforce mutual exclusivity: uncheck the other when one is checked
