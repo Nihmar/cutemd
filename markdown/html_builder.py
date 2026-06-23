@@ -16,6 +16,22 @@ if TYPE_CHECKING:
 _WIKILINK_IMG_RE = re.compile(r"!\[\[([^\]]+?)(?:\|([^\]]*?))?\]\]")
 _WIKILINK_RE = re.compile(r"(?<!\!)\[\[([^\]]+)\]\]")
 
+# Per normalizzare border="0" → border="1" su <table>, inclusi inline HTML.
+_TABLE_TAG_RE = re.compile(r"<table\b([^>]*)>", re.IGNORECASE)
+_TABLE_BORDER_ATTR_RE = re.compile(r'\s+border="[^"]*"', re.IGNORECASE)
+
+
+def _fix_table_tag(m: re.Match) -> str:
+    """Ensure every <table> has border="1", preserving original case."""
+    full = m.group(0)
+    attrs = m.group(1)
+    # Reconstruct from original match to preserve case.
+    tag_name = full[:6]  # '<table' (whatever case)
+    close = ">"
+    # Remove any existing border attribute.
+    attrs = _TABLE_BORDER_ATTR_RE.sub("", attrs)
+    return f'{tag_name}{attrs} border="1"{close}'
+
 
 def preprocess_wikilink_images(text: str) -> str:
     def _repl(m: re.Match) -> str:
@@ -85,9 +101,9 @@ def build_html(
     body_html = fix_image_paragraphs(body_html)
 
     # Qt ignora border CSS su th/td ma usa l'attributo border del <table>.
-    # markdown-it emette border="0" — sostituiamo con "1" per avere griglia.
-    body_html = body_html.replace("<table>", '<table border="1">')
-    body_html = body_html.replace('<table border="0">', '<table border="1">')
+    # markdown-it emette border="0", tabelle HTML inline non hanno border.
+    # Rimuoviamo eventuali border esistenti e imponiamo border="1" ovunque.
+    body_html = _TABLE_TAG_RE.sub(_fix_table_tag, body_html)
 
     theme_class = "dark" if theme == "dark" else "light"
 
