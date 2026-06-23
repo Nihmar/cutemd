@@ -514,6 +514,9 @@ class MainWindow(QMainWindow):
             self._update_window_title()
 
     def _on_tab_modified(self, _modified: bool) -> None:
+        tab = self.sender()
+        if isinstance(tab, EditorTab):
+            self._refresh_tab_title(tab)
         self._update_window_title()
 
     def _on_tab_status(self, cursor: str, words: str) -> None:
