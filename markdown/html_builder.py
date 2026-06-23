@@ -22,6 +22,7 @@ _TABLE_BORDER_ATTR_RE = re.compile(r'\s+border="[^"]*"', re.IGNORECASE)
 
 # Wrap resolved <img src="file:///..."> in a clickable <a>.
 _IMG_FILE_URL_RE = re.compile(r'<img\s[^>]*\bsrc="(file:///[^"]+)"[^>]*>')
+_FRONTMATTER_RE = re.compile(r"^---\s*\n.*?\n(?:---|\.\.\.)\s*\n", re.DOTALL)
 
 
 def _fix_table_tag(m: re.Match) -> str:
@@ -56,6 +57,11 @@ def preprocess_wikilinks(text: str) -> str:
         return f"[{inner}]({inner})"
 
     return _WIKILINK_RE.sub(_repl, text)
+
+
+def strip_frontmatter(text: str) -> str:
+    """Remove YAML frontmatter (--- ... ---) from the beginning of *text*."""
+    return _FRONTMATTER_RE.sub("", text, count=1)
 
 
 def render_with_anchors(text: str, md: MarkdownIt) -> str:

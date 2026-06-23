@@ -34,6 +34,7 @@ from markdown.html_builder import (
     build_html,
     preprocess_wikilink_images,
     preprocess_wikilinks,
+    strip_frontmatter,
 )
 from ui.find_bar import FindBar
 from ui.image_viewer import ImageViewer
@@ -501,7 +502,8 @@ class EditorTab(QWidget):
         if not self._preview_visible or self._is_binary_preview:
             return
         raw_text = self.editor.toPlainText()
-        text = preprocess_wikilinks(preprocess_wikilink_images(raw_text))
+        text = strip_frontmatter(raw_text)
+        text = preprocess_wikilinks(preprocess_wikilink_images(text))
         text_hash = hash(text)
         if text_hash != self._line_anchor_map_hash:
             self._line_anchor_map = self._build_line_anchor_map(text)
