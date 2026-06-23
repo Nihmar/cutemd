@@ -374,6 +374,7 @@ class EditorTab(QWidget):
         self.editor.setPlainText(text)
         self._file_path = path
         self._saved_text = text
+        self._dirty = False
         self._is_binary_preview = False
         self.editor.setReadOnly(False)
         self._preview_stack.setCurrentIndex(0)
@@ -418,6 +419,7 @@ class EditorTab(QWidget):
         try:
             path.write_text(self.editor.toPlainText(), encoding="utf-8")
             self._saved_text = self.editor.toPlainText()
+            self._dirty = False
             self.editor.document().setModified(False)
             self.modified_changed.emit(False)
             self.title_changed.emit()
@@ -487,9 +489,10 @@ class EditorTab(QWidget):
 
     def _on_text_changed(self) -> None:
         self._preview_timer.start()
-        if not self._dirty:
-            self._dirty = True
-            self.modified_changed.emit(True)
+        was_dirty = self._dirty
+        self._dirty = self.is_modified
+        if self._dirty != was_dirty:
+            self.modified_changed.emit(self._dirty)
 
     # ------------------------------------------------------------------
     # Preview rendering
