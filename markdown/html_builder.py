@@ -70,7 +70,7 @@ _MATHJAX_HEAD = (
     "};\n"
     "</script>\n"
     '<script id="MathJax-script" async'
-    ' src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">'
+    ' src="https://cdn.jsdelivr.net/npm/mathjax@4.1.2/tex-chtml.js">'
     "</script>\n"
 )
 
