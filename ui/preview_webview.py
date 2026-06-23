@@ -166,6 +166,74 @@ class PreviewWebView(QWebEngineView):
         )
         self.page().runJavaScript(js)
 
+    def update_blocks(
+        self,
+        changed_blocks: list[tuple[str, str]],
+        theme_class: str,
+        font_style: str,
+        scroll_to: str = "",
+    ) -> None:
+        """Block-level incremental update (Obsidian-style).
+
+        Only replaces the DOM subtrees for blocks whose content changed.
+        """
+        if not changed_blocks:
+            return
+
+        self._pending_scroll_anchor = scroll_to
+
+        blocks_json = json.dumps([
+            [block_id, block_html]
+            for block_id, block_html in changed_blocks
+        ])
+        anchor_str = json.dumps(scroll_to) if scroll_to else "null"
+
+        js = (
+            f"document.body.className = {json.dumps(theme_class)};"
+            f"document.body.style.cssText = {json.dumps(font_style)};"
+            f"var B = {blocks_json};"
+            f"var E = [];"
+            # For each changed block: remove old nodes after anchor, insert new
+            "for(var i = 0; i < B.length; i++) {"
+            "  var a = document.querySelector('a[name=' + JSON.stringify(B[i][0]) + ']');"
+            "  if(!a) continue;"
+            "  var n = a.nextSibling;"
+            "  while(n && !(n.nodeType === 1 && n.tagName === 'A' && n.name)) {"
+            "    var t = n.nextSibling;"
+            "    n.parentNode.removeChild(n);"
+            "    n = t;"
+            "  }"
+            "  var d = document.createElement('div');"
+            "  d.innerHTML = B[i][1];"
+            "  var p = a.parentNode;"
+            "  var r = a.nextSibling;"
+            "  while(d.firstChild) {"
+            "    var c = d.firstChild;"
+            "    p.insertBefore(c, r);"
+            "    if(c.nodeType === 1) E.push(c);"
+            "  }"
+            "}"
+            # Re-typeset changed elements
+            "if(E.length && window.MathJax && MathJax.typesetPromise) {"
+            "  MathJax.typesetPromise(E).then(function() {"
+            f"    var s = {anchor_str};"
+            "    if(s) {"
+            "      var el = document.querySelector('a[name=' + JSON.stringify(s) + ']');"
+            "      if(el) el.scrollIntoView({behavior:'instant', block:'start'});"
+            "    }"
+            "  });"
+            "} else {"
+            f"  var s = {anchor_str};"
+            "  if(s) {"
+            "    var el = document.querySelector('a[name=' + JSON.stringify(s) + ']');"
+            "    if(el) el.scrollIntoView({behavior:'instant', block:'start'});"
+            "  }"
+            "}"
+        )
+        self.page().runJavaScript(js)
+
+        self.page().runJavaScript(js)
+
     def _load_large_html(self, html: str, anchor: str) -> None:
         base = self._base_dir if self._base_dir else _get_temp_dir()
         temp_file = base / ".cutemd_preview.html"

@@ -515,9 +515,9 @@ class EditorTab(QWidget):
         self._syncing_scroll += 1
 
         if self.preview._first_load_done:
-            from markdown.html_builder import build_body_html
+            from markdown.html_builder import build_body_blocks
 
-            body_html, theme_class, font_style = build_body_html(
+            blocks, theme_class, font_style = build_body_blocks(
                 text=text,
                 md=self._md,
                 theme=self._theme,
@@ -525,12 +525,24 @@ class EditorTab(QWidget):
                 font_size=self._preview_font_size,
                 base_dir=base_dir,
             )
-            self.preview.set_body_html(
-                body_html,
-                theme_class,
-                font_style,
-                anchor=self._last_anchor,
-            )
+
+            # Diff: only send blocks whose hash changed
+            if not hasattr(self, "_block_hashes"):
+                self._block_hashes: dict[str, str] = {}
+
+            changed: list[tuple[str, str]] = []
+            for block_id, block_html, block_hash in blocks:
+                if self._block_hashes.get(block_id) != block_hash:
+                    changed.append((block_id, block_html))
+                    self._block_hashes[block_id] = block_hash
+
+            if changed:
+                self.preview.update_blocks(
+                    changed,
+                    theme_class,
+                    font_style,
+                    scroll_to=self._last_anchor,
+                )
         else:
             html = build_html(
                 text=text,

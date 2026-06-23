@@ -1,7 +1,13 @@
-"""Build the final HTML document served to QTextBrowser."""
+"""Build the final HTML document served to QWebEngineView.
+
+Provides:
+- build_html() — full page (CSS + MathJax + body) for first load
+- build_body_blocks() — list of (anchor_id, block_html) for incremental updates
+"""
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,6 +20,7 @@ if TYPE_CHECKING:
     from markdown_it.token import Token
 
 _WIKILINK_IMG_RE = re.compile(r"!\[\[([^\]]+?)(?:\|([^\]]*?))?\]\]")
+_ANCHOR_RE = re.compile(r'<a name="b(\d+)"></a>')
 
 
 def preprocess_wikilink_images(text: str) -> str:
@@ -40,7 +47,6 @@ def render_with_anchors(text: str, md: MarkdownIt) -> str:
     new_tokens: list[Token] = []
     anchor_idx = 0
     for token in tokens:
-        new_tokens.append(token)
         if token.type in BLOCK_OPEN_TYPES and token.map:
             start, end = token.map
             if start < end:
@@ -48,6 +54,7 @@ def render_with_anchors(text: str, md: MarkdownIt) -> str:
                 anchor.content = f'<a name="b{anchor_idx}"></a>'
                 new_tokens.append(anchor)
                 anchor_idx += 1
+        new_tokens.append(token)
     return md.renderer.render(new_tokens, md.options, {})
 
 
@@ -135,16 +142,23 @@ def build_html(
         "<!DOCTYPE html>\n"
         "<html>\n<head>\n"
         "<meta charset='utf-8'>\n"
-        f"<style>\n{preview_css}\n</style>\n"
-        + _MATHJAX_HEAD
-        + "</head>\n"
+        f"<style>\n{preview_css}\n</style>\n" + _MATHJAX_HEAD + "</head>\n"
         f"<body class='{theme_class}' style='{font_style}'>\n"
         f"{body_html}\n"
         "</body>\n</html>"
     )
 
 
-def build_body_html(
+# ---------------------------------------------------------------------------
+# Block-level incremental updates (Obsidian-style)
+# ---------------------------------------------------------------------------
+
+
+def _short_hash(s: str) -> str:
+    return hashlib.md5(s.encode()).hexdigest()[:12]
+
+
+def build_body_blocks(
     *,
     text: str,
     md: MarkdownIt,
@@ -154,14 +168,14 @@ def build_body_html(
     base_dir: Path,
     max_width: int = 800,
     get_image_size: SizeProvider | None = None,
-) -> tuple[str, str, str]:
-    """Return (body_inner_html, theme_class, font_style) for incremental updates.
+) -> tuple[list[tuple[str, str, str]], str, str]:
+    """Return (blocks, theme_class, font_style) where each block is
+    (anchor_id, block_html, block_hash).
 
-    Use this after the first full-page load to avoid re-sending CSS and
-    MathJax scripts.  The caller should update the DOM via JavaScript and
-    then call MathJax.typesetPromise() on the new content.
+    Blocks are delimited by <a name="bN"> anchors already embedded
+    in the rendered HTML.
     """
-    return _render_body(
+    body_html, theme_class, font_style = _render_body(
         text=text,
         md=md,
         theme=theme,
@@ -171,3 +185,22 @@ def build_body_html(
         max_width=max_width,
         get_image_size=get_image_size,
     )
+
+    # Split into blocks.  Each block starts with <a name="bN"> and
+    # runs until the next anchor (or end of string).
+    parts = _ANCHOR_RE.split(body_html)
+    # parts = [before_first_anchor, '0', block0, '1', block1, ..., last_block]
+    # parts[0] is content before the first anchor (e.g. nothing or "").
+    # Even indices (after 0) are anchor numbers, odd are block content.
+
+    blocks: list[tuple[str, str, str]] = []
+    i = 1  # skip parts[0] (before first anchor)
+    while i < len(parts) - 1:
+        anchor_num = parts[i]  # e.g. "0"
+        block_html = parts[i + 1]  # the HTML after this anchor
+        block_id = f"b{anchor_num}"
+        block_hash = _short_hash(block_html)
+        blocks.append((block_id, block_html, block_hash))
+        i += 2
+
+    return blocks, theme_class, font_style
