@@ -251,21 +251,7 @@ class MainWindow(QMainWindow):
         self._toolbar_buttons: list[tuple[QToolButton, str]] = []
         self._toolbar_tooltips: list[str] = []
 
-        # --- File tree panel ---
-        self._tree_panel = FileTreePanel()
-        self._tree_panel.file_activated.connect(self._on_tree_file_activated)
-        self._tree_panel.file_open_new_tab.connect(self._on_tree_file_new_tab)
-
-        # --- Search panel ---
-        self._search_panel = self._make_search_panel()
-
-        # --- Left stack (tree / search) ---
-        self._left_stack = QStackedWidget()
-        self._left_stack.addWidget(self._tree_panel)
-        self._left_stack.addWidget(self._search_panel)
-        self._left_stack.setCurrentIndex(0)
-
-        # --- Left vertical toolbar (always visible) ---
+        # --- Left vertical toolbar (ALWAYS visible) ---
         left_tb = QWidget()
         left_tb.setObjectName("leftToolbar")
         left_tb.setFixedWidth(32)
@@ -306,6 +292,27 @@ class MainWindow(QMainWindow):
         self._side_folder_btn.clicked.connect(self._on_open_folder)
         lt_layout.addWidget(self._side_folder_btn)
 
+        # --- File tree panel ---
+        self._tree_panel = FileTreePanel()
+        self._tree_panel.file_activated.connect(self._on_tree_file_activated)
+        self._tree_panel.file_open_new_tab.connect(self._on_tree_file_new_tab)
+
+        # --- Search panel ---
+        self._search_panel = self._make_search_panel()
+
+        # --- Left stack (tree / search) ---
+        self._left_stack = QStackedWidget()
+        self._left_stack.addWidget(self._tree_panel)
+        self._left_stack.addWidget(self._search_panel)
+
+        # --- Left container: toolbar (fixed 32px) + stack (stretch), NO splitter between them ---
+        left_container = QWidget()
+        lc_layout = QHBoxLayout(left_container)
+        lc_layout.setContentsMargins(0, 0, 0, 0)
+        lc_layout.setSpacing(0)
+        lc_layout.addWidget(left_tb)
+        lc_layout.addWidget(self._left_stack)
+
         # --- Tabs ---
         self._tabs = QTabWidget()
         self._tabs.setTabsClosable(True)
@@ -337,20 +344,21 @@ class MainWindow(QMainWindow):
         editor_layout.addWidget(self._tabs)
         editor_layout.addWidget(status_widget)
 
-        # Splitter: left_toolbar | left_stack | editor_pane
+        # Splitter: left_container | editor_pane
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._splitter.addWidget(left_tb)
-        self._splitter.addWidget(self._left_stack)
+        self._splitter.addWidget(left_container)
         self._splitter.addWidget(editor_pane)
-        self._splitter.setSizes([32, 220, 948])
+        self._splitter.setSizes([252, 948])
 
         self.setCentralWidget(self._splitter)
 
         # Hide QMainWindow status bar
         self.statusBar().hide()
 
-        # Set initial state (after all widgets exist)
+        # Initial: tree visible, search hidden
         self._side_tree_btn.setChecked(True)
+        self._left_stack.setCurrentIndex(0)
+        self._left_stack.show()
 
         self._add_tab()
 
@@ -410,10 +418,8 @@ class MainWindow(QMainWindow):
             self._side_search_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(0)
             self._left_stack.show()
-            self.act_toggle_tree.setChecked(True)
         else:
             self._left_stack.hide()
-            self.act_toggle_tree.setChecked(False)
 
     def _on_side_search_toggled(self, checked: bool) -> None:
         if checked:
@@ -422,10 +428,8 @@ class MainWindow(QMainWindow):
             self._side_tree_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(1)
             self._left_stack.show()
-            self.act_toggle_tree.setChecked(True)
         else:
             self._left_stack.hide()
-            self.act_toggle_tree.setChecked(False)
 
     # ------------------------------------------------------------------
     # Tab management
@@ -641,17 +645,15 @@ class MainWindow(QMainWindow):
             self._side_search_btn.setChecked(False)
             self._side_search_btn.blockSignals(False)
             self._left_stack.hide()
-            self.act_toggle_tree.setChecked(False)
         else:
             self._side_search_btn.blockSignals(True)
-            self._side_search_btn.setChecked(True)
-            self._side_search_btn.blockSignals(False)
             self._side_tree_btn.blockSignals(True)
+            self._side_search_btn.setChecked(True)
             self._side_tree_btn.setChecked(False)
+            self._side_search_btn.blockSignals(False)
             self._side_tree_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(1)
             self._left_stack.show()
-            self.act_toggle_tree.setChecked(True)
             self._search_input.setFocus()
             self._search_input.selectAll()
 
@@ -928,14 +930,13 @@ class MainWindow(QMainWindow):
     def _on_toggle_tree(self, visible: bool) -> None:
         if visible:
             self._side_tree_btn.blockSignals(True)
-            self._side_tree_btn.setChecked(True)
-            self._side_tree_btn.blockSignals(False)
             self._side_search_btn.blockSignals(True)
+            self._side_tree_btn.setChecked(True)
             self._side_search_btn.setChecked(False)
+            self._side_tree_btn.blockSignals(False)
             self._side_search_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(0)
             self._left_stack.show()
-            self.act_toggle_tree.setChecked(True)
         else:
             self._side_tree_btn.setChecked(False)
             self._side_search_btn.setChecked(False)
