@@ -9,7 +9,7 @@
 ; Output:  dist\CuteMD_Setup.exe
 
 #define MyAppName "CuteMD"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "0.5.0"
 #define MyAppPublisher "CuteMD Contributors"
 #define MyAppURL "https://github.com/anomalyco/cutemd"
 #define MyAppExeName "cutemd.exe"
@@ -25,7 +25,7 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-; SetupIconFile=..\resources\cutemd.ico  ; uncomment after creating .ico
+SetupIconFile=..\resources\cutemd.ico
 OutputDir=..\dist
 OutputBaseFilename=CuteMD_Setup
 Compression=lzma2/ultra64
@@ -33,7 +33,7 @@ SolidCompression=yes
 WizardStyle=modern
 DisableProgramGroupPage=yes
 UninstallDisplayName={#MyAppName}
-; UninstallDisplayIcon={app}\{#MyAppExeName}  ; uncomment after creating .ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

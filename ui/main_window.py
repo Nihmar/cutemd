@@ -253,11 +253,11 @@ class MainWindow(QMainWindow):
         self._toolbar_tooltips: list[str] = []
 
         # --- Left vertical toolbar (ALWAYS visible, separate child in splitter) ---
-        left_tb = QWidget()
-        left_tb.setObjectName("leftToolbar")
-        left_tb.setFixedWidth(32)
-        left_tb.setMinimumWidth(32)
-        lt_layout = QVBoxLayout(left_tb)
+        self._left_tb = QWidget()
+        self._left_tb.setObjectName("leftToolbar")
+        self._left_tb.setFixedWidth(32)
+        self._left_tb.setMinimumWidth(32)
+        lt_layout = QVBoxLayout(self._left_tb)
         lt_layout.setContentsMargins(0, 4, 0, 4)
         lt_layout.setSpacing(2)
 
@@ -349,7 +349,7 @@ class MainWindow(QMainWindow):
         outer_layout = QHBoxLayout(outer)
         outer_layout.setContentsMargins(0, 0, 0, 0)
         outer_layout.setSpacing(0)
-        outer_layout.addWidget(left_tb)
+        outer_layout.addWidget(self._left_tb)
         outer_layout.addWidget(self._splitter)
 
         self.setCentralWidget(outer)
@@ -1054,7 +1054,8 @@ class MainWindow(QMainWindow):
             self._side_search_btn.setChecked(False)
             self._side_tree_btn.blockSignals(False)
             self._side_search_btn.blockSignals(False)
-            self._hide_left_panel()
+            self._left_stack.hide()
+            self._left_tb.hide()
             self.act_toggle_tree.setChecked(False)
             self._side_folder_btn.setText("...")
         else:
@@ -1064,8 +1065,10 @@ class MainWindow(QMainWindow):
             self._side_search_btn.setChecked(False)
             self._side_tree_btn.blockSignals(False)
             self._side_search_btn.blockSignals(False)
+            self._left_tb.show()
             self._left_stack.setCurrentIndex(0)
-            self._show_left_panel()
+            self._left_stack.show()
+            self._splitter.setSizes([220, max(self._splitter.width() - 220, 200)])
             self.act_toggle_tree.setChecked(True)
             self._side_folder_btn.setText(self._folder_path.name)
         self._update_window_title()

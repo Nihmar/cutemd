@@ -28,6 +28,9 @@ uv run pyinstaller ^
     --add-data "ui/preview_styles.css;ui" ^
     --add-data "resources/translations;resources/translations" ^
     --add-data "resources/cutemd.svg;resources" ^
+    --add-data "resources/cutemd.ico;resources" ^
+    --icon resources/cutemd.ico ^
+    --version-file scripts/file_version_info.txt ^
     --collect-data latex2mathml ^
     --hidden-import PySide6.QtSvg ^
     --hidden-import PySide6.QtPdf ^
