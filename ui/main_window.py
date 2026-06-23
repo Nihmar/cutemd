@@ -425,7 +425,9 @@ class MainWindow(QMainWindow):
         heading_menu = QMenu(self._heading_btn)
         for i in range(1, 7):
             prefix = "#" * i + " "
+            icon_size = max(8, 20 - i * 2)
             action = heading_menu.addAction(f"H{i}")
+            action.setIcon(self._make_colored_icon("heading", icon_color, icon_size))
             action.triggered.connect(lambda checked=False, p=prefix: self._insert_md(p))
         self._heading_btn.setMenu(heading_menu)
         layout.addWidget(self._heading_btn)
