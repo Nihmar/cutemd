@@ -48,7 +48,6 @@ uv run pyinstaller \
     --collect-data latex2mathml \
     --hidden-import PySide6.QtSvg \
     --hidden-import PySide6.QtPdf \
-    --exclude-module markdown \
     main.py
 
 echo "==> Creating AppDir structure …"
