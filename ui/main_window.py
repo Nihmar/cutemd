@@ -251,10 +251,11 @@ class MainWindow(QMainWindow):
         self._toolbar_buttons: list[tuple[QToolButton, str]] = []
         self._toolbar_tooltips: list[str] = []
 
-        # --- Left vertical toolbar (ALWAYS visible) ---
+        # --- Left vertical toolbar (ALWAYS visible, separate child in splitter) ---
         left_tb = QWidget()
         left_tb.setObjectName("leftToolbar")
         left_tb.setFixedWidth(32)
+        left_tb.setMinimumWidth(32)
         lt_layout = QVBoxLayout(left_tb)
         lt_layout.setContentsMargins(0, 4, 0, 4)
         lt_layout.setSpacing(2)
@@ -305,15 +306,6 @@ class MainWindow(QMainWindow):
         self._left_stack.addWidget(self._tree_panel)
         self._left_stack.addWidget(self._search_panel)
 
-        # --- Left container: toolbar (fixed 32px) + stack (stretch), NO splitter between them ---
-        left_container = QWidget()
-        left_container.setMinimumWidth(32)
-        lc_layout = QHBoxLayout(left_container)
-        lc_layout.setContentsMargins(0, 0, 0, 0)
-        lc_layout.setSpacing(0)
-        lc_layout.addWidget(left_tb)
-        lc_layout.addWidget(self._left_stack)
-
         # --- Tabs ---
         self._tabs = QTabWidget()
         self._tabs.setTabsClosable(True)
@@ -345,11 +337,12 @@ class MainWindow(QMainWindow):
         editor_layout.addWidget(self._tabs)
         editor_layout.addWidget(status_widget)
 
-        # Splitter: left_container | editor_pane
+        # Splitter: left_toolbar | left_stack | editor_pane
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._splitter.addWidget(left_container)
+        self._splitter.addWidget(left_tb)
+        self._splitter.addWidget(self._left_stack)
         self._splitter.addWidget(editor_pane)
-        self._splitter.setSizes([252, 948])
+        self._splitter.setSizes([32, 220, 948])
 
         self.setCentralWidget(self._splitter)
 
@@ -378,6 +371,7 @@ class MainWindow(QMainWindow):
 
         case_row = QHBoxLayout()
         self._search_case_cb = QCheckBox(self.tr("Match case"))
+        self._search_case_cb.toggled.connect(lambda: self._on_search_text_changed(self._search_input.text()))
         case_row.addWidget(self._search_case_cb)
         case_row.addStretch()
 
@@ -414,11 +408,11 @@ class MainWindow(QMainWindow):
 
     def _show_left_panel(self) -> None:
         self._left_stack.show()
-        self._splitter.setSizes([252, max(self._splitter.width() - 252, 200)])
+        self._splitter.setSizes([32, 220, max(self._splitter.width() - 252, 200)])
 
     def _hide_left_panel(self) -> None:
         self._left_stack.hide()
-        self._splitter.setSizes([32, max(self._splitter.width() - 32, 200)])
+        self._splitter.setSizes([32, 0, max(self._splitter.width() - 32, 200)])
 
     def _on_side_tree_toggled(self, checked: bool) -> None:
         if checked:
