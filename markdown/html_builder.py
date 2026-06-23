@@ -85,21 +85,26 @@ def build_html(
     body_html = fix_image_paragraphs(body_html)
 
     theme_class = "dark" if theme == "dark" else "light"
-    font_style = f"font-size: {font_size}px;"
+
+    # Qt non supporta px per font-size — usa pt.
+    font_body_css = f"body {{ font-size: {font_size}pt; }}"
     if font_family not in ("System", "Sistema"):
-        # Quote multi-word names so CSS parses them correctly.
         if " " in font_family:
-            font_style += f' font-family: "{font_family}";'
+            font_body_css = (
+                f'body {{ font-family: "{font_family}"; font-size: {font_size}pt; }}'
+            )
         else:
-            font_style += f" font-family: {font_family};"
+            font_body_css = (
+                f"body {{ font-family: {font_family}; font-size: {font_size}pt; }}"
+            )
 
     return (
         "<!DOCTYPE html>\n"
         "<html>\n<head>\n"
         "<meta charset='utf-8'>\n"
-        f"<style>\n{preview_css}\n</style>\n"
+        f"<style>\n{font_body_css}\n{preview_css}\n</style>\n"
         "</head>\n"
-        f"<body class='{theme_class}' style='{font_style}'>\n"
+        f"<body class='{theme_class}'>\n"
         f"{body_html}\n"
         "</body>\n</html>"
     )
