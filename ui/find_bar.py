@@ -1,9 +1,18 @@
-"""Find bar widget — inline search with highlights and match navigation."""
+"""Find-and-replace bar widget — inline search with highlights, match
+navigation, and replace operations (single + replace all)."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QColor, QKeySequence, QShortcut, QTextCharFormat, QTextCursor, QTextDocument
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import (
+    QColor,
+    QKeyEvent,
+    QKeySequence,
+    QShortcut,
+    QTextCharFormat,
+    QTextCursor,
+    QTextDocument,
+)
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -11,12 +20,13 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QTextEdit,
     QToolButton,
+    QVBoxLayout,
     QWidget,
 )
 
 
 class FindBar(QWidget):
-    """Inline find bar that attaches to a QPlainTextEdit."""
+    """Inline find-and-replace bar for a QPlainTextEdit."""
 
     closed = Signal()
     highlights_changed = Signal()
@@ -26,17 +36,15 @@ class FindBar(QWidget):
         self._editor = editor
         self._selections: list[QTextEdit.ExtraSelection] = []
         self.setVisible(False)
-        self.setFixedHeight(30)
+        self.setFixedHeight(62)
+        self.setMinimumHeight(62)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 0, 4, 0)
-        layout.setSpacing(4)
-
+        # ── Row 1: find ───────────────────────────────────────────────
         self._input = QLineEdit()
         self._input.setPlaceholderText(self.tr("Find\u2026"))
         self._input.setMaximumWidth(200)
         self._input.setFixedHeight(24)
-        self._input.textChanged.connect(self._on_text_changed)
+        self._input.textChanged.connect(self._on_find_text_changed)
         self._input.returnPressed.connect(self._find_next)
 
         self._count_label = QLabel()
@@ -66,13 +74,54 @@ class FindBar(QWidget):
         close_btn.setFixedSize(28, 24)
         close_btn.clicked.connect(self.close)
 
-        layout.addWidget(self._input)
-        layout.addWidget(self._count_label)
-        layout.addStretch()
-        layout.addWidget(self._case_btn)
-        layout.addWidget(prev_btn)
-        layout.addWidget(next_btn)
-        layout.addWidget(close_btn)
+        find_row = QHBoxLayout()
+        find_row.setContentsMargins(0, 0, 0, 0)
+        find_row.setSpacing(4)
+        find_row.addWidget(self._input)
+        find_row.addWidget(self._count_label)
+        find_row.addStretch()
+        find_row.addWidget(self._case_btn)
+        find_row.addWidget(prev_btn)
+        find_row.addWidget(next_btn)
+        find_row.addWidget(close_btn)
+
+        # ── Row 2: replace ────────────────────────────────────────────
+        self._replace_input = QLineEdit()
+        self._replace_input.setPlaceholderText(self.tr("Replace\u2026"))
+        self._replace_input.setMaximumWidth(200)
+        self._replace_input.setFixedHeight(24)
+        self._replace_input.returnPressed.connect(self._replace_one)
+
+        replace_btn = QToolButton()
+        replace_btn.setText(self.tr("Replace"))
+        replace_btn.setToolTip(self.tr("Replace current match"))
+        replace_btn.setFixedHeight(24)
+        replace_btn.clicked.connect(self._replace_one)
+
+        replace_all_btn = QToolButton()
+        replace_all_btn.setText(self.tr("Replace All"))
+        replace_all_btn.setToolTip(self.tr("Replace all matches"))
+        replace_all_btn.setFixedHeight(24)
+        replace_all_btn.clicked.connect(self._replace_all)
+
+        replace_row = QHBoxLayout()
+        replace_row.setContentsMargins(0, 0, 0, 0)
+        replace_row.setSpacing(4)
+        replace_row.addWidget(self._replace_input)
+        replace_row.addWidget(replace_btn)
+        replace_row.addWidget(replace_all_btn)
+        replace_row.addStretch()
+
+        # ── Outer layout ──────────────────────────────────────────────
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(4, 4, 4, 4)
+        outer.setSpacing(4)
+        outer.addLayout(find_row)
+        outer.addLayout(replace_row)
+
+        # ── Tab navigation between find ↔ replace inputs ────────────
+        self._input.installEventFilter(self)
+        self._replace_input.installEventFilter(self)
 
         QShortcut(QKeySequence(Qt.Key.Key_Escape), self, self.close)
 
@@ -100,8 +149,22 @@ class FindBar(QWidget):
     def update_highlights(self) -> None:
         self._highlight_all()
 
+    def eventFilter(self, obj: object, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.KeyPress:
+            key_event: QKeyEvent = event  # type: ignore[assignment]
+            if key_event.key() == Qt.Key.Key_Tab:
+                if obj is self._input:
+                    self._replace_input.setFocus()
+                    self._replace_input.selectAll()
+                    return True
+                elif obj is self._replace_input:
+                    self._input.setFocus()
+                    self._input.selectAll()
+                    return True
+        return super().eventFilter(obj, event)
+
     # ------------------------------------------------------------------
-    # Internal
+    # Search helpers
     # ------------------------------------------------------------------
     def _flags(self) -> QTextDocument.FindFlag | QTextDocument.FindFlags:
         flags: QTextDocument.FindFlag = QTextDocument.FindFlag(0)
@@ -109,6 +172,9 @@ class FindBar(QWidget):
             flags = QTextDocument.FindFlag.FindCaseSensitively  # type: ignore[assignment]
         return flags  # type: ignore[return-value]
 
+    # ------------------------------------------------------------------
+    # Highlight all matches
+    # ------------------------------------------------------------------
     def _highlight_all(self) -> None:
         term = self._input.text()
         if not term:
@@ -133,24 +199,27 @@ class FindBar(QWidget):
 
     def _update_count_label(self) -> None:
         count = len(self._selections)
-        if count > 0:
-            cursor = self._editor.textCursor()
-            found = -1
-            cp = cursor.position()
-            anchor = cursor.anchor()
-            for i, sel in enumerate(self._selections):
-                if sel.cursor.selectionStart() <= cp and sel.cursor.selectionEnd() >= cp:
-                    found = i
-                    break
-                if sel.cursor.selectionStart() == cp and sel.cursor.selectionEnd() == anchor:
-                    found = i
-                    break
-            if found >= 0:
-                self._count_label.setText(f"{found + 1}/{count}")
-            else:
-                self._count_label.setText(f"0/{count}")
-        else:
+        if count == 0:
             self._count_label.setText("0/0")
+            return
+        cursor = self._editor.textCursor()
+        cp = cursor.position()
+        anchor = cursor.anchor()
+        found = -1
+        for i, sel in enumerate(self._selections):
+            if sel.cursor.selectionStart() <= cp <= sel.cursor.selectionEnd():
+                found = i
+                break
+            if (
+                sel.cursor.selectionStart() == cp
+                and sel.cursor.selectionEnd() == anchor
+            ):
+                found = i
+                break
+        if found >= 0:
+            self._count_label.setText(f"{found + 1}/{count}")
+        else:
+            self._count_label.setText(f"0/{count}")
 
     def _clear_highlights(self) -> None:
         self._selections = []
@@ -159,7 +228,10 @@ class FindBar(QWidget):
     def _apply_selections(self) -> None:
         self.highlights_changed.emit()
 
-    def _on_text_changed(self, _text: str) -> None:
+    # ------------------------------------------------------------------
+    # Find navigation
+    # ------------------------------------------------------------------
+    def _on_find_text_changed(self, _text: str) -> None:
         self._highlight_all()
         self._find_next()
 
@@ -188,3 +260,70 @@ class FindBar(QWidget):
             self._editor.setTextCursor(cursor)
             self._editor.find(term, flags)
         self._update_count_label()
+
+    # ------------------------------------------------------------------
+    # Replace
+    # ------------------------------------------------------------------
+    def _replace_one(self) -> None:
+        """Replace the current match and advance to the next."""
+        term = self._input.text()
+        if not term:
+            return
+        cursor = self._editor.textCursor()
+        # Only replace if the cursor is currently on a match
+        flags = self._flags()
+        # Check if selected text matches the find term
+        if cursor.hasSelection():
+            sel_text = cursor.selectedText()
+            if self._case_btn.isChecked():
+                matches = sel_text == term
+            else:
+                matches = sel_text.lower() == term.lower()
+        else:
+            # Try to select the term at the current cursor position
+            old_pos = cursor.position()
+            found = self._editor.find(term, flags)
+            if found:
+                matches = True
+                # cursor was moved by find(); the selected text is the match
+            else:
+                # Wrap around
+                cursor.movePosition(QTextCursor.MoveOperation.Start)
+                self._editor.setTextCursor(cursor)
+                found = self._editor.find(term, flags)
+                matches = found
+            if not found:
+                return
+
+        if matches:
+            replacement = self._replace_input.text()
+            cursor = self._editor.textCursor()
+            cursor.insertText(replacement)
+        # Advance to next match
+        self._highlight_all()
+        self._find_next()
+
+    def _replace_all(self) -> None:
+        """Replace every occurrence of the find term in the document."""
+        term = self._input.text()
+        if not term:
+            return
+        replacement = self._replace_input.text()
+        flags = self._flags()
+
+        doc = self._editor.document()
+        cursor = QTextCursor(doc)
+        cursor.beginEditBlock()
+
+        count = 0
+        while True:
+            cursor = doc.find(term, cursor, flags)
+            if cursor.isNull():
+                break
+            cursor.insertText(replacement)
+            count += 1
+
+        cursor.endEditBlock()
+
+        # Re-highlight (should show 0 matches if term != replacement)
+        self._highlight_all()

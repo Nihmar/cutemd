@@ -1,7 +1,7 @@
 """Main window for the Markdown editor."""
 
-import sys
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -38,16 +38,16 @@ from PySide6.QtWidgets import (
 )
 
 from ui import theme
+from ui.editor_context_menu import show_editor_context_menu
 from ui.editor_tab import EditorTab
 from ui.editor_toolbar import EditorToolbar
-from ui.editor_context_menu import show_editor_context_menu
 from ui.file_tree_panel import FileTreePanel
 from ui.folder_settings import FolderSettings
 from ui.search_panel import SearchPanel
-from ui.shortcut_manager import ShortcutManager
-from ui.themes import get_theme, system_theme
-from ui.theme_manager import ThemeManager
 from ui.settings_manager import AppSettings
+from ui.shortcut_manager import ShortcutManager
+from ui.theme_manager import ThemeManager
+from ui.themes import get_theme, system_theme
 from ui.webdav_sync import sync_folder
 
 # ---------------------------------------------------------------------------
@@ -98,6 +98,7 @@ class MainWindow(QMainWindow):
         # --- Markdown parser (shared across all tabs) ---
         from markdown_it import MarkdownIt
         from mdit_py_plugins.dollarmath import dollarmath_plugin
+
         from markdown.math_renderers import (
             render_math_block,
             render_math_block_label,
@@ -293,7 +294,9 @@ class MainWindow(QMainWindow):
         lt_layout.setContentsMargins(0, 4, 0, 4)
         lt_layout.setSpacing(2)
 
-        def _side_btn(name: str, tip: str, checkable: bool = True, slot=None) -> QToolButton:
+        def _side_btn(
+            name: str, tip: str, checkable: bool = True, slot=None
+        ) -> QToolButton:
             b = QToolButton()
             b.setIcon(self._make_colored_icon(name, icon_color))
             b.setToolTip(tip)
@@ -460,7 +463,9 @@ class MainWindow(QMainWindow):
         tab.modified_changed.connect(self._on_tab_modified)
         tab.status_changed.connect(self._on_tab_status)
         tab.title_changed.connect(lambda: self._refresh_tab_title(tab))
-        tab.file_link_clicked.connect(lambda target, t=tab: self._on_file_link_clicked(t, target))
+        tab.file_link_clicked.connect(
+            lambda target, t=tab: self._on_file_link_clicked(t, target)
+        )
 
         # Right-click context menu on the editor
         tab.editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -470,6 +475,11 @@ class MainWindow(QMainWindow):
         self._tabs.setTabToolTip(idx, tab.tooltip())
         self._tabs.setCurrentIndex(idx)
         self._connect_edit_actions(tab)
+
+        # Propagate the configured images directory to every new tab.
+        if self._folder_settings is not None:
+            tab.set_images_dir(self._folder_settings.images_dir())
+
         return tab
 
     def _current_tab(self) -> EditorTab | None:
@@ -620,7 +630,8 @@ class MainWindow(QMainWindow):
 
     def _on_editor_context_menu(self, point: QPoint) -> None:
         show_editor_context_menu(
-            self, point,
+            self,
+            point,
             self._current_theme.icon_color,
             lambda name, color, size=18: self._make_colored_icon(name, color, size),
             self._insert_md,
@@ -680,7 +691,9 @@ class MainWindow(QMainWindow):
             return
 
         path, _ = QFileDialog.getOpenFileName(
-            self, self.tr("Select Image"), "",
+            self,
+            self.tr("Select Image"),
+            "",
             self.tr("Images (*.png *.jpg *.jpeg *.gif *.bmp *.svg *.webp *.ico)"),
         )
         if not path:
@@ -692,6 +705,7 @@ class MainWindow(QMainWindow):
             dest_dir = self._folder_settings.images_dir()
             dest = dest_dir / image_path.name
             import shutil
+
             shutil.copy2(str(image_path), str(dest))
             try:
                 rel = dest.relative_to(self._folder_path)
@@ -866,17 +880,26 @@ class MainWindow(QMainWindow):
             self._shortcut_mgr = ShortcutManager(self._folder_settings)
             self._shortcut_mgr.apply(self._all_actions)
 
+            # Propagate updated images_dir to all open tabs
+            images_dir = self._folder_settings.images_dir()
+            for i in range(self._tabs.count()):
+                w = self._tabs.widget(i)
+                if isinstance(w, EditorTab):
+                    w.set_images_dir(images_dir)
+
             # --- WebDAV config ---
             new_url = dlg.selected_webdav_url()
             new_user = dlg.selected_webdav_username()
             new_pass = dlg.selected_webdav_password()
 
             if new_url or new_user or new_pass:
-                self._folder_settings.save_webdav_config({
-                    "url": new_url,
-                    "username": new_user,
-                    "password": new_pass,
-                })
+                self._folder_settings.save_webdav_config(
+                    {
+                        "url": new_url,
+                        "username": new_user,
+                        "password": new_pass,
+                    }
+                )
             else:
                 self._folder_settings.clear_webdav_config()
 
@@ -905,9 +928,12 @@ class MainWindow(QMainWindow):
         cfg = self._folder_settings.load_webdav_config()
         if not cfg:
             QMessageBox.information(
-                self, self.tr("Sync"),
-                self.tr("No WebDAV configuration found for this folder.\n"
-                        "Set it up in Settings \u2192 Sync."),
+                self,
+                self.tr("Sync"),
+                self.tr(
+                    "No WebDAV configuration found for this folder.\n"
+                    "Set it up in Settings \u2192 Sync."
+                ),
             )
             return
 
@@ -918,13 +944,13 @@ class MainWindow(QMainWindow):
         from ui.webdav_sync import SyncResult, SyncThread
 
         if not webdav_url:
-            QMessageBox.warning(self, self.tr("Sync"), self.tr("WebDAV URL is not configured."))
+            QMessageBox.warning(
+                self, self.tr("Sync"), self.tr("WebDAV URL is not configured.")
+            )
             return
 
         self._status_sync.setText(self.tr("Syncing..."))
-        self._sync_thread = SyncThread(
-            self._folder_path, webdav_url, user, pwd
-        )
+        self._sync_thread = SyncThread(self._folder_path, webdav_url, user, pwd)
 
         def _on_progress(msg: str) -> None:
             self._status_sync.setText(self.tr("Sync: {}").format(msg))
@@ -944,7 +970,9 @@ class MainWindow(QMainWindow):
             if r.deleted:
                 msg_parts.append(self.tr("{} deleted").format(len(r.deleted)))
             if r.conflicts_skipped:
-                msg_parts.append(self.tr("{} up to date").format(len(r.conflicts_skipped)))
+                msg_parts.append(
+                    self.tr("{} up to date").format(len(r.conflicts_skipped))
+                )
             if r.errors:
                 msg_parts.append(self.tr("{} errors").format(len(r.errors)))
 
@@ -1070,11 +1098,15 @@ class MainWindow(QMainWindow):
             )
             self._theme_id = folder_theme
             self._apply_theme()
-        self._editor_font_family = fs.get_editor_font_family() or self._editor_font_family
+        self._editor_font_family = (
+            fs.get_editor_font_family() or self._editor_font_family
+        )
         ef_size = fs.get_editor_font_size()
         if ef_size is not None:
             self._editor_font_size = ef_size
-        self._preview_font_family = fs.get_preview_font_family() or self._preview_font_family
+        self._preview_font_family = (
+            fs.get_preview_font_family() or self._preview_font_family
+        )
         pf_size = fs.get_preview_font_size()
         if pf_size is not None:
             self._preview_font_size = pf_size
@@ -1127,7 +1159,11 @@ class MainWindow(QMainWindow):
         self.act_close_folder.setEnabled(folder_mode)
         self.act_find_files.setVisible(folder_mode)
         self.act_find_files.setEnabled(folder_mode)
-        webdav_ready = folder_mode and self._folder_settings is not None and self._folder_settings.has_webdav_config()
+        webdav_ready = (
+            folder_mode
+            and self._folder_settings is not None
+            and self._folder_settings.has_webdav_config()
+        )
         self.act_webdav_sync.setVisible(webdav_ready)
         self.act_webdav_sync.setEnabled(webdav_ready)
         if not folder_mode:
@@ -1248,8 +1284,8 @@ class MainWindow(QMainWindow):
         """Click on a link/wikilink — open URL in browser or file in a tab."""
         # URLs → open in browser
         if target.startswith(("http://", "https://", "www.")):
-            from PySide6.QtGui import QDesktopServices
             from PySide6.QtCore import QUrl
+            from PySide6.QtGui import QDesktopServices
 
             url = target if "://" in target else "https://" + target
             QDesktopServices.openUrl(QUrl(url))

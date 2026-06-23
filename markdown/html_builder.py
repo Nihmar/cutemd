@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from markdown.image_utils import add_img_dimensions, fix_image_paragraphs, SizeProvider
+from markdown.image_utils import SizeProvider, add_img_dimensions, fix_image_paragraphs
 from markdown.tools import BLOCK_OPEN_TYPES, add_heading_ids
 
 if TYPE_CHECKING:
@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from markdown_it.token import Token
 
 _WIKILINK_IMG_RE = re.compile(r"!\[\[([^\]]+?)(?:\|([^\]]*?))?\]\]")
+_WIKILINK_RE = re.compile(r"(?<!\!)\[\[([^\]]+)\]\]")
 
 
 def preprocess_wikilink_images(text: str) -> str:
@@ -21,7 +22,21 @@ def preprocess_wikilink_images(text: str) -> str:
         target = m.group(1).strip()
         alt = m.group(2).strip() if m.group(2) else target
         return f"![{alt}]({target})"
+
     return _WIKILINK_IMG_RE.sub(_repl, text)
+
+
+def preprocess_wikilinks(text: str) -> str:
+    """Convert [[file]] and [[display|file]] to standard Markdown links."""
+
+    def _repl(m: re.Match) -> str:
+        inner = m.group(1).strip()
+        if "|" in inner:
+            display, _, target = inner.partition("|")
+            return f"[{display.strip()}]({target.strip()})"
+        return f"[{inner}]({inner})"
+
+    return _WIKILINK_RE.sub(_repl, text)
 
 
 def render_with_anchors(text: str, md: MarkdownIt) -> str:
@@ -53,6 +68,7 @@ def build_html(
     base_dir: Path,
     max_width: int,
     get_image_size: SizeProvider,
+    images_dir: Path | None = None,
 ) -> str:
     try:
         body_html = add_heading_ids(render_with_anchors(text, md))
@@ -63,7 +79,9 @@ def build_html(
             + "</pre>"
         )
 
-    body_html = add_img_dimensions(body_html, base_dir, max_width, get_image_size)
+    body_html = add_img_dimensions(
+        body_html, base_dir, max_width, get_image_size, images_dir
+    )
     body_html = fix_image_paragraphs(body_html)
 
     theme_class = "dark" if theme == "dark" else "light"

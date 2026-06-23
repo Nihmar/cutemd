@@ -30,14 +30,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from markdown.html_builder import build_html, preprocess_wikilink_images
-from ui.markdown_completer import MarkdownAutoCompleter
-from ui.syntax_highlighter import MarkdownHighlighter
-from ui.image_viewer import ImageViewer
-from ui.pdf_viewer import PdfViewer
+from markdown.html_builder import (
+    build_html,
+    preprocess_wikilink_images,
+    preprocess_wikilinks,
+)
 from ui.find_bar import FindBar
+from ui.image_viewer import ImageViewer
+from ui.markdown_completer import MarkdownAutoCompleter
+from ui.pdf_viewer import PdfViewer
 from ui.preview_browser import PreviewTextBrowser, get_image_size
-
+from ui.syntax_highlighter import MarkdownHighlighter
 
 # ---------------------------------------------------------------------------
 # LineNumberArea
@@ -77,11 +80,20 @@ class LineNumberArea(QWidget):
         if self._mode == 0:
             return
         painter = QPainter(self)
-        painter.fillRect(event.rect(), QColor(self._editor.palette().color(self._editor.palette().ColorRole.Window)))
+        painter.fillRect(
+            event.rect(),
+            QColor(
+                self._editor.palette().color(self._editor.palette().ColorRole.Window)
+            ),
+        )
 
         block = self._editor.firstVisibleBlock()
         block_num = block.blockNumber()
-        top = int(self._editor.blockBoundingGeometry(block).translated(self._editor.contentOffset()).top())
+        top = int(
+            self._editor.blockBoundingGeometry(block)
+            .translated(self._editor.contentOffset())
+            .top()
+        )
         bottom = top + int(self._editor.blockBoundingRect(block).height())
 
         fg = self._editor.palette().color(self._editor.palette().ColorRole.Mid)
@@ -95,17 +107,29 @@ class LineNumberArea(QWidget):
                 if self._mode == 1 or self._should_draw_line(line, total_blocks):
                     number = str(line)
                     painter.drawText(
-                        0, top, self.width() - 4, self._editor.fontMetrics().height(),
-                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, number,
+                        0,
+                        top,
+                        self.width() - 4,
+                        self._editor.fontMetrics().height(),
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                        number,
                     )
                 elif self._mode == 2:
                     painter.drawText(
-                        0, top, self.width() - 4, self._editor.fontMetrics().height(),
-                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, "·",
+                        0,
+                        top,
+                        self.width() - 4,
+                        self._editor.fontMetrics().height(),
+                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                        "·",
                     )
             block = block.next()
             top = bottom
-            bottom = top + int(self._editor.blockBoundingRect(block).height()) if block.isValid() else top
+            bottom = (
+                top + int(self._editor.blockBoundingRect(block).height())
+                if block.isValid()
+                else top
+            )
             block_num += 1
 
     @staticmethod
@@ -135,7 +159,9 @@ class EditorTab(QWidget):
     file_link_clicked = Signal(str)
 
     _MD_EXTS = frozenset({".md", ".markdown"})
-    _IMG_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"})
+    _IMG_EXTS = frozenset(
+        {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"}
+    )
     _PDF_EXTS = frozenset({".pdf"})
 
     # -- Link detection in the editor (clickable links + hover underline) --
@@ -161,6 +187,7 @@ class EditorTab(QWidget):
         self._theme = theme
 
         self._file_path: Path | None = None
+        self._images_dir: Path | None = None
         self._saved_text: str = ""
         self._dirty = False
         self._syncing_scroll = 0
@@ -207,6 +234,8 @@ class EditorTab(QWidget):
         self.preview = PreviewTextBrowser()
         self.preview.setReadOnly(True)
         self.preview.setOpenExternalLinks(True)
+        if self._images_dir is not None:
+            self.preview.set_images_dir(self._images_dir)
 
         self._image_viewer = ImageViewer()
         self._image_viewer.viewport().installEventFilter(self._image_viewer)
@@ -244,7 +273,9 @@ class EditorTab(QWidget):
         # --- Find bar ---
         self._find_bar = FindBar(self.editor, self)
         self._find_bar.highlights_changed.connect(self._apply_all_selections)
-        self._find_bar.closed.connect(lambda: (self._clear_highlights(), self.editor.setFocus()))
+        self._find_bar.closed.connect(
+            lambda: (self._clear_highlights(), self.editor.setFocus())
+        )
         layout.addWidget(self._find_bar)
 
     # ------------------------------------------------------------------
@@ -421,7 +452,9 @@ class EditorTab(QWidget):
         self.editor.setFont(font)
 
     def _update_line_number_area_width(self) -> None:
-        self.editor.setViewportMargins(self._line_number_area.sizeHint().width(), 0, 0, 0)
+        self.editor.setViewportMargins(
+            self._line_number_area.sizeHint().width(), 0, 0, 0
+        )
 
     def _update_line_number_area(self) -> None:
         self._line_number_area.update()
@@ -451,6 +484,11 @@ class EditorTab(QWidget):
         if self._dirty != was_dirty:
             self.modified_changed.emit(self._dirty)
 
+    def set_images_dir(self, d: Path | None) -> None:
+        """Set the configured images directory (from folder settings)."""
+        self._images_dir = d
+        self.preview.set_images_dir(d)
+
     # ------------------------------------------------------------------
     # Preview rendering
     # ------------------------------------------------------------------
@@ -459,7 +497,7 @@ class EditorTab(QWidget):
         if not self._preview_visible or self._is_binary_preview:
             return
         raw_text = self.editor.toPlainText()
-        text = preprocess_wikilink_images(raw_text)
+        text = preprocess_wikilinks(preprocess_wikilink_images(raw_text))
         text_hash = hash(text)
         if text_hash != self._line_anchor_map_hash:
             self._line_anchor_map = self._build_line_anchor_map(text)
@@ -468,7 +506,9 @@ class EditorTab(QWidget):
         first_block = self.editor.firstVisibleBlock()
         current_line = first_block.blockNumber()
         line_map = self._line_anchor_map
-        current_anchor_idx = line_map[current_line] if current_line < len(line_map) else 0
+        current_anchor_idx = (
+            line_map[current_line] if current_line < len(line_map) else 0
+        )
         self._last_anchor = f"b{current_anchor_idx}"
 
         base_dir = self._file_path.parent if self._file_path else Path.cwd()
@@ -485,6 +525,7 @@ class EditorTab(QWidget):
             base_dir=base_dir,
             max_width=max(pw, 200),
             get_image_size=get_image_size,
+            images_dir=self._images_dir,
         )
 
         self._syncing_scroll += 1
@@ -559,7 +600,11 @@ class EditorTab(QWidget):
                 self._sync_retries = 0
 
     def _on_editor_scrolled(self, _value: int = 0) -> None:
-        if self._syncing_scroll > 0 or not self._preview_visible or self._is_binary_preview:
+        if (
+            self._syncing_scroll > 0
+            or not self._preview_visible
+            or self._is_binary_preview
+        ):
             return
         line_map = self._line_anchor_map
         if not line_map:
@@ -579,7 +624,11 @@ class EditorTab(QWidget):
         self._syncing_scroll -= 1
 
     def _on_preview_scrolled(self, _value: int = 0) -> None:
-        if self._syncing_scroll > 0 or not self._preview_visible or self._is_binary_preview:
+        if (
+            self._syncing_scroll > 0
+            or not self._preview_visible
+            or self._is_binary_preview
+        ):
             return
         preview_sb = self.preview.verticalScrollBar()
         max_pv = preview_sb.maximum()
@@ -602,10 +651,14 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
 
     @classmethod
-    def _link_range_at(cls, pos_in_block: int, text: str) -> tuple[str, int, int] | None:
+    def _link_range_at(
+        cls, pos_in_block: int, text: str
+    ) -> tuple[str, int, int] | None:
         for m in cls._WIKILINK_RE.finditer(text):
             if m.start() <= pos_in_block <= m.end():
-                return (m.group(1).split("|")[0].strip(), m.start(), m.end())
+                inner = m.group(1).strip()
+                target = inner.split("|")[-1].strip() if "|" in inner else inner
+                return (target, m.start(), m.end())
         for m in cls._LINK_RE.finditer(text):
             if m.start() <= pos_in_block <= m.end():
                 return (m.group(2).strip(), m.start(), m.end())
@@ -679,7 +732,12 @@ class EditorTab(QWidget):
             if event.type() == QEvent.Type.Resize:
                 cr = self.editor.contentsRect()
                 self._line_number_area.setGeometry(
-                    QRect(cr.left(), cr.top(), self._line_number_area.sizeHint().width(), cr.height())
+                    QRect(
+                        cr.left(),
+                        cr.top(),
+                        self._line_number_area.sizeHint().width(),
+                        cr.height(),
+                    )
                 )
                 return super().eventFilter(obj, event)
 
