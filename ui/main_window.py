@@ -343,16 +343,21 @@ class MainWindow(QMainWindow):
         self._splitter.addWidget(self._left_stack)
         self._splitter.addWidget(editor_pane)
         self._splitter.setSizes([32, 220, 948])
+        # Hide handle between toolbar and stack (index 0), keep handle between stack and editor (index 1)
+        handle0 = self._splitter.handle(0)
+        handle0.setFixedWidth(0)
+        handle0.setEnabled(False)
 
         self.setCentralWidget(self._splitter)
 
         # Hide QMainWindow status bar
         self.statusBar().hide()
 
-        # Initial: tree visible, search hidden
+        # Initial: tree visible, search hidden (block signals to skip layout while not yet shown)
+        self._side_tree_btn.blockSignals(True)
         self._side_tree_btn.setChecked(True)
+        self._side_tree_btn.blockSignals(False)
         self._left_stack.setCurrentIndex(0)
-        self._left_stack.show()
 
         self._add_tab()
 
