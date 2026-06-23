@@ -411,15 +411,23 @@ class MainWindow(QMainWindow):
         if location:
             self._open_file_at_line(location)
 
+    def _show_left_panel(self) -> None:
+        self._left_stack.show()
+        self._splitter.setSizes([252, max(self._splitter.width() - 252, 200)])
+
+    def _hide_left_panel(self) -> None:
+        self._left_stack.hide()
+        self._splitter.setSizes([32, max(self._splitter.width() - 32, 200)])
+
     def _on_side_tree_toggled(self, checked: bool) -> None:
         if checked:
             self._side_search_btn.blockSignals(True)
             self._side_search_btn.setChecked(False)
             self._side_search_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(0)
-            self._left_stack.show()
+            self._show_left_panel()
         else:
-            self._left_stack.hide()
+            self._hide_left_panel()
 
     def _on_side_search_toggled(self, checked: bool) -> None:
         if checked:
@@ -427,9 +435,9 @@ class MainWindow(QMainWindow):
             self._side_tree_btn.setChecked(False)
             self._side_tree_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(1)
-            self._left_stack.show()
+            self._show_left_panel()
         else:
-            self._left_stack.hide()
+            self._hide_left_panel()
 
     # ------------------------------------------------------------------
     # Tab management
@@ -644,7 +652,7 @@ class MainWindow(QMainWindow):
             self._side_search_btn.blockSignals(True)
             self._side_search_btn.setChecked(False)
             self._side_search_btn.blockSignals(False)
-            self._left_stack.hide()
+            self._hide_left_panel()
         else:
             self._side_search_btn.blockSignals(True)
             self._side_tree_btn.blockSignals(True)
@@ -653,7 +661,7 @@ class MainWindow(QMainWindow):
             self._side_search_btn.blockSignals(False)
             self._side_tree_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(1)
-            self._left_stack.show()
+            self._show_left_panel()
             self._search_input.setFocus()
             self._search_input.selectAll()
 
@@ -936,11 +944,11 @@ class MainWindow(QMainWindow):
             self._side_tree_btn.blockSignals(False)
             self._side_search_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(0)
-            self._left_stack.show()
+            self._show_left_panel()
         else:
             self._side_tree_btn.setChecked(False)
             self._side_search_btn.setChecked(False)
-            self._left_stack.hide()
+            self._hide_left_panel()
 
     def _on_toggle_statusbar(self, visible: bool) -> None:
         self._status_file.parent().setVisible(visible)
@@ -1029,7 +1037,7 @@ class MainWindow(QMainWindow):
             self._side_search_btn.setChecked(False)
             self._side_tree_btn.blockSignals(False)
             self._side_search_btn.blockSignals(False)
-            self._left_stack.hide()
+            self._hide_left_panel()
             self.act_toggle_tree.setChecked(False)
             self._side_folder_btn.setText("...")
         else:
@@ -1040,7 +1048,7 @@ class MainWindow(QMainWindow):
             self._side_tree_btn.blockSignals(False)
             self._side_search_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(0)
-            self._left_stack.show()
+            self._show_left_panel()
             self.act_toggle_tree.setChecked(True)
             self._side_folder_btn.setText(self._folder_path.name)
         self._update_window_title()
