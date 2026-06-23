@@ -106,6 +106,10 @@ QToolButton:hover {
 QToolButton:pressed {
     background: ${DARK};
 }
+QToolButton:checked {
+    background: ${HIGHLIGHT};
+    color: ${HIGHLIGHTED_TEXT};
+}
 #toolbarSep {
     background: ${MIDLIGHT};
     margin: 4px 2px;
