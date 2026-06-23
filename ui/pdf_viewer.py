@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, QSize, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QPixmap
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QHBoxLayout,
     QLabel,
@@ -43,10 +44,14 @@ class PdfViewer(QWidget):
 
         self._fit_width_cb = QCheckBox(self.tr("Fit width"))
         self._fit_width_cb.setChecked(True)
-        self._fit_width_cb.toggled.connect(self._on_fit_width_toggled)
-
         self._fit_height_cb = QCheckBox(self.tr("Fit height"))
-        self._fit_height_cb.toggled.connect(self._on_fit_height_toggled)
+        # Make checkboxes mutually exclusive
+        self._fit_group = QButtonGroup(self)
+        self._fit_group.addButton(self._fit_width_cb)
+        self._fit_group.addButton(self._fit_height_cb)
+        self._fit_group.setExclusive(True)
+        self._fit_width_cb.toggled.connect(self._on_fit_mode_changed)
+        self._fit_height_cb.toggled.connect(self._on_fit_mode_changed)
 
         self._open_btn = QPushButton(self.tr("Open externally"))
         nav.addStretch()
@@ -64,6 +69,7 @@ class PdfViewer(QWidget):
 
         self._page_view = QLabel()
         self._page_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._page_view.setStyleSheet("background: white;")
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setWidget(self._page_view)
@@ -147,15 +153,11 @@ class PdfViewer(QWidget):
         if self._path is not None:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._path)))
 
-    def _on_fit_width_toggled(self, checked: bool) -> None:
-        self._fit_width = checked
-        if not checked and not self._fit_height_cb.isChecked():
-            self._zoom = 1.0
-        self._render()
-
-    def _on_fit_height_toggled(self, checked: bool) -> None:
-        self._fit_height = checked
-        if not checked and not self._fit_width_cb.isChecked():
+    def _on_fit_mode_changed(self) -> None:
+        self._fit_width = self._fit_width_cb.isChecked()
+        self._fit_height = self._fit_height_cb.isChecked()
+        # If both or just one unchecked → zoom mode (reset zoom to 1)
+        if not self._fit_width and not self._fit_height:
             self._zoom = 1.0
         self._render()
 
@@ -164,14 +166,26 @@ class PdfViewer(QWidget):
         return self._page_count
 
     def zoom_in(self) -> None:
+        self._fit_width_cb.blockSignals(True)
+        self._fit_height_cb.blockSignals(True)
         self._fit_width_cb.setChecked(False)
         self._fit_height_cb.setChecked(False)
+        self._fit_width_cb.blockSignals(False)
+        self._fit_height_cb.blockSignals(False)
+        self._fit_width = False
+        self._fit_height = False
         self._zoom = min(5.0, self._zoom * 1.2)
         self._render()
 
     def zoom_out(self) -> None:
+        self._fit_width_cb.blockSignals(True)
+        self._fit_height_cb.blockSignals(True)
         self._fit_width_cb.setChecked(False)
         self._fit_height_cb.setChecked(False)
+        self._fit_width_cb.blockSignals(False)
+        self._fit_height_cb.blockSignals(False)
+        self._fit_width = False
+        self._fit_height = False
         self._zoom = max(0.1, self._zoom / 1.2)
         self._render()
 
@@ -183,8 +197,14 @@ class PdfViewer(QWidget):
             if event.type() == event.Type.Wheel:
                 if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                     delta = event.angleDelta().y() / 120.0
+                    self._fit_width_cb.blockSignals(True)
+                    self._fit_height_cb.blockSignals(True)
                     self._fit_width_cb.setChecked(False)
                     self._fit_height_cb.setChecked(False)
+                    self._fit_width_cb.blockSignals(False)
+                    self._fit_height_cb.blockSignals(False)
+                    self._fit_width = False
+                    self._fit_height = False
                     self._zoom = max(0.1, min(10.0, self._zoom + delta * 0.15))
                     self._render()
                     return True
