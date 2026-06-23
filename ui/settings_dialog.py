@@ -126,6 +126,7 @@ class SettingsDialog(QDialog):
         current_preview_font_size: int,
         current_language: str = "",
         current_line_number_mode: int = 1,
+        current_cursor_width: int = 2,
         current_link_style: str = "md",
         current_smart_editing: dict[str, Any] | None = None,
         folder_settings: Any = None,
@@ -227,6 +228,12 @@ class SettingsDialog(QDialog):
                 self._line_number_combo.setCurrentIndex(i)
                 break
         editor_form.addRow(self.tr("Line numbers:"), self._line_number_combo)
+
+        self._cursor_width = QSpinBox()
+        self._cursor_width.setRange(1, 5)
+        self._cursor_width.setValue(current_cursor_width)
+        self._cursor_width.setToolTip(self.tr("Cursor thickness in pixels"))
+        editor_form.addRow(self.tr("Cursor width:"), self._cursor_width)
 
         self._link_style_combo = QComboBox()
         self._link_style_combo.addItem(self.tr("Markdown [text](url)"), "md")
@@ -498,6 +505,9 @@ class SettingsDialog(QDialog):
 
     def selected_line_number_mode(self) -> int:
         return self._line_number_combo.currentData()
+
+    def selected_cursor_width(self) -> int:
+        return self._cursor_width.value()
 
     def selected_link_style(self) -> str:
         return self._link_style_combo.currentData()

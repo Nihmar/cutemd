@@ -398,3 +398,35 @@ def sync_folder(
         progress_callback("Done.")
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Thread wrapper
+# ---------------------------------------------------------------------------
+
+
+from PySide6.QtCore import QThread, Signal  # noqa: E402
+
+
+class SyncThread(QThread):
+    """QThread that runs sync_folder() in the background."""
+
+    progress = Signal(str)
+    finished = Signal(object)
+
+    def __init__(self, local_root: Path, url: str, username: str, password: str) -> None:
+        super().__init__()
+        self._local_root = local_root
+        self._url = url
+        self._username = username
+        self._password = password
+
+    def run(self) -> None:
+        result = sync_folder(
+            self._local_root,
+            self._url,
+            self._username,
+            self._password,
+            progress_callback=lambda msg: self.progress.emit(msg),
+        )
+        self.finished.emit(result)

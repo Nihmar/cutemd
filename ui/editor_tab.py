@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QTextEdit,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -36,7 +35,8 @@ from ui.markdown_completer import MarkdownAutoCompleter
 from ui.syntax_highlighter import MarkdownHighlighter
 from ui.image_viewer import ImageViewer
 from ui.pdf_viewer import PdfViewer
-from ui.preview_browser import PreviewTextBrowser
+from ui.find_bar import FindBar
+from ui.preview_browser import PreviewTextBrowser, get_image_size
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +152,7 @@ class EditorTab(QWidget):
         preview_font_family: str = "System",
         preview_font_size: int = 16,
         smart_editing: dict[str, Any] | None = None,
+        cursor_width: int = 2,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -173,7 +174,6 @@ class EditorTab(QWidget):
         self._is_binary_preview = False
 
         self._hover_link_key: tuple[int, int, int] | None = None
-        self._find_selections: list[QTextEdit.ExtraSelection] = []
 
         self._editor_font_family = editor_font_family
         self._editor_font_size = editor_font_size
@@ -185,6 +185,7 @@ class EditorTab(QWidget):
         self._apply_editor_font()
         self.editor.setTabStopDistance(40)
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.editor.setCursorWidth(cursor_width)
         self.editor.textChanged.connect(self._on_text_changed)
         self.editor.cursorPositionChanged.connect(self._emit_status)
 
@@ -241,57 +242,10 @@ class EditorTab(QWidget):
         layout.addWidget(splitter)
 
         # --- Find bar ---
-        self._find_bar = QWidget(self)
-        self._find_bar.setVisible(False)
-        self._find_bar.setFixedHeight(30)
-        find_layout = QHBoxLayout(self._find_bar)
-        find_layout.setContentsMargins(4, 0, 4, 0)
-        find_layout.setSpacing(4)
-
-        self._find_input = QLineEdit()
-        self._find_input.setPlaceholderText(self.tr("Find\u2026"))
-        self._find_input.setMaximumWidth(200)
-        self._find_input.setFixedHeight(24)
-        self._find_input.textChanged.connect(self._on_find_text_changed)
-        self._find_input.returnPressed.connect(self._find_next)
-
-        self._find_count_label = QLabel()
-
-        self._find_case_btn = QToolButton()
-        self._find_case_btn.setText("Aa")
-        self._find_case_btn.setCheckable(True)
-        self._find_case_btn.setToolTip(self.tr("Match case"))
-        self._find_case_btn.setFixedSize(28, 24)
-        self._find_case_btn.toggled.connect(self._highlight_all_matches)
-
-        prev_btn = QToolButton()
-        prev_btn.setText("\u25b2")
-        prev_btn.setToolTip(self.tr("Previous match"))
-        prev_btn.setFixedSize(28, 24)
-        prev_btn.clicked.connect(self._find_prev)
-
-        next_btn = QToolButton()
-        next_btn.setText("\u25bc")
-        next_btn.setToolTip(self.tr("Next match"))
-        next_btn.setFixedSize(28, 24)
-        next_btn.clicked.connect(self._find_next)
-
-        close_btn = QToolButton()
-        close_btn.setText("\u2715")
-        close_btn.setToolTip(self.tr("Close find bar"))
-        close_btn.setFixedSize(28, 24)
-        close_btn.clicked.connect(self.close_find)
-
-        find_layout.addWidget(self._find_input)
-        find_layout.addWidget(self._find_count_label)
-        find_layout.addStretch()
-        find_layout.addWidget(self._find_case_btn)
-        find_layout.addWidget(prev_btn)
-        find_layout.addWidget(next_btn)
-        find_layout.addWidget(close_btn)
+        self._find_bar = FindBar(self.editor, self)
+        self._find_bar.highlights_changed.connect(self._apply_all_selections)
+        self._find_bar.closed.connect(lambda: (self._clear_highlights(), self.editor.setFocus()))
         layout.addWidget(self._find_bar)
-
-        QShortcut(QKeySequence(Qt.Key.Key_Escape), self._find_bar, self.close_find)
 
     # ------------------------------------------------------------------
     # Public API
@@ -338,6 +292,9 @@ class EditorTab(QWidget):
 
     def set_smart_editing(self, settings: dict[str, Any]) -> None:
         self._completer.update_settings(settings)
+
+    def set_cursor_width(self, width: int) -> None:
+        self.editor.setCursorWidth(width)
 
     def set_preview_font(self, family: str, size: int) -> None:
         self._preview_font_family = family
@@ -478,7 +435,7 @@ class EditorTab(QWidget):
         extra = []
         if self._current_line_sel is not None:
             extra.append(self._current_line_sel)
-        extra.extend(self._find_selections)
+        extra.extend(self._find_bar.selections)
         self.editor.setExtraSelections(extra)
 
     def _emit_status(self) -> None:
@@ -527,6 +484,7 @@ class EditorTab(QWidget):
             font_size=self._preview_font_size,
             base_dir=base_dir,
             max_width=max(pw, 200),
+            get_image_size=get_image_size,
         )
 
         self._syncing_scroll += 1
@@ -703,102 +661,14 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
     # Find bar
     # ------------------------------------------------------------------
-
-    def _find_flags(self) -> QTextDocument.FindFlag | QTextDocument.FindFlags:
-        flags: QTextDocument.FindFlag = QTextDocument.FindFlag(0)
-        if self._find_case_btn.isChecked():
-            flags = QTextDocument.FindFlag.FindCaseSensitively  # type: ignore[assignment]
-        return flags  # type: ignore[return-value]
-
-    def _highlight_all_matches(self) -> None:
-        term = self._find_input.text()
-        if not term:
-            self._clear_highlights()
-            return
-        flags = self._find_flags()
-        doc = self.editor.document()
-        self._find_selections = []
-        cursor = QTextCursor(doc)
-        while True:
-            cursor = doc.find(term, cursor, flags)
-            if cursor.isNull():
-                break
-            fmt = QTextCharFormat()
-            fmt.setBackground(QColor(100, 100, 100))
-            sel = QTextEdit.ExtraSelection()
-            sel.format = fmt
-            sel.cursor = QTextCursor(cursor)
-            self._find_selections.append(sel)
-        self._apply_all_selections()
-        self._update_count_label()
-
-    def _update_count_label(self) -> None:
-        count = len(self._find_selections)
-        if count > 0:
-            cursor = self.editor.textCursor()
-            found = -1
-            cp = cursor.position()
-            anchor = cursor.anchor()
-            for i, sel in enumerate(self._find_selections):
-                if sel.cursor.selectionStart() <= cp and sel.cursor.selectionEnd() >= cp:
-                    found = i
-                    break
-                if sel.cursor.selectionStart() == cp and sel.cursor.selectionEnd() == anchor:
-                    found = i
-                    break
-            if found >= 0:
-                self._find_count_label.setText(f"{found + 1}/{count}")
-            else:
-                self._find_count_label.setText(f"0/{count}")
-        else:
-            self._find_count_label.setText("0/0")
-
     def _clear_highlights(self) -> None:
-        self._find_selections = []
         self._apply_all_selections()
-
-    def _on_find_text_changed(self, _text: str) -> None:
-        self._highlight_all_matches()
-        self._find_next()
-
-    def _find_next(self) -> None:
-        term = self._find_input.text()
-        if not term:
-            return
-        flags = self._find_flags()
-        found = self.editor.find(term, flags)
-        if not found:
-            cursor = self.editor.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.Start)
-            self.editor.setTextCursor(cursor)
-            self.editor.find(term, flags)
-        self._update_count_label()
-
-    def _find_prev(self) -> None:
-        term = self._find_input.text()
-        if not term:
-            return
-        flags = self._find_flags() | QTextDocument.FindFlag.FindBackward
-        found = self.editor.find(term, flags)
-        if not found:
-            cursor = self.editor.textCursor()
-            cursor.movePosition(QTextCursor.MoveOperation.End)
-            self.editor.setTextCursor(cursor)
-            self.editor.find(term, flags)
-        self._update_count_label()
 
     def open_find(self) -> None:
-        self._find_bar.setVisible(True)
-        self._find_input.setFocus()
-        self._find_input.selectAll()
-        if self.editor.textCursor().hasSelection():
-            self._find_input.setText(self.editor.textCursor().selectedText())
-        self._find_selections = []
+        self._find_bar.open()
 
     def close_find(self) -> None:
-        self._find_bar.setVisible(False)
-        self._clear_highlights()
-        self.editor.setFocus()
+        self._find_bar.close()
 
     # ------------------------------------------------------------------
     # Qt overrides

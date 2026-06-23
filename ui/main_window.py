@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QEvent, QPoint, QSettings, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -39,10 +39,15 @@ from PySide6.QtWidgets import (
 
 from ui import theme
 from ui.editor_tab import EditorTab
+from ui.editor_toolbar import EditorToolbar
+from ui.editor_context_menu import show_editor_context_menu
 from ui.file_tree_panel import FileTreePanel
 from ui.folder_settings import FolderSettings
+from ui.search_panel import SearchPanel
 from ui.shortcut_manager import ShortcutManager
 from ui.themes import get_theme, system_theme
+from ui.theme_manager import ThemeManager
+from ui.settings_manager import AppSettings
 from ui.webdav_sync import sync_folder
 
 # ---------------------------------------------------------------------------
@@ -67,35 +72,25 @@ class MainWindow(QMainWindow):
         self._files_to_open = files_to_open
         self._preview_visible = True
 
-        # Restore saved settings
-        settings = QSettings("cutemd", "cutemd")
-        self._theme_id = str(settings.value("theme", "system"))
-        self._current_theme = (
-            system_theme() if self._theme_id == "system" else get_theme(self._theme_id)
-        )
-        self._editor_font_family = str(settings.value("editor_font_family", "System"))
-        # Backward compat: old settings used "Sistema"
-        if self._editor_font_family == "Sistema":
-            self._editor_font_family = "System"
-        _raw = settings.value("editor_font_size", 11)
-        self._editor_font_size = _raw if isinstance(_raw, int) else 11
-        self._preview_font_family = str(settings.value("preview_font_family", "System"))
-        if self._preview_font_family == "Sistema":
-            self._preview_font_family = "System"
-        _raw = settings.value("preview_font_size", 16)
-        self._preview_font_size = _raw if isinstance(_raw, int) else 16
-        self._language = str(settings.value("language", ""))
-        _raw = settings.value("line_number_mode", 1)
-        self._line_number_mode = _raw if isinstance(_raw, int) else 1
+        # Settings manager (centralized QSettings wrapper)
+        self._s = AppSettings(self)
 
-        self._smart_editing: dict[str, Any] = {
-            "enabled": bool(settings.value("smart_editing/enabled", True)),
-            "auto_pair": bool(settings.value("smart_editing/auto_pair", True)),
-            "auto_pair_brackets": bool(settings.value("smart_editing/auto_pair_brackets", True)),
-            "continue_lists": bool(settings.value("smart_editing/continue_lists", True)),
-            "backspace_pairs": bool(settings.value("smart_editing/backspace_pairs", True)),
-            "link_style": str(settings.value("link_style", "md")),
-        }
+        # Theme
+        self._theme_manager = ThemeManager(self)
+        self._theme_id = self._s.theme()
+        self._current_theme = self._theme_manager.resolve(self._theme_id)
+
+        # Fonts
+        self._editor_font_family = self._s.editor_font_family()
+        self._editor_font_size = self._s.editor_font_size(13)
+        self._preview_font_family = self._s.preview_font_family("System")
+        self._preview_font_size = self._s.preview_font_size(13)
+
+        # Other settings
+        self._language = self._s.language()
+        self._line_number_mode = self._s.line_number_mode()
+        self._cursor_width = self._s.cursor_width()
+        self._smart_editing = self._s.smart_editing()
 
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
@@ -125,7 +120,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("CuteMD - Markdown Editor")
 
         # Restore saved window geometry, or fall back to default size
-        geometry = settings.value("window_geometry")
+        geometry = self._s.window_geometry()
         if geometry:
             self.restoreGeometry(geometry)
         else:
@@ -287,8 +282,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _setup_central(self) -> None:
         icon_color = self._current_theme.icon_color
-        self._toolbar_buttons: list[tuple[QToolButton, str]] = []
-        self._toolbar_tooltips: list[str] = []
+        self._sidebar_buttons: list[tuple[QToolButton, str]] = []
 
         # --- Left vertical toolbar (ALWAYS visible, separate child in splitter) ---
         self._left_tb = QWidget()
@@ -309,7 +303,7 @@ class MainWindow(QMainWindow):
             b.setCheckable(checkable)
             if slot:
                 b.toggled.connect(slot)
-            self._toolbar_buttons.append((b, name))
+            self._sidebar_buttons.append((b, name))
             return b
 
         self._side_tree_btn = _side_btn(
@@ -340,7 +334,10 @@ class MainWindow(QMainWindow):
         self._tree_panel.file_deleted.connect(self._on_tree_file_deleted)
 
         # --- Search panel ---
-        self._search_panel = self._make_search_panel()
+        self._search_panel = SearchPanel()
+        self._search_panel.file_activated.connect(
+            lambda path, line: self._open_file_at_line((path, line))
+        )
 
         # --- Left stack (tree / search) ---
         self._left_stack = QStackedWidget()
@@ -355,7 +352,13 @@ class MainWindow(QMainWindow):
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
         # --- Editor toolbar ---
-        editor_toolbar = self._make_editor_toolbar()
+        self._editor_toolbar = EditorToolbar(
+            icon_color,
+            lambda name, color, size=18: self._make_colored_icon(name, color, size),
+        )
+        self._editor_toolbar.format_requested.connect(self._insert_md)
+        self._editor_toolbar.image_requested.connect(self._on_insert_image)
+        editor_toolbar = self._editor_toolbar
 
         # --- Inline status bar ---
         self._status_file = QLabel("...")
@@ -410,53 +413,6 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Search panel (embedded find-in-files)
     # ------------------------------------------------------------------
-    def _make_search_panel(self) -> QWidget:
-        panel = QWidget()
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(4, 6, 4, 4)
-        layout.setSpacing(4)
-
-        self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText(self.tr("Search files\u2026"))
-        self._search_input.textChanged.connect(self._on_search_text_changed)
-
-        case_row = QHBoxLayout()
-        self._search_case_cb = QCheckBox(self.tr("Match case"))
-        self._search_case_cb.toggled.connect(lambda: self._on_search_text_changed(self._search_input.text()))
-        case_row.addWidget(self._search_case_cb)
-        case_row.addStretch()
-
-        self._search_results = QListWidget()
-        self._search_results.itemDoubleClicked.connect(self._on_search_result_clicked)
-
-        layout.addWidget(self._search_input)
-        layout.addLayout(case_row)
-        layout.addWidget(self._search_results)
-        return panel
-
-    def _on_search_text_changed(self, text: str) -> None:
-        self._search_results.clear()
-        if not text or self._folder_path is None:
-            return
-        flags = re.IGNORECASE if not self._search_case_cb.isChecked() else 0
-        for md_path in self._folder_path.rglob("*.md"):
-            try:
-                content = md_path.read_text(encoding="utf-8")
-            except OSError:
-                continue
-            for line_num, line in enumerate(content.splitlines(), 1):
-                if re.search(re.escape(text), line, flags):
-                    rel = md_path.relative_to(self._folder_path)
-                    item_text = f"{rel}:{line_num}: {line.strip()[:120]}"
-                    item = QListWidgetItem(item_text)
-                    item.setData(Qt.ItemDataRole.UserRole, (md_path, line_num))
-                    self._search_results.addItem(item)
-
-    def _on_search_result_clicked(self, item: QListWidgetItem) -> None:
-        location = item.data(Qt.ItemDataRole.UserRole)
-        if location:
-            self._open_file_at_line(location)
-
     def _show_left_panel(self) -> None:
         self._left_stack.show()
         self._splitter.setSizes([220, max(self._splitter.width() - 220, 200)])
@@ -498,6 +454,7 @@ class MainWindow(QMainWindow):
             preview_font_family=self._preview_font_family,
             preview_font_size=self._preview_font_size,
             smart_editing=self._smart_editing,
+            cursor_width=getattr(self, "_cursor_width", 2),
         )
         tab.set_line_number_mode(self._line_number_mode)
         tab.modified_changed.connect(self._on_tab_modified)
@@ -605,98 +562,12 @@ class MainWindow(QMainWindow):
 
         return QIcon(result)
 
-    def _make_editor_toolbar(self) -> QWidget:
-        icon_color = self._current_theme.icon_color
-
-        tb = QWidget()
-        tb.setObjectName("editorToolbar")
-        layout = QHBoxLayout(tb)
-        layout.setContentsMargins(6, 3, 6, 3)
-        layout.setSpacing(1)
-
-        def _sep() -> None:
-            s = QWidget()
-            s.setObjectName("toolbarSep")
-            s.setFixedWidth(1)
-            layout.addWidget(s)
-
-        def _btn(icon_name: str, syntax: str, tip: str) -> None:
-            b = QToolButton()
-            b.setIcon(self._make_colored_icon(icon_name, icon_color))
-            b.setToolTip(tip)
-            b.setAutoRaise(True)
-            b.setIconSize(QSize(18, 18))
-            b.setFixedSize(28, 26)
-            b.clicked.connect(lambda checked=False, s=syntax: self._insert_md(s))
-            layout.addWidget(b)
-            self._toolbar_buttons.append((b, icon_name))
-            self._toolbar_tooltips.append(tip)
-
-        # --- Heading button ---
-        self._heading_btn = QToolButton()
-        self._heading_btn.setIcon(self._make_colored_icon("heading", icon_color))
-        self._heading_btn.setToolTip(self.tr("Heading level"))
-        self._heading_btn.setAutoRaise(True)
-        self._heading_btn.setIconSize(QSize(18, 18))
-        self._heading_btn.setFixedSize(28, 26)
-        self._heading_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        heading_menu = QMenu(self._heading_btn)
-        for i in range(1, 7):
-            prefix = "#" * i + " "
-            icon_size = max(8, 20 - i * 2)
-            action = heading_menu.addAction(f"H{i}")
-            action.setIcon(self._make_colored_icon("heading", icon_color, icon_size))
-            action.triggered.connect(lambda checked=False, p=prefix: self._insert_md(p))
-        self._heading_btn.setMenu(heading_menu)
-        layout.addWidget(self._heading_btn)
-        self._toolbar_buttons.append((self._heading_btn, "heading"))
-        self._toolbar_tooltips.append(self.tr("Heading level"))
-        _sep()
-
-        # --- Blocks: lists ---
-        _btn("list-unordered", "- ", self.tr("Unordered list (- )"))
-        _btn("list-ordered", "1. ", self.tr("Ordered list (1. )"))
-        _btn("list-task", "- [ ] ", self.tr("Task list (- [ ])"))
-        _sep()
-
-        # --- Blocks: other ---
-        _btn("quote", "> ", self.tr("Blockquote (> )"))
-        _btn("code-block", "```", self.tr("Code block (```)"))
-        _btn(
-            "table",
-            "\n| Col 1 | Col 2 |\n|------|------|\n|      |      |\n",
-            self.tr("Insert table"),
-        )
-        _btn("hr", "---\n", self.tr("Horizontal rule (---)"))
-        _sep()
-
-        # --- Inline ---
-        _btn("bold", "**", self.tr("Bold (**text**)"))
-        _btn("italic", "*", self.tr("Italic (*text*)"))
-        _btn("strikethrough", "~~", self.tr("Strikethrough (~~text~~)"))
-        _btn("code", "`", self.tr("Inline code (`text`)"))
-        _sep()
-
-        # --- Links & media ---
-        _btn("link", "[]()", self.tr("Insert link ([]())"))
-        b = QToolButton()
-        b.setIcon(self._make_colored_icon("image", icon_color))
-        b.setToolTip(self.tr("Insert image"))
-        b.setAutoRaise(True)
-        b.setIconSize(QSize(18, 18))
-        b.setFixedSize(28, 26)
-        b.clicked.connect(self._on_insert_image)
-        layout.addWidget(b)
-        self._toolbar_buttons.append((b, "image"))
-        self._toolbar_tooltips.append(self.tr("Insert image"))
-
-        layout.addStretch()
-        return tb
-
     def _recolor_toolbar_icons(self) -> None:
         icon_color = self._current_theme.icon_color
-        for button, name in getattr(self, "_toolbar_buttons", []):
+        for button, name in getattr(self, "_sidebar_buttons", []):
             button.setIcon(self._make_colored_icon(name, icon_color))
+        if hasattr(self, "_editor_toolbar"):
+            self._editor_toolbar.recolor(icon_color)
 
     def _on_find(self) -> None:
         tab = self._current_tab()
@@ -720,8 +591,8 @@ class MainWindow(QMainWindow):
             self._side_tree_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(1)
             self._show_left_panel()
-            self._search_input.setFocus()
-            self._search_input.selectAll()
+            self._search_panel._search_input.setFocus()
+            self._search_panel._search_input.selectAll()
 
     def _open_file_at_line(self, location: tuple) -> None:
         path, line_num = location
@@ -748,66 +619,13 @@ class MainWindow(QMainWindow):
         tab.editor.centerCursor()
 
     def _on_editor_context_menu(self, point: QPoint) -> None:
-        """Right-click menu on the editor with formatting actions."""
-        menu = QMenu(self)
-        ic = self._current_theme.icon_color
-
-        inline_menu = menu.addMenu(self.tr("Inline &Formatting"))
-        inline_menu.setIcon(self._make_colored_icon("bold", ic))
-        inline_menu.addAction(self._make_colored_icon("bold", ic), self.tr("&Bold")).triggered.connect(
-            lambda: self._insert_md("**")
+        show_editor_context_menu(
+            self, point,
+            self._current_theme.icon_color,
+            lambda name, color, size=18: self._make_colored_icon(name, color, size),
+            self._insert_md,
+            self._on_insert_image,
         )
-        inline_menu.addAction(self._make_colored_icon("italic", ic), self.tr("&Italic")).triggered.connect(
-            lambda: self._insert_md("*")
-        )
-        inline_menu.addAction(self._make_colored_icon("strikethrough", ic), self.tr("&Strikethrough")).triggered.connect(
-            lambda: self._insert_md("~~")
-        )
-        inline_menu.addAction(self._make_colored_icon("code", ic), self.tr("Inline &Code")).triggered.connect(
-            lambda: self._insert_md("`")
-        )
-
-        lists_menu = menu.addMenu(self.tr("&Lists"))
-        lists_menu.setIcon(self._make_colored_icon("list-unordered", ic))
-        lists_menu.addAction(self._make_colored_icon("list-unordered", ic), self.tr("&Unordered list")).triggered.connect(
-            lambda: self._insert_md("- ")
-        )
-        lists_menu.addAction(self._make_colored_icon("list-ordered", ic), self.tr("&Ordered list")).triggered.connect(
-            lambda: self._insert_md("1. ")
-        )
-        lists_menu.addAction(self._make_colored_icon("list-task", ic), self.tr("&Task list")).triggered.connect(
-            lambda: self._insert_md("- [ ] ")
-        )
-
-        blocks_menu = menu.addMenu(self.tr("&Blocks"))
-        blocks_menu.setIcon(self._make_colored_icon("quote", ic))
-        blocks_menu.addAction(self._make_colored_icon("quote", ic), self.tr("Block&quote")).triggered.connect(
-            lambda: self._insert_md("> ")
-        )
-        blocks_menu.addAction(self._make_colored_icon("code-block", ic), self.tr("Code &block")).triggered.connect(
-            lambda: self._insert_md("```")
-        )
-        blocks_menu.addAction(self._make_colored_icon("table", ic), self.tr("&Table")).triggered.connect(
-            lambda: self._insert_md(
-                "\n| Col 1 | Col 2 |\n|------|------|\n|      |      |\n"
-            )
-        )
-        blocks_menu.addAction(self._make_colored_icon("hr", ic), self.tr("&Horizontal rule")).triggered.connect(
-            lambda: self._insert_md("---\n")
-        )
-
-        insert_menu = menu.addMenu(self.tr("&Insert"))
-        insert_menu.setIcon(self._make_colored_icon("link", ic))
-        insert_menu.addAction(self._make_colored_icon("link", ic), self.tr("&Link")).triggered.connect(
-            lambda: self._insert_md("[]()")
-        )
-        insert_menu.addAction(self._make_colored_icon("image", ic), self.tr("&Image")).triggered.connect(
-            self._on_insert_image
-        )
-
-        sender = self.sender()
-        if isinstance(sender, QPlainTextEdit):
-            menu.exec(sender.viewport().mapToGlobal(point))
 
     def _insert_md(self, syntax: str) -> None:
         tab = self._current_tab()
@@ -934,6 +752,7 @@ class MainWindow(QMainWindow):
             self._preview_font_size,
             self._language,
             self._line_number_mode,
+            self._cursor_width,
             self._smart_editing.get("link_style", "md"),
             self._smart_editing,
             self._folder_settings,
@@ -945,8 +764,6 @@ class MainWindow(QMainWindow):
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
 
-        settings = QSettings("cutemd", "cutemd")
-
         # --- Theme ---
         new_theme_id = dlg.selected_theme_id()
         if new_theme_id != self._theme_id:
@@ -954,14 +771,13 @@ class MainWindow(QMainWindow):
             self._current_theme = (
                 system_theme() if new_theme_id == "system" else get_theme(new_theme_id)
             )
-            settings.setValue("theme", new_theme_id)
             self._apply_theme()
 
         # --- Language ---
         new_lang = dlg.selected_language()
         if new_lang != self._language:
             self._language = new_lang
-            settings.setValue("language", new_lang)
+            self._s.set_language(new_lang)
             from ui.translations import apply_language
 
             app = QApplication.instance()
@@ -978,15 +794,11 @@ class MainWindow(QMainWindow):
         if new_ef != self._editor_font_family or new_efs != self._editor_font_size:
             self._editor_font_family = new_ef
             self._editor_font_size = new_efs
-            settings.setValue("editor_font_family", new_ef)
-            settings.setValue("editor_font_size", new_efs)
             changed = True
 
         if new_pf != self._preview_font_family or new_pfs != self._preview_font_size:
             self._preview_font_family = new_pf
             self._preview_font_size = new_pfs
-            settings.setValue("preview_font_family", new_pf)
-            settings.setValue("preview_font_size", new_pfs)
             changed = True
 
         if changed:
@@ -1004,11 +816,19 @@ class MainWindow(QMainWindow):
         new_ln = dlg.selected_line_number_mode()
         if new_ln != self._line_number_mode:
             self._line_number_mode = new_ln
-            settings.setValue("line_number_mode", new_ln)
             for i in range(self._tabs.count()):
                 tab = self._tabs.widget(i)
                 if isinstance(tab, EditorTab):
                     tab.set_line_number_mode(new_ln)
+
+        # --- Cursor width ---
+        new_cw = dlg.selected_cursor_width()
+        if new_cw != self._cursor_width:
+            self._cursor_width = new_cw
+            for i in range(self._tabs.count()):
+                tab = self._tabs.widget(i)
+                if isinstance(tab, EditorTab):
+                    tab.set_cursor_width(new_cw)
 
         # --- Smart editing ---
         new_se = dlg.selected_smart_editing()
@@ -1016,26 +836,33 @@ class MainWindow(QMainWindow):
         new_se["link_style"] = new_ls
         if new_se != self._smart_editing:
             self._smart_editing = new_se
-            settings.setValue("smart_editing/enabled", new_se["enabled"])
-            settings.setValue("smart_editing/auto_pair", new_se["auto_pair"])
-            settings.setValue("smart_editing/auto_pair_brackets", new_se["auto_pair_brackets"])
-            settings.setValue("smart_editing/continue_lists", new_se["continue_lists"])
-            settings.setValue("smart_editing/backspace_pairs", new_se["backspace_pairs"])
-            settings.setValue("link_style", new_ls)
+            for key, val in new_se.items():
+                self._s.set_raw_value(f"smart_editing/{key}", val)
+            self._s.set_raw_value("link_style", new_ls)
             for i in range(self._tabs.count()):
                 tab = self._tabs.widget(i)
                 if isinstance(tab, EditorTab):
                     tab.set_smart_editing(new_se)
 
-        # --- Per-folder shortcuts ---
+        # --- Per-folder settings (shortcuts, images, WebDAV, appearance) ---
         if self._folder_settings is not None:
             new_sc = dlg.selected_shortcuts()
             self._folder_settings.save_shortcuts(new_sc)
+
+            cfg = self._folder_settings.load()
             new_id = dlg.selected_images_dir()
             if new_id is not None:
-                cfg = self._folder_settings.load()
                 cfg["images_dir"] = new_id
-                self._folder_settings.save(cfg)
+
+            cfg["theme"] = self._theme_id
+            cfg["editor_font_family"] = self._editor_font_family
+            cfg["editor_font_size"] = self._editor_font_size
+            cfg["preview_font_family"] = self._preview_font_family
+            cfg["preview_font_size"] = self._preview_font_size
+            cfg["line_number_mode"] = self._line_number_mode
+            cfg["cursor_width"] = self._cursor_width
+            self._folder_settings.save(cfg)
+
             self._shortcut_mgr = ShortcutManager(self._folder_settings)
             self._shortcut_mgr.apply(self._all_actions)
 
@@ -1054,6 +881,15 @@ class MainWindow(QMainWindow):
                 self._folder_settings.clear_webdav_config()
 
             self._update_menu_state()
+        else:
+            # No folder open — persist to global QSettings
+            self._s.set_theme(self._theme_id)
+            self._s.set_editor_font_family(self._editor_font_family)
+            self._s.set_editor_font_size(self._editor_font_size)
+            self._s.set_preview_font_family(self._preview_font_family)
+            self._s.set_preview_font_size(self._preview_font_size)
+            self._s.set_line_number_mode(self._line_number_mode)
+            self._s.set_cursor_width(self._cursor_width)
 
     def _on_toggle_preview(self, checked: bool) -> None:
         self._preview_visible = checked
@@ -1079,35 +915,14 @@ class MainWindow(QMainWindow):
         user = cfg.get("username", "")
         pwd = cfg.get("password", "")
 
+        from ui.webdav_sync import SyncResult, SyncThread
+
         if not webdav_url:
             QMessageBox.warning(self, self.tr("Sync"), self.tr("WebDAV URL is not configured."))
             return
 
-        from PySide6.QtCore import QThread, Signal
-
-        class _SyncThread(QThread):
-            progress = Signal(str)
-            finished = Signal(object)
-
-            def __init__(self, local_root, url, username, password):
-                super().__init__()
-                self._local_root = local_root
-                self._url = url
-                self._username = username
-                self._password = password
-
-            def run(self):
-                result = sync_folder(
-                    self._local_root,
-                    self._url,
-                    self._username,
-                    self._password,
-                    progress_callback=lambda msg: self.progress.emit(msg),
-                )
-                self.finished.emit(result)
-
         self._status_sync.setText(self.tr("Syncing..."))
-        self._sync_thread = _SyncThread(
+        self._sync_thread = SyncThread(
             self._folder_path, webdav_url, user, pwd
         )
 
@@ -1115,7 +930,6 @@ class MainWindow(QMainWindow):
             self._status_sync.setText(self.tr("Sync: {}").format(msg))
 
         def _on_finished(result) -> None:
-            from ui.webdav_sync import SyncResult
             r: SyncResult = result
             if r.errors:
                 self._status_sync.setText(self.tr("Sync completed with errors"))
@@ -1237,7 +1051,7 @@ class MainWindow(QMainWindow):
         # Seed with global defaults if .cutemd/settings.json doesn't exist yet
         if not self._folder_settings.config_path.is_file():
             global_cfg = {
-                "theme": str(QSettings("cutemd", "cutemd").value("theme", "system")),
+                "theme": self._s.theme(),
                 "editor_font_family": self._editor_font_family,
                 "editor_font_size": self._editor_font_size,
                 "preview_font_family": self._preview_font_family,
@@ -1271,8 +1085,9 @@ class MainWindow(QMainWindow):
             self._tabs.removeTab(i)
         self._add_tab()
         self._tree_panel.set_root_path(path)
+        self._search_panel.set_folder(path)
         self._add_recent_folder(path)
-        QSettings("cutemd", "cutemd").setValue("last_folder", str(path))
+        self._s.set_last_folder(path)
         self._update_menu_state()
 
     def _restore_last_folder(self) -> None:
@@ -1289,8 +1104,7 @@ class MainWindow(QMainWindow):
             self._update_menu_state()
             return
 
-        settings = QSettings("cutemd", "cutemd")
-        last = str(settings.value("last_folder", ""))
+        last = self._s.last_folder()
         if last and Path(last).is_dir():
             self._set_folder(Path(last))
             return
@@ -1343,16 +1157,11 @@ class MainWindow(QMainWindow):
         self._update_window_title()
 
     def _add_recent_folder(self, path: Path) -> None:
-        settings = QSettings("cutemd", "cutemd")
-        recent = settings.value("recent_folders", [])
-        if isinstance(recent, str):
-            recent = [recent] if recent else []
-        if not isinstance(recent, list):
-            recent = []
+        recent = self._s.recent_folders()
         sp = str(path.resolve())
         recent = [p for p in recent if p != sp]
         recent.insert(0, sp)
-        settings.setValue("recent_folders", recent[:10])
+        self._s.set_recent_folders(recent[:10])
 
     def _on_close_folder(self) -> None:
         tab = self._current_tab()
@@ -1366,7 +1175,8 @@ class MainWindow(QMainWindow):
             self._tabs.removeTab(i)
         self._add_tab()
         self._tree_panel.set_root_path("")
-        QSettings("cutemd", "cutemd").remove("last_folder")
+        self._search_panel.set_folder(None)
+        self._s.remove_last_folder()
         self._update_menu_state()
 
     def _on_tree_file_activated(self, path: str) -> None:
@@ -1583,24 +1393,8 @@ class MainWindow(QMainWindow):
         self._help_menu.setTitle(self.tr("&Help"))
 
         # Toolbar tooltips
-        self._heading_btn.setToolTip(self.tr("Heading level"))
-        tips = [
-            self.tr("Unordered list (- )"),
-            self.tr("Ordered list (1. )"),
-            self.tr("Task list (- [ ])"),
-            self.tr("Blockquote (> )"),
-            self.tr("Code block (```)"),
-            self.tr("Insert table"),
-            self.tr("Horizontal rule (---)"),
-            self.tr("Bold (**text**)"),
-            self.tr("Italic (*text*)"),
-            self.tr("Strikethrough (~~text~~)"),
-            self.tr("Inline code (`text`)"),
-            self.tr("Insert link ([]())"),
-            self.tr("Insert image (![]())"),
-        ]
-        for (btn, _), tip in zip(self._toolbar_buttons, tips):
-            btn.setToolTip(tip)
+        if hasattr(self, "_editor_toolbar"):
+            self._editor_toolbar.retranslate()
 
     def changeEvent(self, event) -> None:
         if event.type() == QEvent.Type.LanguageChange:
@@ -1614,7 +1408,7 @@ class MainWindow(QMainWindow):
             if isinstance(tab, EditorTab) and not tab.maybe_save():
                 event.ignore()
                 return
-        QSettings("cutemd", "cutemd").setValue("window_geometry", self.saveGeometry())
+        self._s.set_window_geometry(self.saveGeometry())
         event.accept()
 
     def sizeHint(self) -> QSize:

@@ -194,7 +194,7 @@ class PdfViewer(QWidget):
     def page_count(self) -> int:
         return self._page_count
 
-    def zoom_in(self) -> None:
+    def _uncheck_fit_modes(self) -> None:
         self._fit_width_cb.blockSignals(True)
         self._fit_height_cb.blockSignals(True)
         self._fit_width_cb.setChecked(False)
@@ -203,18 +203,14 @@ class PdfViewer(QWidget):
         self._fit_height_cb.blockSignals(False)
         self._fit_width = False
         self._fit_height = False
+
+    def zoom_in(self) -> None:
+        self._uncheck_fit_modes()
         self._zoom = min(5.0, self._zoom * 1.2)
         self._render()
 
     def zoom_out(self) -> None:
-        self._fit_width_cb.blockSignals(True)
-        self._fit_height_cb.blockSignals(True)
-        self._fit_width_cb.setChecked(False)
-        self._fit_height_cb.setChecked(False)
-        self._fit_width_cb.blockSignals(False)
-        self._fit_height_cb.blockSignals(False)
-        self._fit_width = False
-        self._fit_height = False
+        self._uncheck_fit_modes()
         self._zoom = max(0.1, self._zoom / 1.2)
         self._render()
 
@@ -226,14 +222,7 @@ class PdfViewer(QWidget):
             if event.type() == event.Type.Wheel:
                 if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                     delta = event.angleDelta().y() / 120.0
-                    self._fit_width_cb.blockSignals(True)
-                    self._fit_height_cb.blockSignals(True)
-                    self._fit_width_cb.setChecked(False)
-                    self._fit_height_cb.setChecked(False)
-                    self._fit_width_cb.blockSignals(False)
-                    self._fit_height_cb.blockSignals(False)
-                    self._fit_width = False
-                    self._fit_height = False
+                    self._uncheck_fit_modes()
                     self._zoom = max(0.1, min(10.0, self._zoom + delta * 0.15))
                     self._render()
                     return True
