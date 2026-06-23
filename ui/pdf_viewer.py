@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize, QTimer, QUrl
-from PySide6.QtGui import QDesktopServices, QKeyEvent, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QDesktopServices, QKeySequence, QPixmap, QShortcut
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import (
     QButtonGroup,
