@@ -30,7 +30,10 @@ def main() -> None:
 
     apply_modern_style(app)
 
-    window = MainWindow()
+    # Collect file paths passed as CLI arguments (e.g. "Open with CuteMD")
+    files_to_open = [Path(a) for a in sys.argv[1:] if Path(a).is_file()]
+
+    window = MainWindow(files_to_open=files_to_open if files_to_open else None)
 
     # Position on the screen where the cursor is located
     from PySide6.QtGui import QCursor, QGuiApplication

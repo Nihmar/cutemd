@@ -57,10 +57,11 @@ _ICONS_DIR = _ROOT / "ui" / "icons"
 # MainWindow
 # ---------------------------------------------------------------------------
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, files_to_open: list[Path] | None = None) -> None:
         super().__init__()
         self._folder_path: Path | None = None
         self._folder_settings: FolderSettings | None = None
+        self._files_to_open = files_to_open
         self._preview_visible = True
 
         # Restore saved settings
@@ -1009,6 +1010,19 @@ class MainWindow(QMainWindow):
         self._update_menu_state()
 
     def _restore_last_folder(self) -> None:
+        # If launched with file arguments (e.g. "Open with"), open them in edit mode
+        if self._files_to_open:
+            for fp in self._files_to_open:
+                tab = self._current_tab()
+                if tab is not None and not tab.is_modified:
+                    tab.load_file(fp)
+                    self._refresh_tab_title(tab)
+                else:
+                    tab = self._add_tab()
+                    tab.load_file(fp)
+            self._update_menu_state()
+            return
+
         settings = QSettings("cutemd", "cutemd")
         last = str(settings.value("last_folder", ""))
         if last and Path(last).is_dir():
