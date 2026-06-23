@@ -1100,6 +1100,17 @@ class MainWindow(QMainWindow):
     def _set_folder(self, path: Path) -> None:
         self._folder_path = path
         self._folder_settings = FolderSettings(path)
+        # Seed with global defaults if .cutemd/settings.json doesn't exist yet
+        if not self._folder_settings.config_path.is_file():
+            global_cfg = {
+                "theme": str(QSettings("cutemd", "cutemd").value("theme", "system")),
+                "editor_font_family": self._editor_font_family,
+                "editor_font_size": self._editor_font_size,
+                "preview_font_family": self._preview_font_family,
+                "preview_font_size": self._preview_font_size,
+                "images_dir": "images",
+            }
+            self._folder_settings.save(global_cfg)
         self._folder_settings.load()
 
         # Apply per-folder settings (fall back to global)
