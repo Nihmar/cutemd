@@ -1,13 +1,15 @@
 """QWebEngineView-based preview widget for Markdown content.
 
-Large HTML documents (>2 MB) are written to a temp file and loaded
-via file:// URL because QtWebEngine's setHtml() converts the content
-to a data: URL which Chromium rejects for sizes above ~2 MB.
+After the first full-page load (with CSS + MathJax scripts), subsequent
+updates only replace the <body> content via JavaScript, keeping MathJax
+loaded and avoiding full-page reloads.  Large HTML documents (>2 MB)
+are written to a temp file.
 """
 
 from __future__ import annotations
 
 import atexit
+import json
 import tempfile
 from pathlib import Path
 
@@ -16,7 +18,7 @@ from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 
 # ---------------------------------------------------------------------------
-# Temp file for large HTML (Chromium data URL limit is ~2 MB)
+# Temp file for large HTML
 # ---------------------------------------------------------------------------
 _TEMP_DIR: Path | None = None
 
@@ -82,6 +84,7 @@ class PreviewWebView(QWebEngineView):
         self._base_dir: Path | None = None
         self._content_hash: int = 0
         self._pending_scroll_anchor: str = ""
+        self._first_load_done = False
 
         page.scrollPositionChanged.connect(self._on_scroll_position_changed)
         self._scroll_ratio: float = 0.0
@@ -97,11 +100,13 @@ class PreviewWebView(QWebEngineView):
         self._base_dir = d.resolve()
 
     def set_content(self, html: str, anchor: str = "") -> None:
+        """Full page load (CSS + MathJax + body).  Use on first render."""
         content_hash = hash(html)
         if content_hash == self._content_hash and not anchor:
             return
         self._content_hash = content_hash
         self._pending_scroll_anchor = anchor
+        self._first_load_done = True
 
         if len(html) < _HTML_SIZE_THRESHOLD:
             base_url = (
@@ -112,6 +117,39 @@ class PreviewWebView(QWebEngineView):
             self.setHtml(html, base_url)
         else:
             self._load_large_html(html, anchor)
+
+    def set_body_html(
+        self,
+        body_html: str,
+        theme_class: str,
+        font_style: str,
+        anchor: str = "",
+    ) -> None:
+        """Incremental update: replaces <body> inner HTML via JavaScript.
+
+        Keeps MathJax loaded (no CDN re-fetch).  Call this AFTER the first
+        set_content() has completed.
+        """
+        content_hash = hash(body_html)
+        if content_hash == self._content_hash and not anchor:
+            return
+        self._content_hash = content_hash
+        self._pending_scroll_anchor = anchor
+
+        # JSON-encode the body HTML for safe injection into JavaScript
+        body_json = json.dumps(body_html)
+
+        js = (
+            # Update body content
+            f"document.body.className = '{theme_class}';"
+            f"document.body.style.cssText = '{font_style}';"
+            f"document.body.innerHTML = {body_json};"
+            # Re-process math with MathJax (if loaded)
+            "if(window.MathJax && MathJax.typesetPromise) {"
+            "  MathJax.typesetPromise();"
+            "}"
+        )
+        self.page().runJavaScript(js)
 
     def _load_large_html(self, html: str, anchor: str) -> None:
         base = self._base_dir if self._base_dir else _get_temp_dir()

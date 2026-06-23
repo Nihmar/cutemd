@@ -502,20 +502,47 @@ class EditorTab(QWidget):
 
         base_dir = self._file_path.parent if self._file_path else Path.cwd()
         self.preview.set_base_dir(base_dir)
-        pw = self.preview.width()
 
-        html = build_html(
-            text=text,
-            md=self._md,
-            preview_css=self._preview_css,
-            theme=self._theme,
-            font_family=self._preview_font_family,
-            font_size=self._preview_font_size,
-            base_dir=base_dir,
-        )
+        # Longer debounce for large files
+        size = len(raw_text)
+        if size > 500_000:
+            self._preview_timer.setInterval(1500)
+        elif size > 100_000:
+            self._preview_timer.setInterval(800)
+        else:
+            self._preview_timer.setInterval(300)
 
         self._syncing_scroll += 1
-        self.preview.set_content(html, anchor=self._last_anchor)
+
+        if self.preview._first_load_done:
+            from markdown.html_builder import build_body_html
+
+            body_html, theme_class, font_style = build_body_html(
+                text=text,
+                md=self._md,
+                theme=self._theme,
+                font_family=self._preview_font_family,
+                font_size=self._preview_font_size,
+                base_dir=base_dir,
+            )
+            self.preview.set_body_html(
+                body_html,
+                theme_class,
+                font_style,
+                anchor=self._last_anchor,
+            )
+        else:
+            html = build_html(
+                text=text,
+                md=self._md,
+                preview_css=self._preview_css,
+                theme=self._theme,
+                font_family=self._preview_font_family,
+                font_size=self._preview_font_size,
+                base_dir=base_dir,
+            )
+            self.preview.set_content(html, anchor=self._last_anchor)
+
         self._syncing_scroll -= 1
 
     def _build_line_anchor_map(self, text: str) -> list[int]:

@@ -51,18 +51,42 @@ def render_with_anchors(text: str, md: MarkdownIt) -> str:
     return md.renderer.render(new_tokens, md.options, {})
 
 
-def build_html(
+_MATHJAX_HEAD = (
+    "<script>\n"
+    "MathJax = {\n"
+    "  tex: {\n"
+    "    inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],\n"
+    "    displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],\n"
+    "    processEscapes: true,\n"
+    "  },\n"
+    "  options: {\n"
+    "    ignoreHtmlClass: 'math-fallback',\n"
+    "    enableEnrichment: false,\n"
+    "  },\n"
+    "  chtml: {\n"
+    "    displayAlign: 'center',\n"
+    "    displayIndent: '0',\n"
+    "  },\n"
+    "};\n"
+    "</script>\n"
+    '<script id="MathJax-script" async'
+    ' src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">'
+    "</script>\n"
+)
+
+
+def _render_body(
     *,
     text: str,
     md: MarkdownIt,
-    preview_css: str,
     theme: str,
     font_family: str,
     font_size: int,
     base_dir: Path,
     max_width: int = 800,
     get_image_size: SizeProvider | None = None,
-) -> str:
+) -> tuple[str, str, str]:
+    """Return (body_inner_html, theme_class, font_style)."""
     try:
         body_html = add_heading_ids(render_with_anchors(text, md))
     except Exception:
@@ -81,34 +105,67 @@ def build_html(
     if font_family != "Sistema":
         font_style += f" font-family: {font_family};"
 
+    return body_html, theme_class, font_style
+
+
+def build_html(
+    *,
+    text: str,
+    md: MarkdownIt,
+    preview_css: str,
+    theme: str,
+    font_family: str,
+    font_size: int,
+    base_dir: Path,
+    max_width: int = 800,
+    get_image_size: SizeProvider | None = None,
+) -> str:
+    """Build the complete HTML document (CSS + MathJax + body)."""
+    body_html, theme_class, font_style = _render_body(
+        text=text,
+        md=md,
+        theme=theme,
+        font_family=font_family,
+        font_size=font_size,
+        base_dir=base_dir,
+        max_width=max_width,
+        get_image_size=get_image_size,
+    )
     return (
         "<!DOCTYPE html>\n"
         "<html>\n<head>\n"
         "<meta charset='utf-8'>\n"
-        f"<style>\n{preview_css}\n</style>\n"
-        # MathJax 3 config and CDN for book-quality LaTeX rendering
-        "<script>\n"
-        "MathJax = {\n"
-        "  tex: {\n"
-        "    inlineMath: [['$', '$'], ['\\\\(', '\\\\)']],\n"
-        "    displayMath: [['$$', '$$'], ['\\\\[', '\\\\]']],\n"
-        "    processEscapes: true,\n"
-        "  },\n"
-        "  options: {\n"
-        "    ignoreHtmlClass: 'math-fallback',\n"
-        "    enableEnrichment: false,\n"
-        "  },\n"
-        "  chtml: {\n"
-        "    displayAlign: 'center',\n"
-        "    displayIndent: '0',\n"
-        "  },\n"
-        "};\n"
-        "</script>\n"
-        '<script id="MathJax-script" async'
-        ' src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js">'
-        "</script>\n"
-        "</head>\n"
+        f"<style>\n{preview_css}\n</style>\n" + _MATHJAX_HEAD + "</head>\n"
         f"<body class='{theme_class}' style='{font_style}'>\n"
         f"{body_html}\n"
         "</body>\n</html>"
+    )
+
+
+def build_body_html(
+    *,
+    text: str,
+    md: MarkdownIt,
+    theme: str,
+    font_family: str,
+    font_size: int,
+    base_dir: Path,
+    max_width: int = 800,
+    get_image_size: SizeProvider | None = None,
+) -> tuple[str, str, str]:
+    """Return (body_inner_html, theme_class, font_style) for incremental updates.
+
+    Use this after the first full-page load to avoid re-sending CSS and
+    MathJax scripts.  The caller should update the DOM via JavaScript and
+    then call MathJax.typesetPromise() on the new content.
+    """
+    return _render_body(
+        text=text,
+        md=md,
+        theme=theme,
+        font_family=font_family,
+        font_size=font_size,
+        base_dir=base_dir,
+        max_width=max_width,
+        get_image_size=get_image_size,
     )
