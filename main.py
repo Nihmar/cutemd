@@ -1,6 +1,6 @@
 """Entry point for CuteMD – a non-WYSIWYG Markdown editor."""
 
-__version__ = "0.5.0"
+__version__ = "0.9"
 
 import sys
 from pathlib import Path
@@ -39,6 +39,7 @@ def main() -> None:
 
     # Position on the screen where the cursor is located
     from PySide6.QtGui import QCursor, QGuiApplication
+
     screen = QGuiApplication.screenAt(QCursor.pos())
     if screen is not None:
         geo = screen.availableGeometry()
