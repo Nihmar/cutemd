@@ -40,6 +40,7 @@ from ui import theme
 from ui.editor_tab import EditorTab
 from ui.file_tree_panel import FileTreePanel
 from ui.folder_settings import FolderSettings
+from ui.shortcut_manager import ShortcutManager
 from ui.themes import get_theme, system_theme
 
 # ---------------------------------------------------------------------------
@@ -130,6 +131,29 @@ class MainWindow(QMainWindow):
 
         self._setup_actions()
         self._setup_menubar()
+
+        self._all_actions: dict[str, QAction] = {
+            "act_open_folder": self.act_open_folder,
+            "act_close_folder": self.act_close_folder,
+            "act_new": self.act_new,
+            "act_save": self.act_save,
+            "act_save_as": self.act_save_as,
+            "act_close_tab": self.act_close_tab,
+            "act_exit": self.act_exit,
+            "act_undo": self.act_undo,
+            "act_redo": self.act_redo,
+            "act_find": self.act_find,
+            "act_find_files": self.act_find_files,
+            "act_toggle_preview": self.act_toggle_preview,
+            "act_toggle_split": self.act_toggle_split,
+            "act_toggle_tree": self.act_toggle_tree,
+            "act_toggle_statusbar": self.act_toggle_statusbar,
+            "act_settings": self.act_settings,
+            "act_shortcuts": self.act_shortcuts,
+        }
+        self._shortcut_mgr = ShortcutManager(None)
+        self._shortcut_mgr.apply(self._all_actions)
+
         self._setup_statusbar()
         self._setup_central()
         self._apply_theme()
@@ -210,6 +234,10 @@ class MainWindow(QMainWindow):
         self.act_settings.setShortcut(QKeySequence("Ctrl+,"))
         self.act_settings.triggered.connect(self._on_settings)
 
+        self.act_shortcuts = QAction(self.tr("&Keyboard Shortcuts…"), self)
+        self.act_shortcuts.setShortcut(QKeySequence("Ctrl+/"))
+        self.act_shortcuts.triggered.connect(self._on_show_shortcuts)
+
     # ------------------------------------------------------------------
     # Menubar
     # ------------------------------------------------------------------
@@ -243,6 +271,7 @@ class MainWindow(QMainWindow):
         self._settings_menu.addAction(self.act_settings)
 
         self._help_menu = mb.addMenu(self.tr("&Help"))
+        self._help_menu.addAction(self.act_shortcuts)
 
     # ------------------------------------------------------------------
     # Central widget
@@ -637,7 +666,16 @@ class MainWindow(QMainWindow):
 
         # --- Links & media ---
         _btn("link", "[]()", self.tr("Insert link ([]())"))
-        _btn("image", "![]()", self.tr("Insert image (![]())"))
+        b = QToolButton()
+        b.setIcon(self._make_colored_icon("image", icon_color))
+        b.setToolTip(self.tr("Insert image"))
+        b.setAutoRaise(True)
+        b.setIconSize(QSize(18, 18))
+        b.setFixedSize(28, 26)
+        b.clicked.connect(self._on_insert_image)
+        layout.addWidget(b)
+        self._toolbar_buttons.append((b, "image"))
+        self._toolbar_tooltips.append(self.tr("Insert image"))
 
         layout.addStretch()
         return tb
@@ -751,7 +789,7 @@ class MainWindow(QMainWindow):
             lambda: self._insert_md("[]()")
         )
         insert_menu.addAction(self._make_colored_icon("image", ic), self.tr("&Image")).triggered.connect(
-            lambda: self._insert_md("![]()")
+            self._on_insert_image
         )
 
         sender = self.sender()
@@ -804,6 +842,33 @@ class MainWindow(QMainWindow):
                 )
             cursor.insertText(syntax)
         tab.editor.setFocus()
+
+    def _on_insert_image(self) -> None:
+        tab = self._current_tab()
+        if tab is None:
+            return
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, self.tr("Select Image"), "",
+            self.tr("Images (*.png *.jpg *.jpeg *.gif *.bmp *.svg *.webp *.ico)"),
+        )
+        if not path:
+            return
+
+        image_path = Path(path)
+
+        if self._folder_path is not None and self._folder_settings is not None:
+            dest_dir = self._folder_settings.images_dir()
+            dest = dest_dir / image_path.name
+            import shutil
+            shutil.copy2(str(image_path), str(dest))
+            try:
+                rel = dest.relative_to(self._folder_path)
+                self._insert_md(f"![]({rel.as_posix()})")
+            except ValueError:
+                self._insert_md(f"![]({dest.as_posix()})")
+        else:
+            self._insert_md(f"![]({image_path.as_posix()})")
 
     # ------------------------------------------------------------------
     # Status bar
@@ -942,6 +1007,31 @@ class MainWindow(QMainWindow):
             if isinstance(tab, EditorTab):
                 tab.set_preview_visible(checked)
 
+    def _on_show_shortcuts(self) -> None:
+        from ui.shortcuts_dialog import ShortcutsDialog
+
+        actions = {
+            "act_open_folder": self.act_open_folder,
+            "act_close_folder": self.act_close_folder,
+            "act_new": self.act_new,
+            "act_save": self.act_save,
+            "act_save_as": self.act_save_as,
+            "act_close_tab": self.act_close_tab,
+            "act_exit": self.act_exit,
+            "act_undo": self.act_undo,
+            "act_redo": self.act_redo,
+            "act_find": self.act_find,
+            "act_find_files": self.act_find_files,
+            "act_toggle_preview": self.act_toggle_preview,
+            "act_toggle_split": self.act_toggle_split,
+            "act_toggle_tree": self.act_toggle_tree,
+            "act_toggle_statusbar": self.act_toggle_statusbar,
+            "act_settings": self.act_settings,
+            "act_shortcuts": self.act_shortcuts,
+        }
+        dlg = ShortcutsDialog(actions, self)
+        dlg.exec()
+
     def _on_toggle_tree(self, visible: bool) -> None:
         if visible:
             self._side_tree_btn.blockSignals(True)
@@ -1004,6 +1094,8 @@ class MainWindow(QMainWindow):
         self._folder_path = path
         self._folder_settings = FolderSettings(path)
         self._folder_settings.load()
+        self._shortcut_mgr = ShortcutManager(self._folder_settings)
+        self._shortcut_mgr.apply(self._all_actions)
         for i in range(self._tabs.count() - 1, -1, -1):
             self._tabs.removeTab(i)
         self._add_tab()
@@ -1094,6 +1186,8 @@ class MainWindow(QMainWindow):
             return
         self._folder_path = None
         self._folder_settings = None
+        self._shortcut_mgr = ShortcutManager(None)
+        self._shortcut_mgr.apply(self._all_actions)
         for i in range(self._tabs.count() - 1, -1, -1):
             self._tabs.removeTab(i)
         self._add_tab()
@@ -1271,6 +1365,7 @@ class MainWindow(QMainWindow):
         self.act_toggle_tree.setText(self.tr("Toggle &File Tree"))
         self.act_toggle_statusbar.setText(self.tr("Toggle Status &Bar"))
         self.act_settings.setText(self.tr("&Settings…"))
+        self.act_shortcuts.setText(self.tr("&Keyboard Shortcuts…"))
 
         # Menu titles
         self._file_menu.setTitle(self.tr("&File"))
