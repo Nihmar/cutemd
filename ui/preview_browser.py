@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QImage, QTextDocument
 from PySide6.QtWidgets import QTextBrowser
 
@@ -33,10 +33,13 @@ def get_image_size(path_str: str, max_width: int) -> tuple[int, int] | None:
 class PreviewTextBrowser(QTextBrowser):
     """QTextBrowser that loads local images via loadResource() override."""
 
+    file_link_clicked = Signal(str)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._base_dir: Path | None = None
         self._images_dir: Path | None = None
+        self.anchorClicked.connect(self._on_anchor_clicked)
 
     def set_base_dir(self, d: Path) -> None:
         resolved = d.resolve()
@@ -46,6 +49,19 @@ class PreviewTextBrowser(QTextBrowser):
     def set_images_dir(self, d: Path | None) -> None:
         resolved = d.resolve() if d is not None else None
         self._images_dir = resolved
+
+    def _on_anchor_clicked(self, url: QUrl) -> None:
+        """Forward clicked links (e.g. wrapped images) to the tab.
+        External URLs are opened via the system browser."""
+        url_str = url.toString()
+        if url_str.startswith(("http://", "https://", "www.")):
+            from PySide6.QtGui import QDesktopServices
+
+            QDesktopServices.openUrl(url)
+            return
+        target = url.toLocalFile() if url.isLocalFile() else url_str
+        if target:
+            self.file_link_clicked.emit(target)
 
     @property
     def _max_width(self) -> int:

@@ -233,7 +233,11 @@ class EditorTab(QWidget):
         # --- Preview stack ---
         self.preview = PreviewTextBrowser()
         self.preview.setReadOnly(True)
-        self.preview.setOpenExternalLinks(True)
+        self.preview.setOpenLinks(False)
+        self.preview.setOpenExternalLinks(False)
+        self.preview.file_link_clicked.connect(
+            lambda target: self.file_link_clicked.emit(target)
+        )
         if self._images_dir is not None:
             self.preview.set_images_dir(self._images_dir)
 

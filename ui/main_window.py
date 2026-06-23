@@ -1293,11 +1293,25 @@ class MainWindow(QMainWindow):
 
         path = self._resolve_link_target(target, source_tab.file_path)
         if path is None and self._folder_path is not None:
-            stem = Path(target).stem.lower()
-            for p in self._folder_path.rglob("*.md"):
-                if p.stem.lower() == stem:
-                    path = p.resolve()
-                    break
+            # Try the configured images_dir first (fast).
+            if self._folder_settings is not None:
+                candidate = self._folder_settings.images_dir() / Path(target).name
+                if candidate.is_file():
+                    path = candidate.resolve()
+            # Fall back to rglob in the folder.
+            if path is None:
+                from markdown.image_utils import _IMG_EXTS_RE
+
+                stem = Path(target).stem.lower()
+                is_img = bool(_IMG_EXTS_RE.search(target))
+                for p in self._folder_path.rglob("*"):
+                    if p.is_file() and p.stem.lower() == stem:
+                        if is_img and _IMG_EXTS_RE.search(p.name):
+                            path = p.resolve()
+                            break
+                        if not is_img and p.suffix.lower() in (".md", ".markdown"):
+                            path = p.resolve()
+                            break
         if path is None:
             return
 

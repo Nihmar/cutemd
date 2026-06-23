@@ -20,6 +20,9 @@ _WIKILINK_RE = re.compile(r"(?<!\!)\[\[([^\]]+)\]\]")
 _TABLE_TAG_RE = re.compile(r"<table\b([^>]*)>", re.IGNORECASE)
 _TABLE_BORDER_ATTR_RE = re.compile(r'\s+border="[^"]*"', re.IGNORECASE)
 
+# Wrap resolved <img src="file:///..."> in a clickable <a>.
+_IMG_FILE_URL_RE = re.compile(r'<img\s[^>]*\bsrc="(file:///[^"]+)"[^>]*>')
+
 
 def _fix_table_tag(m: re.Match) -> str:
     """Ensure every <table> has border="1", preserving original case."""
@@ -104,6 +107,9 @@ def build_html(
     # markdown-it emette border="0", tabelle HTML inline non hanno border.
     # Rimuoviamo eventuali border esistenti e imponiamo border="1" ovunque.
     body_html = _TABLE_TAG_RE.sub(_fix_table_tag, body_html)
+
+    # Rende le immagini cliccabili: wrap <img src="file:///..."> in <a href="...">
+    body_html = _IMG_FILE_URL_RE.sub(r'<a href="\1">\g<0></a>', body_html)
 
     theme_class = "dark" if theme == "dark" else "light"
 
