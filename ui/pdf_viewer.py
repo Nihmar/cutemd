@@ -49,7 +49,7 @@ class PdfViewer(QWidget):
         self._fit_group = QButtonGroup(self)
         self._fit_group.addButton(self._fit_width_cb)
         self._fit_group.addButton(self._fit_height_cb)
-        self._fit_group.setExclusive(True)
+        self._fit_group.setExclusive(False)
         self._fit_width_cb.toggled.connect(self._on_fit_mode_changed)
         self._fit_height_cb.toggled.connect(self._on_fit_mode_changed)
 
@@ -154,9 +154,20 @@ class PdfViewer(QWidget):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._path)))
 
     def _on_fit_mode_changed(self) -> None:
+        # Enforce mutual exclusivity: uncheck the other when one is checked
+        if self._fit_width_cb.isChecked() and self._fit_height_cb.isChecked():
+            # Both can't be on — uncheck the one that was just toggled
+            sender = self.sender()
+            if sender is self._fit_width_cb:
+                self._fit_height_cb.blockSignals(True)
+                self._fit_height_cb.setChecked(False)
+                self._fit_height_cb.blockSignals(False)
+            else:
+                self._fit_width_cb.blockSignals(True)
+                self._fit_width_cb.setChecked(False)
+                self._fit_width_cb.blockSignals(False)
         self._fit_width = self._fit_width_cb.isChecked()
         self._fit_height = self._fit_height_cb.isChecked()
-        # If both or just one unchecked → zoom mode (reset zoom to 1)
         if not self._fit_width and not self._fit_height:
             self._zoom = 1.0
         self._render()
