@@ -251,6 +251,18 @@ class MainWindow(QMainWindow):
         self._toolbar_buttons: list[tuple[QToolButton, str]] = []
         self._toolbar_tooltips: list[str] = []
 
+        # --- Left stack (tree / search) — created before sidebar buttons ---
+        self._tree_panel = FileTreePanel()
+        self._tree_panel.file_activated.connect(self._on_tree_file_activated)
+        self._tree_panel.file_open_new_tab.connect(self._on_tree_file_new_tab)
+
+        self._search_panel = self._make_search_panel()
+
+        self._left_stack = QStackedWidget()
+        self._left_stack.addWidget(self._tree_panel)
+        self._left_stack.addWidget(self._search_panel)
+        self._left_stack.setCurrentIndex(0)
+
         # --- Left vertical toolbar ---
         left_tb = QWidget()
         left_tb.setObjectName("leftToolbar")
@@ -283,7 +295,6 @@ class MainWindow(QMainWindow):
         lt_layout.addWidget(self._side_search_btn)
 
         self._side_tree_btn.setChecked(True)
-        self._side_search_btn.setChecked(False)
 
         lt_layout.addStretch()
 
@@ -295,19 +306,13 @@ class MainWindow(QMainWindow):
         self._side_folder_btn.clicked.connect(self._on_open_folder)
         lt_layout.addWidget(self._side_folder_btn)
 
-        # --- File tree panel ---
-        self._tree_panel = FileTreePanel()
-        self._tree_panel.file_activated.connect(self._on_tree_file_activated)
-        self._tree_panel.file_open_new_tab.connect(self._on_tree_file_new_tab)
-
-        # --- Search panel (replaces tree view) ---
-        self._search_panel = self._make_search_panel()
-
-        # --- Left stack (tree / search) ---
-        self._left_stack = QStackedWidget()
-        self._left_stack.addWidget(self._tree_panel)
-        self._left_stack.addWidget(self._search_panel)
-        self._left_stack.setCurrentIndex(0)
+        # --- Left container (toolbar + tree/search, no splitter between them) ---
+        left_container = QWidget()
+        lc_layout = QHBoxLayout(left_container)
+        lc_layout.setContentsMargins(0, 0, 0, 0)
+        lc_layout.setSpacing(0)
+        lc_layout.addWidget(left_tb)
+        lc_layout.addWidget(self._left_stack)
 
         # --- Tabs ---
         self._tabs = QTabWidget()
@@ -316,25 +321,40 @@ class MainWindow(QMainWindow):
         self._tabs.tabCloseRequested.connect(self._on_tab_close_requested)
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
-        # --- Editor toolbar (acts on the active tab) ---
+        # --- Editor toolbar ---
         editor_toolbar = self._make_editor_toolbar()
 
-        # --- Editor pane (toolbar + tabs) ---
+        # --- Status bar (inline, only under editor+preview) ---
+        self._status_file = QLabel("...")
+        self._status_cursor = QLabel("Ln 1, Col 1")
+        self._status_words = QLabel("0 words")
+        status_widget = QWidget()
+        status_widget.setObjectName("inlineStatusBar")
+        sl = QHBoxLayout(status_widget)
+        sl.setContentsMargins(8, 1, 8, 1)
+        sl.addWidget(self._status_file, 1)
+        sl.addWidget(self._status_cursor)
+        sl.addWidget(self._status_words)
+
+        # --- Editor pane (toolbar + tabs + status) ---
         editor_pane = QWidget()
         editor_layout = QVBoxLayout(editor_pane)
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(0)
         editor_layout.addWidget(editor_toolbar)
         editor_layout.addWidget(self._tabs)
+        editor_layout.addWidget(status_widget)
 
-        # Splitter: left_toolbar | [tree/search] | [toolbar+tabs]
+        # Splitter: left_container | editor_pane
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._splitter.addWidget(left_tb)
-        self._splitter.addWidget(self._left_stack)
+        self._splitter.addWidget(left_container)
         self._splitter.addWidget(editor_pane)
-        self._splitter.setSizes([32, 220, 948])
+        self._splitter.setSizes([252, 948])
 
         self.setCentralWidget(self._splitter)
+
+        # Hide the QMainWindow built-in status bar
+        self.statusBar().hide()
 
         # Open with one empty tab
         self._add_tab()
@@ -404,7 +424,7 @@ class MainWindow(QMainWindow):
             self._left_stack.setCurrentIndex(1)
             self._left_stack.setVisible(True)
             self.act_toggle_tree.setChecked(True)
-        elif not self._side_tree_btn.isChecked():
+        else:
             self._left_stack.setVisible(False)
             self.act_toggle_tree.setChecked(False)
 
@@ -618,15 +638,11 @@ class MainWindow(QMainWindow):
         if self._folder_path is None:
             return
         if self._left_stack.currentIndex() == 1 and self._left_stack.isVisible():
-            self._side_tree_btn.setChecked(True)
             self._side_search_btn.setChecked(False)
-            self._left_stack.setCurrentIndex(0)
+            self._on_side_search_toggled(False)
         else:
             self._side_search_btn.setChecked(True)
-            self._side_tree_btn.setChecked(False)
-            self._left_stack.setCurrentIndex(1)
-            self._left_stack.setVisible(True)
-            self.act_toggle_tree.setChecked(True)
+            self._on_side_search_toggled(True)
             self._search_input.setFocus()
             self._search_input.selectAll()
 
@@ -767,14 +783,7 @@ class MainWindow(QMainWindow):
     # Status bar
     # ------------------------------------------------------------------
     def _setup_statusbar(self) -> None:
-        self._status_file = QLabel("No folder")
-        self._status_cursor = QLabel("Ln 1, Col 1")
-        self._status_words = QLabel("0 words")
-
-        bar = self.statusBar()
-        bar.addWidget(self._status_file, 1)
-        bar.addPermanentWidget(self._status_cursor)
-        bar.addPermanentWidget(self._status_words)
+        pass  # inline status bar is created in _setup_central
 
     # ------------------------------------------------------------------
     # Theme
@@ -918,7 +927,7 @@ class MainWindow(QMainWindow):
         self._left_stack.setVisible(visible)
 
     def _on_toggle_statusbar(self, visible: bool) -> None:
-        self.statusBar().setVisible(visible)
+        self._status_file.parent().setVisible(visible)
 
     # ------------------------------------------------------------------
     # Split orientation

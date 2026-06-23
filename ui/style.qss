@@ -146,6 +146,15 @@ QStatusBar {
 QStatusBar::item {
     border: none;
 }
+#inlineStatusBar {
+    background: ${WINDOW};
+    border-top: 1px solid ${MIDLIGHT};
+    min-height: 22px;
+}
+#inlineStatusBar QLabel {
+    color: ${TEXT};
+    font-size: 11px;
+}
 
 /* === Menu bar ==================================================== */
 
