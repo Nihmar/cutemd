@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
-    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -247,10 +246,64 @@ class MainWindow(QMainWindow):
     # Central widget
     # ------------------------------------------------------------------
     def _setup_central(self) -> None:
-        # --- File tree panel (left sidebar) ---
+        icon_color = self._current_theme.icon_color
+
+        # --- Left vertical toolbar ---
+        left_tb = QWidget()
+        left_tb.setObjectName("leftToolbar")
+        left_tb.setFixedWidth(32)
+        lt_layout = QVBoxLayout(left_tb)
+        lt_layout.setContentsMargins(0, 4, 0, 4)
+        lt_layout.setSpacing(2)
+
+        def _side_btn(name: str, tip: str, checkable: bool = True, slot=None) -> QToolButton:
+            b = QToolButton()
+            b.setIcon(self._make_colored_icon(name, icon_color))
+            b.setToolTip(tip)
+            b.setAutoRaise(True)
+            b.setIconSize(QSize(18, 18))
+            b.setFixedSize(28, 26)
+            b.setCheckable(checkable)
+            if slot:
+                b.toggled.connect(slot)
+            self._toolbar_buttons.append((b, name))
+            return b
+
+        self._side_tree_btn = _side_btn(
+            "folder", self.tr("Toggle file tree"), slot=self._on_side_tree_toggled
+        )
+        self._side_tree_btn.setChecked(True)
+        lt_layout.addWidget(self._side_tree_btn)
+
+        self._side_search_btn = _side_btn(
+            "search", self.tr("Find in files"), slot=self._on_side_search_toggled
+        )
+        self._side_search_btn.setChecked(False)
+        lt_layout.addWidget(self._side_search_btn)
+
+        lt_layout.addStretch()
+
+        self._side_folder_btn = QToolButton()
+        self._side_folder_btn.setText("...")
+        self._side_folder_btn.setToolTip(self.tr("Switch folder"))
+        self._side_folder_btn.setAutoRaise(True)
+        self._side_folder_btn.setFixedSize(28, 26)
+        self._side_folder_btn.clicked.connect(self._on_open_folder)
+        lt_layout.addWidget(self._side_folder_btn)
+
+        # --- File tree panel ---
         self._tree_panel = FileTreePanel()
         self._tree_panel.file_activated.connect(self._on_tree_file_activated)
         self._tree_panel.file_open_new_tab.connect(self._on_tree_file_new_tab)
+
+        # --- Search panel (replaces tree view) ---
+        self._search_panel = self._make_search_panel()
+
+        # --- Left stack (tree / search) ---
+        self._left_stack = QStackedWidget()
+        self._left_stack.addWidget(self._tree_panel)
+        self._left_stack.addWidget(self._search_panel)
+        self._left_stack.setCurrentIndex(0)
 
         # --- Tabs ---
         self._tabs = QTabWidget()
@@ -270,16 +323,86 @@ class MainWindow(QMainWindow):
         editor_layout.addWidget(editor_toolbar)
         editor_layout.addWidget(self._tabs)
 
-        # Splitter: tree | [toolbar+tabs]
+        # Splitter: left_toolbar | [tree/search] | [toolbar+tabs]
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._splitter.addWidget(self._tree_panel)
+        self._splitter.addWidget(left_tb)
+        self._splitter.addWidget(self._left_stack)
         self._splitter.addWidget(editor_pane)
-        self._splitter.setSizes([220, 980])
+        self._splitter.setSizes([32, 220, 948])
 
         self.setCentralWidget(self._splitter)
 
         # Open with one empty tab
         self._add_tab()
+
+    # ------------------------------------------------------------------
+    # Search panel (embedded find-in-files)
+    # ------------------------------------------------------------------
+    def _make_search_panel(self) -> QWidget:
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(4, 6, 4, 4)
+        layout.setSpacing(4)
+
+        self._search_input = QLineEdit()
+        self._search_input.setPlaceholderText(self.tr("Search files\u2026"))
+        self._search_input.textChanged.connect(self._on_search_text_changed)
+
+        case_row = QHBoxLayout()
+        self._search_case_cb = QCheckBox(self.tr("Match case"))
+        case_row.addWidget(self._search_case_cb)
+        case_row.addStretch()
+
+        self._search_results = QListWidget()
+        self._search_results.itemDoubleClicked.connect(self._on_search_result_clicked)
+
+        layout.addWidget(self._search_input)
+        layout.addLayout(case_row)
+        layout.addWidget(self._search_results)
+        return panel
+
+    def _on_search_text_changed(self, text: str) -> None:
+        self._search_results.clear()
+        if not text or self._folder_path is None:
+            return
+        flags = re.IGNORECASE if not self._search_case_cb.isChecked() else 0
+        for md_path in self._folder_path.rglob("*.md"):
+            try:
+                content = md_path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            for line_num, line in enumerate(content.splitlines(), 1):
+                if re.search(re.escape(text), line, flags):
+                    rel = md_path.relative_to(self._folder_path)
+                    item_text = f"{rel}:{line_num}: {line.strip()[:120]}"
+                    item = QListWidgetItem(item_text)
+                    item.setData(Qt.ItemDataRole.UserRole, (md_path, line_num))
+                    self._search_results.addItem(item)
+
+    def _on_search_result_clicked(self, item: QListWidgetItem) -> None:
+        location = item.data(Qt.ItemDataRole.UserRole)
+        if location:
+            self._open_file_at_line(location)
+
+    def _on_side_tree_toggled(self, checked: bool) -> None:
+        if checked:
+            self._side_search_btn.setChecked(False)
+            self._left_stack.setCurrentIndex(0)
+            self._left_stack.setVisible(True)
+            self.act_toggle_tree.setChecked(True)
+        elif not self._side_search_btn.isChecked():
+            self._left_stack.setVisible(False)
+            self.act_toggle_tree.setChecked(False)
+
+    def _on_side_search_toggled(self, checked: bool) -> None:
+        if checked:
+            self._side_tree_btn.setChecked(False)
+            self._left_stack.setCurrentIndex(1)
+            self._left_stack.setVisible(True)
+            self.act_toggle_tree.setChecked(True)
+        elif not self._side_tree_btn.isChecked():
+            self._left_stack.setVisible(False)
+            self.act_toggle_tree.setChecked(False)
 
     # ------------------------------------------------------------------
     # Tab management
@@ -427,17 +550,6 @@ class MainWindow(QMainWindow):
             self._toolbar_buttons.append((b, icon_name))
             self._toolbar_tooltips.append(tip)
 
-        # --- Folder button ---
-        self._folder_btn = QToolButton()
-        self._folder_btn.setIcon(self._make_colored_icon("folder", icon_color))
-        self._folder_btn.setToolTip(self.tr("Open folder"))
-        self._folder_btn.setAutoRaise(True)
-        self._folder_btn.setIconSize(QSize(18, 18))
-        self._folder_btn.setFixedSize(28, 26)
-        self._folder_btn.clicked.connect(self._on_open_folder)
-        layout.addWidget(self._folder_btn)
-        _sep()
-
         # --- Heading button ---
         self._heading_btn = QToolButton()
         self._heading_btn.setIcon(self._make_colored_icon("heading", icon_color))
@@ -503,55 +615,18 @@ class MainWindow(QMainWindow):
     def _on_find_in_files(self) -> None:
         if self._folder_path is None:
             return
-        dlg = QDialog(self)
-        dlg.setWindowTitle(self.tr("Find in Files"))
-        dlg.resize(550, 400)
-        layout = QVBoxLayout(dlg)
-
-        top = QHBoxLayout()
-        search_input = QLineEdit()
-        search_input.setPlaceholderText(self.tr("Search…"))
-        case_cb = QCheckBox(self.tr("Match case"))
-        top.addWidget(search_input)
-        top.addWidget(case_cb)
-        layout.addLayout(top)
-
-        results = QListWidget()
-        layout.addWidget(results)
-
-        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        btns.rejected.connect(dlg.reject)
-        layout.addWidget(btns)
-
-        def do_search() -> None:
-            results.clear()
-            term = search_input.text()
-            if not term:
-                return
-            flags = re.IGNORECASE if not case_cb.isChecked() else 0
-            folder = self._folder_path
-            for md_path in folder.rglob("*.md"):
-                try:
-                    text = md_path.read_text(encoding="utf-8")
-                except OSError:
-                    continue
-                for line_num, line in enumerate(text.splitlines(), 1):
-                    if re.search(re.escape(term), line, flags):
-                        rel = md_path.relative_to(folder)
-                        item_text = f"{rel}:{line_num}: {line.strip()[:120]}"
-                        item = QListWidgetItem(item_text)
-                        item.setData(Qt.ItemDataRole.UserRole, (md_path, line_num))
-                        results.addItem(item)
-
-        search_input.textChanged.connect(do_search)
-
-        results.itemDoubleClicked.connect(
-            lambda item: self._open_file_at_line(
-                item.data(Qt.ItemDataRole.UserRole)
-            )
-        )
-
-        dlg.exec()
+        if self._left_stack.currentIndex() == 1 and self._left_stack.isVisible():
+            self._side_tree_btn.setChecked(True)
+            self._side_search_btn.setChecked(False)
+            self._left_stack.setCurrentIndex(0)
+        else:
+            self._side_search_btn.setChecked(True)
+            self._side_tree_btn.setChecked(False)
+            self._left_stack.setCurrentIndex(1)
+            self._left_stack.setVisible(True)
+            self.act_toggle_tree.setChecked(True)
+            self._search_input.setFocus()
+            self._search_input.selectAll()
 
     def _open_file_at_line(self, location: tuple) -> None:
         path, line_num = location
@@ -831,7 +906,14 @@ class MainWindow(QMainWindow):
                 tab.set_preview_visible(checked)
 
     def _on_toggle_tree(self, visible: bool) -> None:
-        self._tree_panel.setVisible(visible)
+        if visible:
+            self._side_tree_btn.setChecked(True)
+            self._side_search_btn.setChecked(False)
+            self._left_stack.setCurrentIndex(0)
+        else:
+            self._side_tree_btn.setChecked(False)
+            self._side_search_btn.setChecked(False)
+        self._left_stack.setVisible(visible)
 
     def _on_toggle_statusbar(self, visible: bool) -> None:
         self.statusBar().setVisible(visible)
@@ -914,11 +996,18 @@ class MainWindow(QMainWindow):
         self.act_find_files.setVisible(folder_mode)
         self.act_find_files.setEnabled(folder_mode)
         if not folder_mode:
-            self._tree_panel.setVisible(False)
+            self._side_tree_btn.setChecked(False)
+            self._side_search_btn.setChecked(False)
+            self._left_stack.setVisible(False)
             self.act_toggle_tree.setChecked(False)
+            self._side_folder_btn.setText("...")
         else:
-            self._tree_panel.setVisible(True)
+            self._side_tree_btn.setChecked(True)
+            self._side_search_btn.setChecked(False)
+            self._left_stack.setCurrentIndex(0)
+            self._left_stack.setVisible(True)
             self.act_toggle_tree.setChecked(True)
+            self._side_folder_btn.setText(self._folder_path.name)
         self._update_window_title()
 
     def _add_recent_folder(self, path: Path) -> None:
