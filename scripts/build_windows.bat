@@ -31,13 +31,16 @@ uv run pyinstaller ^
     --collect-data latex2mathml ^
     --hidden-import PySide6.QtSvg ^
     --hidden-import PySide6.QtPdf ^
+    --exclude-module markdown ^
     main.py
 
 echo ==> ✅  Executable built: dist\%APP%\%APP%.exe
 echo     Distribute the entire dist\%APP%\ folder.
 echo.
 echo ==> Creating installer with Inno Setup ...
+echo ==> DEBUG: searching iscc...
 where iscc >nul 2>&1
+echo ==> DEBUG: ERRORLEVEL=%ERRORLEVEL%
 if %ERRORLEVEL% equ 0 (
     iscc scripts\cutemd_setup.iss
     echo ==> ✅  Installer built: dist\CuteMD_Setup.exe
