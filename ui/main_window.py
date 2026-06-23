@@ -337,21 +337,21 @@ class MainWindow(QMainWindow):
         editor_layout.addWidget(self._tabs)
         editor_layout.addWidget(status_widget)
 
-        # Splitter: left_toolbar | left_stack | editor_pane
+        # Splitter: left_stack | editor_pane  (toolbar is outside, always visible)
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._splitter.addWidget(left_tb)
         self._splitter.addWidget(self._left_stack)
         self._splitter.addWidget(editor_pane)
-        self._splitter.setSizes([32, 220, 948])
-        # Hide handle(0) between toolbar and stack; handle(1) (stack | editor) stays via QSS
-        self._splitter.setCollapsible(0, False)
-        handle0 = self._splitter.handle(0)
-        handle0.setEnabled(False)
-        handle0.setFixedSize(0, 0)
-        handle0.setMinimumSize(0, 0)
-        # Keep handle(1) at default QSS width (3px)
+        self._splitter.setSizes([220, 948])
 
-        self.setCentralWidget(self._splitter)
+        # Main layout: toolbar | splitter  (no splitter handle between them)
+        outer = QWidget()
+        outer_layout = QHBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+        outer_layout.addWidget(left_tb)
+        outer_layout.addWidget(self._splitter)
+
+        self.setCentralWidget(outer)
 
         # Hide QMainWindow status bar
         self.statusBar().hide()
@@ -416,11 +416,11 @@ class MainWindow(QMainWindow):
 
     def _show_left_panel(self) -> None:
         self._left_stack.show()
-        self._splitter.setSizes([32, 220, max(self._splitter.width() - 252, 200)])
+        self._splitter.setSizes([220, max(self._splitter.width() - 220, 200)])
 
     def _hide_left_panel(self) -> None:
         self._left_stack.hide()
-        self._splitter.setSizes([32, 0, max(self._splitter.width() - 32, 200)])
+        self._splitter.setSizes([0, max(self._splitter.width(), 200)])
 
     def _on_side_tree_toggled(self, checked: bool) -> None:
         if checked:
