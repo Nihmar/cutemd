@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtGui import QFontDatabase, QKeySequence
 from typing import Any
 
 from PySide6.QtWidgets import (
@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
+    QKeySequenceEdit,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -22,11 +24,14 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
 from ui.markdown_completer import DEFAULT_SMART_EDITING
+from ui.shortcut_manager import DEFAULT_SHORTCUTS
 from ui.themes import ALL_THEMES, get_theme
 from ui.translations import LANGUAGES
 
@@ -146,6 +151,10 @@ class SettingsDialog(QDialog):
             self.tr("Preview Font"),
             self.tr("Storage"),
         ]
+        self._shortcuts_idx = -1
+        if folder_settings is not None:
+            sections.append(self.tr("Shortcuts"))
+            self._shortcuts_idx = len(sections) - 1
         for name in sections:
             self._section_list.addItem(name)
         main_layout.addWidget(self._section_list)
@@ -309,6 +318,48 @@ class SettingsDialog(QDialog):
         storage_page_layout.addStretch()
         self._stack.addWidget(storage_page)
 
+        # Page 5: Shortcuts (only when folder is open)
+        if folder_settings is not None:
+            current_shortcuts = folder_settings.load_shortcuts()
+            shortcuts_page = self._build_page(self.tr("Shortcuts"))
+            shortcuts_page_layout = shortcuts_page.layout()
+
+            self._shortcuts_table = QTableWidget()
+            self._shortcuts_table.setColumnCount(3)
+            self._shortcuts_table.setHorizontalHeaderLabels([
+                self.tr("Action"), self.tr("Default"), self.tr("Custom"),
+            ])
+            self._shortcuts_table.horizontalHeader().setStretchLastSection(True)
+            self._shortcuts_table.horizontalHeader().setSectionResizeMode(
+                0, QHeaderView.ResizeMode.Stretch
+            )
+            self._shortcuts_table.verticalHeader().setVisible(False)
+            self._shortcuts_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+
+            shortcut_rows = []
+            for name, default_seq in DEFAULT_SHORTCUTS.items():
+                custom = current_shortcuts.get(name, "")
+                shortcut_rows.append((name, default_seq, custom))
+
+            shortcut_rows.sort(key=lambda r: r[0])
+            self._shortcuts_table.setRowCount(len(shortcut_rows))
+            self._shortcut_keys: list[str] = []
+            for i, (name, default_seq, custom) in enumerate(shortcut_rows):
+                self._shortcuts_table.setItem(
+                    i, 0, QTableWidgetItem(name.replace("act_", ""))
+                )
+                self._shortcuts_table.setItem(i, 1, QTableWidgetItem(default_seq))
+                editor = QKeySequenceEdit()
+                if custom:
+                    editor.setKeySequence(QKeySequence(custom))
+                editor.setMaximumWidth(160)
+                self._shortcuts_table.setCellWidget(i, 2, editor)
+                self._shortcut_keys.append(name)
+
+            shortcuts_page_layout.addWidget(self._shortcuts_table)
+            shortcuts_page_layout.addStretch()
+            self._stack.addWidget(shortcuts_page)
+
         right.addWidget(self._stack)
 
         # Buttons
@@ -407,6 +458,18 @@ class SettingsDialog(QDialog):
             "continue_lists": self._continue_lists_cb.isChecked(),
             "backspace_pairs": self._backspace_pairs_cb.isChecked(),
         }
+
+    def selected_shortcuts(self) -> dict[str, str]:
+        shortcuts: dict[str, str] = {}
+        if hasattr(self, "_shortcuts_table"):
+            for i in range(self._shortcuts_table.rowCount()):
+                name = self._shortcut_keys[i]
+                editor = self._shortcuts_table.cellWidget(i, 2)
+                if isinstance(editor, QKeySequenceEdit):
+                    seq = editor.keySequence()
+                    if not seq.isEmpty():
+                        shortcuts[name] = seq.toString(QKeySequence.SequenceFormat.PortableText)
+        return shortcuts
 
     # ------------------------------------------------------------------
     # Storage

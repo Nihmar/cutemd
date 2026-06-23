@@ -1000,6 +1000,13 @@ class MainWindow(QMainWindow):
                 if isinstance(tab, EditorTab):
                     tab.set_smart_editing(new_se)
 
+        # --- Per-folder shortcuts ---
+        if self._folder_settings is not None:
+            new_sc = dlg.selected_shortcuts()
+            self._folder_settings.save_shortcuts(new_sc)
+            self._shortcut_mgr = ShortcutManager(self._folder_settings)
+            self._shortcut_mgr.apply(self._all_actions)
+
     def _on_toggle_preview(self, checked: bool) -> None:
         self._preview_visible = checked
         for i in range(self._tabs.count()):
