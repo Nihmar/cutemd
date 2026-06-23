@@ -27,10 +27,15 @@ class FolderSettings:
         return self._config_path
 
     def images_dir(self) -> Path:
+        """Return the configured images directory (created on demand).
+
+        Resolved relative to the opened folder, never outside it.
+        Defaults to ``"images"`` unless overridden in settings.json.
+        """
         name = str(self._values.get("images_dir", "images")).strip()
         if not name or ".." in name or "/" in name or "\\" in name:
             name = "images"
-        target = self._dotdir / name
+        target = self._folder / name
         target.mkdir(parents=True, exist_ok=True)
         return target
 
