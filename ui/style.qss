@@ -92,6 +92,9 @@ QPlainTextEdit {
     background: ${WINDOW};
     border-right: 1px solid ${MIDLIGHT};
 }
+#leftContainer {
+    background: ${WINDOW};
+}
 QToolButton {
     background: transparent;
     border: none;

@@ -307,8 +307,9 @@ class MainWindow(QMainWindow):
         lt_layout.addWidget(self._side_folder_btn)
 
         # --- Left container (toolbar + tree/search, no splitter between them) ---
-        left_container = QWidget()
-        lc_layout = QHBoxLayout(left_container)
+        self._left_container = QWidget()
+        self._left_container.setObjectName("leftContainer")
+        lc_layout = QHBoxLayout(self._left_container)
         lc_layout.setContentsMargins(0, 0, 0, 0)
         lc_layout.setSpacing(0)
         lc_layout.addWidget(left_tb)
@@ -347,7 +348,7 @@ class MainWindow(QMainWindow):
 
         # Splitter: left_container | editor_pane
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._splitter.addWidget(left_container)
+        self._splitter.addWidget(self._left_container)
         self._splitter.addWidget(editor_pane)
         self._splitter.setSizes([252, 948])
 
@@ -412,20 +413,20 @@ class MainWindow(QMainWindow):
         if checked:
             self._side_search_btn.setChecked(False)
             self._left_stack.setCurrentIndex(0)
-            self._left_stack.setVisible(True)
+            self._left_container.setVisible(True)
             self.act_toggle_tree.setChecked(True)
-        elif not self._side_search_btn.isChecked():
-            self._left_stack.setVisible(False)
+        else:
+            self._left_container.setVisible(False)
             self.act_toggle_tree.setChecked(False)
 
     def _on_side_search_toggled(self, checked: bool) -> None:
         if checked:
             self._side_tree_btn.setChecked(False)
             self._left_stack.setCurrentIndex(1)
-            self._left_stack.setVisible(True)
+            self._left_container.setVisible(True)
             self.act_toggle_tree.setChecked(True)
         else:
-            self._left_stack.setVisible(False)
+            self._left_container.setVisible(False)
             self.act_toggle_tree.setChecked(False)
 
     # ------------------------------------------------------------------
@@ -924,7 +925,7 @@ class MainWindow(QMainWindow):
         else:
             self._side_tree_btn.setChecked(False)
             self._side_search_btn.setChecked(False)
-        self._left_stack.setVisible(visible)
+        self._left_container.setVisible(visible)
 
     def _on_toggle_statusbar(self, visible: bool) -> None:
         self._status_file.parent().setVisible(visible)
@@ -1009,14 +1010,14 @@ class MainWindow(QMainWindow):
         if not folder_mode:
             self._side_tree_btn.setChecked(False)
             self._side_search_btn.setChecked(False)
-            self._left_stack.setVisible(False)
+            self._left_container.setVisible(False)
             self.act_toggle_tree.setChecked(False)
             self._side_folder_btn.setText("...")
         else:
             self._side_tree_btn.setChecked(True)
             self._side_search_btn.setChecked(False)
             self._left_stack.setCurrentIndex(0)
-            self._left_stack.setVisible(True)
+            self._left_container.setVisible(True)
             self.act_toggle_tree.setChecked(True)
             self._side_folder_btn.setText(self._folder_path.name)
         self._update_window_title()
