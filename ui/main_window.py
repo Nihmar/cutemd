@@ -192,6 +192,17 @@ class MainWindow(QMainWindow):
         self.act_toggle_split = QAction(self.tr("Toggle Split &Orientation"), self)
         self.act_toggle_split.triggered.connect(self._toggle_split)
 
+        self.act_toggle_tree = QAction(self.tr("Toggle &File Tree"), self)
+        self.act_toggle_tree.setCheckable(True)
+        self.act_toggle_tree.setChecked(True)
+        self.act_toggle_tree.setShortcut(QKeySequence("Ctrl+B"))
+        self.act_toggle_tree.toggled.connect(self._on_toggle_tree)
+
+        self.act_toggle_statusbar = QAction(self.tr("Toggle Status &Bar"), self)
+        self.act_toggle_statusbar.setCheckable(True)
+        self.act_toggle_statusbar.setChecked(True)
+        self.act_toggle_statusbar.toggled.connect(self._on_toggle_statusbar)
+
         self.act_settings = QAction(self.tr("&Settings…"), self)
         self.act_settings.setShortcut(QKeySequence("Ctrl+,"))
         self.act_settings.triggered.connect(self._on_settings)
@@ -224,6 +235,9 @@ class MainWindow(QMainWindow):
         self._view_menu = mb.addMenu(self.tr("&View"))
         self._view_menu.addAction(self.act_toggle_preview)
         self._view_menu.addAction(self.act_toggle_split)
+        self._view_menu.addSeparator()
+        self._view_menu.addAction(self.act_toggle_tree)
+        self._view_menu.addAction(self.act_toggle_statusbar)
 
         self._settings_menu = mb.addMenu(self.tr("&Settings"))
         self._settings_menu.addAction(self.act_settings)
@@ -805,6 +819,12 @@ class MainWindow(QMainWindow):
             if isinstance(tab, EditorTab):
                 tab.set_preview_visible(checked)
 
+    def _on_toggle_tree(self, visible: bool) -> None:
+        self._tree_panel.setVisible(visible)
+
+    def _on_toggle_statusbar(self, visible: bool) -> None:
+        self.statusBar().setVisible(visible)
+
     # ------------------------------------------------------------------
     # Split orientation
     # ------------------------------------------------------------------
@@ -1010,9 +1030,11 @@ class MainWindow(QMainWindow):
                 except ValueError:
                     self._status_file.setText(str(tab.file_path))
             else:
-                self._status_file.setText(self._folder_path.name)
+                self._status_file.setText(str(self._folder_path.resolve()))
+            self._status_file.setToolTip(str(self._folder_path.resolve()))
         else:
-            self._status_file.setText("No folder")
+            self._status_file.setText(self.tr("Edit mode"))
+            self._status_file.setToolTip("")
 
     # ------------------------------------------------------------------
     # Qt overrides
@@ -1033,6 +1055,8 @@ class MainWindow(QMainWindow):
         self.act_find_files.setText(self.tr("Find in &Files…"))
         self.act_toggle_preview.setText(self.tr("Toggle &Preview"))
         self.act_toggle_split.setText(self.tr("Toggle Split &Orientation"))
+        self.act_toggle_tree.setText(self.tr("Toggle &File Tree"))
+        self.act_toggle_statusbar.setText(self.tr("Toggle Status &Bar"))
         self.act_settings.setText(self.tr("&Settings…"))
 
         # Menu titles
@@ -1040,6 +1064,7 @@ class MainWindow(QMainWindow):
         self._edit_menu.setTitle(self.tr("&Edit"))
         self._view_menu.setTitle(self.tr("&View"))
         self._settings_menu.setTitle(self.tr("&Settings"))
+        self._help_menu.setTitle(self.tr("&Help"))
 
         # Toolbar tooltips
         self._heading_btn.setToolTip(self.tr("Heading level"))
