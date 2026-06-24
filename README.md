@@ -28,7 +28,7 @@ A non-WYSIWYG Markdown editor with live preview, syntax highlighting, folder-bas
 
 ```bash
 # Clone and enter the project
-git clone https://github.com/yourname/cutemd.git
+git clone https://github.com/Nihmar/cutemd.git
 cd cutemd
 
 # Install dependencies
