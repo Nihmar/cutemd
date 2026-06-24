@@ -1191,8 +1191,10 @@ class MainWindow(QMainWindow):
                 parts.append(self.tr("{} downloaded").format(len(r.downloaded)))
             if r.deleted:
                 parts.append(self.tr("{} deleted").format(len(r.deleted)))
+            if r.unchanged:
+                parts.append(self.tr("{} unchanged").format(len(r.unchanged)))
             if r.conflicts_skipped:
-                parts.append(self.tr("{} up to date").format(len(r.conflicts_skipped)))
+                parts.append(self.tr("{} conflicts skipped").format(len(r.conflicts_skipped)))
             status = ", ".join(parts) if parts else self.tr("Sync completed")
             if r.errors:
                 status += " \u2014 " + self.tr("{} errors").format(len(r.errors))

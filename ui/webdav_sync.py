@@ -42,6 +42,7 @@ class SyncResult:
     uploaded: list[str] = field(default_factory=list)
     downloaded: list[str] = field(default_factory=list)
     deleted: list[str] = field(default_factory=list)
+    unchanged: list[str] = field(default_factory=list)
     conflicts_skipped: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -623,6 +624,7 @@ def sync_folder(
         if not local_changed and not remote_changed:
             # Nothing changed on either side.
             new_state[rel] = recorded
+            result.unchanged.append(rel)
 
         elif local_changed and not remote_changed:
             # Only the local file was modified → upload.
@@ -682,7 +684,7 @@ def sync_folder(
         len(result.uploaded),
         len(result.downloaded),
         len(result.deleted),
-        len(result.conflicts_skipped),
+        len(result.unchanged),
         len(result.errors),
     )
 
