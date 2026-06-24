@@ -25,7 +25,7 @@
 | 4 | **Preview lazy render** | Il preview si aggiorna ogni 300ms. Per file molto lunghi può essere pesante. Già c'è `PreviewWorker` in thread separato, ma non c'è debounce intelligente. |
 | 5 | **Split orientation** | Lo split editor/preview è solo orizzontale. Potrebbe essere verticale (opzione). |
 | 6 | **Indentazione delle liste nel preview** | Il preview HTML non mostra indentazione per liste annidate. `html_builder.py` usa `<ul>`/`<ol>` standard, ma senza stili di indentazione. |
-| 7 | **Backlinks / outgoing links panel** | I wikilink `[[...]]` vengono risolti al click, ma non c'è un pannello "backlinks" che mostra quali file linkano al corrente. |
+| 7 | **Table of Contents** | Pannello laterale con la lista degli headings del file corrente, cliccabili per navigare. |
 | 8 | **File tree: multi-select / drag** | `file_tree_panel.py` usa `QListWidget` — supporta click singolo per aprire e doppio click per nuova tab, ma non drag & drop per spostare file. |
 
 ### 🐞 Bug / issue minori
@@ -42,6 +42,6 @@
 ### 🎯 Priorità suggerita
 
 1. **Autosave su file esistenti** — timer che salva automaticamente le tab con `file_path` non nullo
-2. **Tab drag-reorder** — `self._tabs.setMovable(True)`
-3. **Backlinks pannello** — cerca wikilink `[[nomefile]]` negli altri file della cartella
+2. **Table of Contents** — pannello laterale con la lista degli headings del documento corrente, cliccabili per navigare
+3. **Tab drag-reorder** — `self._tabs.setMovable(True)`
 4. **Pulizia import inutilizzati**
