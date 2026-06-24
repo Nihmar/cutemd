@@ -24,6 +24,7 @@ from PySide6.QtGui import (
     QPainter,
     QTextCharFormat,
     QTextCursor,
+    QWheelEvent,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -302,6 +303,8 @@ class EditorTab(QWidget):
         )
         if self._images_dir is not None:
             self.preview.set_images_dir(self._images_dir)
+        self._preview_viewport = self.preview.viewport()
+        self._preview_viewport.installEventFilter(self)
 
         self._image_viewer = ImageViewer()
         self._image_viewer.viewport().installEventFilter(self._image_viewer)
@@ -810,11 +813,14 @@ class EditorTab(QWidget):
             if best is not None:
                 mapping[line] = best
             else:
-                mapping[line] = last_anchor
+                # Line is between blocks — use anchor of the nearest block
+                # before it, not after it, to avoid the preview jumping ahead.
+                prev: int = last_anchor
                 for s, e, aidx in entries:
                     if line < s:
-                        mapping[line] = aidx
                         break
+                    prev = aidx
+                mapping[line] = prev
         return mapping
 
     # ------------------------------------------------------------------
@@ -871,26 +877,72 @@ class EditorTab(QWidget):
         self._syncing_scroll -= 1
 
     def _on_preview_scrolled(self, _value: int = 0) -> None:
+        try:
+            self._do_preview_scrolled()
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            self._syncing_scroll = 0
+
+    def _do_preview_scrolled(self) -> None:
         if (
             self._syncing_scroll > 0
             or not self._preview_visible
             or self._is_binary_preview
         ):
             return
-        preview_sb = self.preview.verticalScrollBar()
-        max_pv = preview_sb.maximum()
-        if max_pv <= 0:
+
+        # Find which anchor is at the top of the preview viewport.
+        # Scan the first few characters of every block starting from the
+        # one at the viewport top and moving backward.
+        doc = self.preview.document()
+        cursor = self.preview.cursorForPosition(QPoint(2, 2))
+        block = cursor.block()
+        anchor_name = ""
+        for _ in range(5):  # check up to 5 blocks backward
+            if not block.isValid():
+                break
+            block_pos = block.position()
+            for offset in range(10):
+                check_pos = block_pos + offset
+                if check_pos >= doc.characterCount():
+                    break
+                temp = QTextCursor(doc)
+                temp.setPosition(check_pos)
+                for name in temp.charFormat().anchorNames():
+                    if name.startswith("b"):
+                        anchor_name = name
+                        break
+                if anchor_name:
+                    break
+            if anchor_name:
+                break
+            block = block.previous()
+        if not anchor_name:
             return
+        anchor_idx = int(anchor_name[1:])
+
+        # Reverse map: anchor index → first editor line with that anchor
+        line_map = self._line_anchor_map
+        target_line: int | None = None
+        for line, aidx in enumerate(line_map):
+            if aidx == anchor_idx:
+                target_line = line
+                break
+
+        if target_line is None:
+            return
+
+        # Scroll editor so that line is near the top.
+        # Use a ratio-based approach: line / total_lines.
         editor_sb = self.editor.verticalScrollBar()
         max_ed = editor_sb.maximum()
         if max_ed <= 0:
             return
-        ratio = preview_sb.value() / max_pv
-        target = int(ratio * max_ed)
-        if abs(editor_sb.value() - target) < 5:
-            return
+        total_lines = self.editor.document().blockCount()
+        ratio = target_line / max(total_lines - 1, 1)
         self._syncing_scroll += 1
-        editor_sb.setValue(target)
+        editor_sb.setValue(int(ratio * max_ed))
         self._syncing_scroll -= 1
 
     # ------------------------------------------------------------------
@@ -1115,6 +1167,22 @@ class EditorTab(QWidget):
                     self._drag_active = False
                     return True
                 self._drag_active = False
+            elif event.type() == QEvent.Type.Wheel:
+                we = event  # type: ignore[assignment]
+                if we.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                    delta = 1 if we.angleDelta().y() > 0 else -1
+                    if we.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                        self.zoom_preview(delta)
+                    else:
+                        self.zoom_editor(delta)
+                    return True
+
+        elif obj is self._preview_viewport and event.type() == QEvent.Type.Wheel:
+            we = event  # type: ignore[assignment]
+            if we.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                delta = 1 if we.angleDelta().y() > 0 else -1
+                self.zoom_preview(delta)
+                return True
 
         elif obj is self._preview_stack and event.type() == QEvent.Type.Resize:
             self._preview_timer.start()
