@@ -39,6 +39,40 @@ Always use `_resolve_path()` from `ui/theme.py` (or equivalent `getattr(sys, "fr
 
 If you add new resource dirs or data packages, update all three build scripts in `scripts/` (`build_windows.bat`, `build_windows.sh`, `build_appimage.sh`).
 
+## Debug logging convention
+
+When adding debug-only output (logs, terminal prints, file dumps), **always** gate it behind a check for whether the app is running frozen (PyInstaller):
+
+```python
+import logging
+import sys
+
+_IS_DEBUG = not getattr(sys, "frozen", False)
+
+_LOG = logging.getLogger("cutemd.{module}")
+_LOG.setLevel(logging.DEBUG if _IS_DEBUG else logging.WARNING)
+_LOG.propagate = False
+
+if _IS_DEBUG:
+    try:
+        _debug_handler = logging.FileHandler(
+            "cutemd_{module}_debug.log", mode="a", encoding="utf-8"
+        )
+        _debug_handler.setLevel(logging.DEBUG)
+        _debug_handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+        )
+        _LOG.addHandler(_debug_handler)
+    except OSError:
+        pass  # CWD not writable — logs are lost
+```
+
+Use `_LOG.debug(...)` (never `print`) for all debug output. This way:
+
+- **`uv run ...`** (not frozen, debug mode): logs are written to a file named after the module in the CWD
+- **AppImage / `.exe`** (frozen, production): `_IS_DEBUG = False`, logger level is `WARNING`, no debug output
+- The setup should be **module-level**: logger and handler configured once at import time, never per-run
+
 ### Windows installers
 
 - **Inno Setup**: `scripts/cutemd_setup.iss` — creates `CuteMD_Setup.exe`. Prerequisites: Inno Setup 6+.
