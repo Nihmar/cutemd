@@ -541,6 +541,17 @@ def sync_folder(
         local_changed = local_ns != recorded
         remote_changed = _to_sec_ns(remote_ns) != _to_sec_ns(recorded)
 
+        _LOG.debug(
+            "%-40s  local_ns=%d  remote_ns=%d  recorded=%d  "
+            "local_changed=%s  remote_changed=%s",
+            rel,
+            local_ns,
+            remote_ns,
+            recorded,
+            local_changed,
+            remote_changed,
+        )
+
         if not local_changed and not remote_changed:
             # Nothing changed on either side.
             new_state[rel] = recorded
@@ -597,6 +608,16 @@ def sync_folder(
 
     _save_sync_state(local_root, new_state)
 
+    _LOG.debug(
+        "Sync result: %d uploaded, %d downloaded, %d deleted, "
+        "%d unchanged, %d errors",
+        len(result.uploaded),
+        len(result.downloaded),
+        len(result.deleted),
+        len(result.conflicts_skipped),
+        len(result.errors),
+    )
+
     if progress_callback:
         progress_callback("Done.")
 
@@ -627,11 +648,25 @@ class SyncThread(QThread):
         self._password = password
 
     def run(self) -> None:
-        result = sync_folder(
-            self._local_root,
-            self._url,
-            self._username,
-            self._password,
-            progress_callback=lambda msg: self.progress.emit(msg),
+        # Set up file logging for debugging sync issues
+        log_dir = self._local_root / ".cutemd"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "sync_debug.log"
+        handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+        handler.setLevel(logging.DEBUG)
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s %(levelname)s %(message)s")
         )
+        _LOG.addHandler(handler)
+        try:
+            result = sync_folder(
+                self._local_root,
+                self._url,
+                self._username,
+                self._password,
+                progress_callback=lambda msg: self.progress.emit(msg),
+            )
+        finally:
+            _LOG.removeHandler(handler)
+            handler.close()
         self.finished.emit(result)
