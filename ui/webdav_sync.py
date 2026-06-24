@@ -142,6 +142,12 @@ class WebDAVClient:
                         dt = _parse_http_datetime(lm.text)
                         if dt is not None:
                             entry["lastmodified"] = dt
+                        elif lm.text.strip():
+                            _LOG.debug(
+                                "PROPFIND %s: unparseable getlastmodified: %r",
+                                url,
+                                lm.text.strip(),
+                            )
 
             raw_entries.append((raw, entry))
             if dir_href is None and entry["is_dir"]:
@@ -253,6 +259,12 @@ class WebDAVClient:
                     dt = _parse_http_datetime(lm.text)
                     if dt is not None:
                         return _mtime_ns_from_datetime(dt)
+                    elif lm.text.strip():
+                        _LOG.debug(
+                            "get_remote_mtime_ns %s: unparseable: %r",
+                            remote_rel,
+                            lm.text.strip(),
+                        )
         except Exception:
             pass
         return 0
@@ -468,6 +480,17 @@ def sync_folder(
         remote_dt = remote_info.get("lastmodified") if remote_info else None
         remote_ns = _mtime_ns_from_datetime(remote_dt)
         recorded = sync_state.get(rel, 0)
+
+        # If the server didn't provide a parseable Last-Modified, we
+        # cannot detect remote changes.  Fall back to the recorded
+        # state to avoid a download-on-every-alternate-sync cycle.
+        if remote_dt is None and remote_info is not None:
+            _LOG.debug(
+                "%-40s  no parseable remote mtime — using recorded=%d",
+                rel,
+                recorded,
+            )
+            remote_ns = recorded
 
         # ── neither side has the file ────────────────────────────
         if not local_file and not remote_info:
