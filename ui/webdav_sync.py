@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 import requests
 
@@ -86,12 +86,23 @@ class WebDAVClient:
             return False, str(e)
 
     def list_files(self) -> dict[str, dict]:
+        """Return a flat {relpath: metadata} dict, or an empty dict on failure.
+
+        The caller MUST check whether the result is usable: an empty dict
+        with no error is ambiguous (truly empty remote vs listing failure).
+        We use a separate flag returned via a mutable wrapper so the sync
+        logic can abort safely.
+        """
         result: dict[str, dict] = {}
+        success = True
         try:
             self._list_files_recursive("", result)
-            return result
         except Exception:
-            return result
+            result.clear()
+            success = False
+        # Attach the success flag to the dict so callers can inspect it.
+        result["__success__"] = {"ok": success}  # type: ignore[assignment]
+        return result
 
     def _list_files_recursive(self, rel_dir: str, result: dict[str, dict]) -> None:
         url = self._build_url(rel_dir)
@@ -156,7 +167,13 @@ class WebDAVClient:
 
             raw_entries.append((raw, entry))
             if dir_href is None and entry["is_dir"]:
-                dir_href = raw
+                # Compare decoded paths against the request URL to
+                # reliably identify the current directory, since
+                # WebDAV servers do not guarantee response ordering.
+                href_path = unquote(urlparse(href.text).path).rstrip("/")
+                req_path = unquote(urlparse(url).path).rstrip("/")
+                if href_path == req_path:
+                    dir_href = raw
 
         if not raw_entries:
             return
@@ -187,8 +204,14 @@ class WebDAVClient:
     def upload(self, local_path: Path, remote_rel: str) -> bool:
         url = self._build_url(remote_rel)
         try:
+            size = local_path.stat().st_size
             with open(local_path, "rb") as fh:
-                resp = self._session.put(url, data=fh, timeout=self._timeout)
+                resp = self._session.put(
+                    url,
+                    data=fh,
+                    headers={"Content-Length": str(size)},
+                    timeout=self._timeout,
+                )
             return resp.status_code in (200, 201, 204, 207)
         except Exception:
             return False
@@ -324,6 +347,9 @@ def sync_folder(
     if progress_callback:
         progress_callback("Listing remote files...")
     remote = client.list_files()
+    if not remote.pop("__success__", {}).get("ok", False):  # type: ignore[arg-type]
+        result.errors.append("Remote listing failed — aborting sync")
+        return result
 
     if progress_callback:
         progress_callback("Scanning local files...")
@@ -386,9 +412,11 @@ def sync_folder(
                     new_state[rel] = local_ns
             elif local_file:
                 # Only local — upload immediately.
-                parent_rel = "/".join(rel.split("/")[:-1])
-                if parent_rel:
-                    client.mkdir(parent_rel)
+                # Create intermediate directories one level at a time
+                # (WebDAV MKCOL is not recursive).
+                parts = rel.split("/")[:-1]
+                for i in range(1, len(parts) + 1):
+                    client.mkdir("/".join(parts[:i]))
                 if client.upload(local_file, rel):
                     new_state[rel] = local_ns
                     result.uploaded.append(rel)
@@ -442,7 +470,6 @@ def sync_folder(
         if not local_changed and not remote_changed:
             # Nothing changed on either side.
             new_state[rel] = recorded
-            result.conflicts_skipped.append(rel)
 
         elif local_changed and not remote_changed:
             # Only the local file was modified → upload.
