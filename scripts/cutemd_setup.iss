@@ -9,7 +9,7 @@
 ; Output:  dist\CuteMD_Setup.exe
 
 #define MyAppName "CuteMD"
-#define MyAppVersion "0.9.2.2"
+#define MyAppVersion "0.9.3"
 #define MyAppPublisher "CuteMD Contributors"
 #define MyAppURL "https://github.com/Nihmar/cutemd"
 #define MyAppExeName "cutemd.exe"

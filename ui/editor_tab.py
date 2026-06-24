@@ -8,6 +8,7 @@ from markdown_it import MarkdownIt
 from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
+    QPoint,
     QPropertyAnimation,
     QRect,
     QSize,
@@ -49,6 +50,7 @@ from markdown.html_builder import (
 from ui.animation_speed import animation_duration_ms
 from ui.find_bar import FindBar
 from ui.image_viewer import ImageViewer
+from ui.link_preview_popup import LinkPreviewPopup
 from ui.markdown_completer import MarkdownAutoCompleter
 from ui.pdf_viewer import PdfViewer
 from ui.preview_browser import PreviewTextBrowser, get_image_size
@@ -179,7 +181,7 @@ class EditorTab(QWidget):
 
     # -- Link detection in the editor (clickable links + hover underline) --
     _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
-    _WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+    _WIKILINK_RE = re.compile(r"!?\[\[([^\]]+)\]\]")
 
     def __init__(
         self,
@@ -220,6 +222,14 @@ class EditorTab(QWidget):
         self._preview_pending = False
 
         self._hover_link_key: tuple[int, int, int] | None = None
+        self._hovered_link_target: str | None = None
+
+        # --- Link preview popup ---
+        self._link_preview_popup = LinkPreviewPopup(self)
+        self._link_preview_show_timer = QTimer(self)
+        self._link_preview_show_timer.setSingleShot(True)
+        self._link_preview_show_timer.setInterval(400)
+        self._link_preview_show_timer.timeout.connect(self._on_link_preview_show)
 
         self._editor_font_family = editor_font_family
         self._editor_font_size = editor_font_size
@@ -341,6 +351,7 @@ class EditorTab(QWidget):
             self._theme = theme
             self._last_rendered_hash = 0
             self._highlighter.set_theme(theme)
+            self._link_preview_popup.set_theme(theme)
             self._update_preview()
 
     def set_preview_visible(self, visible: bool) -> None:
@@ -737,6 +748,11 @@ class EditorTab(QWidget):
                 self._sync_retries = 0
 
     def _on_editor_scrolled(self, _value: int = 0) -> None:
+        # Hide link preview when scrolling.
+        self._link_preview_popup.hide()
+        self._hovered_link_target = None
+        self._link_preview_show_timer.stop()
+
         if (
             self._syncing_scroll > 0
             or not self._preview_visible
@@ -810,30 +826,40 @@ class EditorTab(QWidget):
         link = self._link_range_at(pos, block_text)
 
         if link:
-            _target, start, end = link
+            target, start, end = link
             new_key = (block.blockNumber(), start, end)
-            if new_key == self._hover_link_key:
-                return
-            self._hover_link_key = new_key
+            if new_key != self._hover_link_key:
+                self._hover_link_key = new_key
 
-            block_start = block.position()
-            sel = QTextCursor(self.editor.document())
-            sel.setPosition(block_start + start)
-            sel.setPosition(block_start + end, QTextCursor.MoveMode.KeepAnchor)
+                block_start = block.position()
+                sel = QTextCursor(self.editor.document())
+                sel.setPosition(block_start + start)
+                sel.setPosition(block_start + end, QTextCursor.MoveMode.KeepAnchor)
 
-            fmt = QTextCharFormat()
-            fmt.setFontUnderline(True)
-            fmt.setUnderlineColor(QColor("#61afef"))
-            extra = QTextEdit.ExtraSelection()
-            extra.format = fmt
-            extra.cursor = sel
-            self.editor.setExtraSelections([extra])
-            self._viewport.setCursor(Qt.CursorShape.PointingHandCursor)
+                fmt = QTextCharFormat()
+                fmt.setFontUnderline(True)
+                fmt.setUnderlineColor(QColor("#61afef"))
+                extra = QTextEdit.ExtraSelection()
+                extra.format = fmt
+                extra.cursor = sel
+                self.editor.setExtraSelections([extra])
+                self._viewport.setCursor(Qt.CursorShape.PointingHandCursor)
+
+            # --- Link preview popup ---
+            # Only restart the timer when the hovered link target changes.
+            if target != self._hovered_link_target:
+                self._hovered_link_target = target
+                self._link_preview_show_timer.start()
         else:
             if self._hover_link_key is not None:
                 self._hover_link_key = None
                 self.editor.setExtraSelections([])
                 self._viewport.setCursor(Qt.CursorShape.IBeamCursor)
+            # --- Hide popup when leaving link ---
+            if self._hovered_link_target is not None:
+                self._hovered_link_target = None
+                self._link_preview_show_timer.stop()
+                self._link_preview_popup.hide_popup()
 
     def _on_mouse_click(self, event: QMouseEvent) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
@@ -844,9 +870,98 @@ class EditorTab(QWidget):
         pos = cursor.positionInBlock()
         link = self._link_range_at(pos, block_text)
         if link:
+            # Hide the link preview popup when clicking a link.
+            self._link_preview_popup.hide()
+            self._hovered_link_target = None
+            self._link_preview_show_timer.stop()
             self.file_link_clicked.emit(link[0])
             return True
         return False
+
+    # ------------------------------------------------------------------
+    # Link preview popup
+    # ------------------------------------------------------------------
+
+    def _on_link_preview_show(self) -> None:
+        """Timer callback: resolve the hovered link and show the popup."""
+        target = self._hovered_link_target
+        if target is None:
+            return
+
+        path = self._resolve_link_target(target)
+        if path is None:
+            return
+
+        # Compute screen position: below the mouse cursor with a small offset.
+        from PySide6.QtGui import QCursor
+
+        global_cursor = QCursor.pos()
+        global_pos = QPoint(global_cursor.x() + 10, global_cursor.y() + 18)
+
+        # Gather the editor font for the preview editor.
+        editor_font = self.editor.font()
+
+        self._link_preview_popup.show_for_path(path, global_pos, editor_font)
+
+    def _resolve_link_target(self, target: str) -> Path | None:
+        """Resolve a link/wikilink target to an absolute Path, or None."""
+        target_path = Path(target)
+        if target_path.is_absolute():
+            exists = target_path.exists()
+            return target_path if exists else None
+
+        # Resolve relative to the source file's directory, if known.
+        base = self._file_path.parent if self._file_path else Path.cwd()
+
+        candidates = [base / target_path]
+        if target_path.suffix.lower() not in (".md", ".markdown"):
+            candidates.append(base / (target + ".md"))
+            candidates.append(base / (target + ".markdown"))
+
+        for p in candidates:
+            if p.is_file():
+                return p.resolve()
+
+        # Try the configured images directory.
+        if self._images_dir is not None:
+            candidate = self._images_dir / target_path.name
+            if candidate.is_file():
+                return candidate.resolve()
+
+        # Fallback: try common image/PDF extensions (wikilinks often omit them).
+        if target_path.suffix.lower() not in self._IMG_EXTS | self._PDF_EXTS:
+            for ext in self._IMG_EXTS | self._PDF_EXTS:
+                p = base / (target + ext)
+                if p.is_file():
+                    return p.resolve()
+                if self._images_dir is not None:
+                    p2 = self._images_dir / (target_path.name + ext)
+                    if p2.is_file():
+                        return p2.resolve()
+
+        # Fallback: walk up the directory tree looking for the file
+        # (handles Obsidian vaults where images are in a sibling/parent folder).
+        search_dir = base
+        for _ in range(5):  # max 5 levels up
+            search_dir = search_dir.parent
+            # Direct match in this directory
+            candidate = search_dir / target_path.name
+            if candidate.is_file():
+                return candidate.resolve()
+            # Check immediate subdirectories (e.g. attachments/, images/, assets/)
+            try:
+                for child in search_dir.iterdir():
+                    if child.is_dir() and not child.name.startswith("."):
+                        c2 = child / target_path.name
+                        if c2.is_file():
+                            return c2.resolve()
+            except PermissionError:
+                pass
+            # Stop at filesystem root
+            if search_dir.parent == search_dir:
+                break
+
+        return None
 
     # ------------------------------------------------------------------
     # Find bar
