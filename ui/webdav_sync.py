@@ -294,6 +294,11 @@ if not _LOG.handlers:
 
 def _parse_http_datetime(text: str) -> datetime | None:
     """Parse a WebDAV Last-Modified string into an aware datetime, or None."""
+    raw = text.strip()
+    if not raw:
+        return None
+
+    # 1. Try locale-dependent strptime first (fast path).
     for fmt in (
         "%a, %d %b %Y %H:%M:%S %Z",
         "%a, %d %b %Y %H:%M:%S GMT",
@@ -303,12 +308,45 @@ def _parse_http_datetime(text: str) -> datetime | None:
         "%Y-%m-%dT%H:%M:%S.%fZ",
     ):
         try:
-            dt = datetime.strptime(text.strip(), fmt)
+            dt = datetime.strptime(raw, fmt)
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt
         except ValueError:
             continue
+
+    # 2. Locale-independent fallback.
+    #    On systems with LC_TIME=C the %a / %b / %Z specifiers may
+    #    not recognise English names, so we strip the weekday,
+    #    timezone and re-parse with a manual month-name mapping.
+    _MONTHS = {
+        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+        "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+    }
+    try:
+        # Strip leading weekday: "Wed, 24 Jun 2026 10:08:44 GMT"
+        rest = raw.split(", ", 1)[1] if ", " in raw else raw
+        # Strip trailing timezone: "GMT", "UTC", "Z"
+        for suffix in (" GMT", " UTC", "Z"):
+            if rest.endswith(suffix):
+                rest = rest[: -len(suffix)]
+                break
+        else:
+            # Strip numeric offset: +00:00, +0000
+            for i, ch in enumerate(rest):
+                if ch in "+-" and i >= 8:
+                    rest = rest[:i]
+                    break
+        parts = rest.split()
+        if len(parts) == 4:
+            day = int(parts[0])
+            month = _MONTHS[parts[1].strip().lower()[:3]]
+            year = int(parts[2])
+            h, m, s = map(int, parts[3].split(":"))
+            return datetime(year, month, day, h, m, s, tzinfo=timezone.utc)
+    except (KeyError, IndexError, ValueError):
+        pass
+
     return None
 
 
