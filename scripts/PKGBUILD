@@ -1,0 +1,69 @@
+# Maintainer: Alessandro Nihmar <alessandro@nihmar.com>
+# Contributor: CuteMD contributors
+
+pkgname=cutemd
+pkgver=__VERSION__
+pkgrel=1
+pkgdesc="A non-WYSIWYG Markdown editor with live preview"
+arch=('x86_64' 'aarch64')
+url="https://github.com/Nihmar/cutemd"
+license=('MIT')
+depends=('desktop-file-utils' 'hicolor-icon-theme')
+makedepends=('uv' 'python' 'git')
+# Source is the project directory itself (set by build_arch.sh wrapper)
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir"
+
+  echo "==> Installing dependencies with uv …"
+  uv sync
+
+  echo "==> Installing PyInstaller …"
+  uv pip install pyinstaller
+
+  echo "==> Building executable with PyInstaller …"
+  uv run pyinstaller \
+    --name "$pkgname" \
+    --onedir \
+    --windowed \
+    --strip \
+    --optimize 2 \
+    --noupx \
+    --noconfirm \
+    --add-data "ui/icons:ui/icons" \
+    --add-data "ui/style.qss:ui" \
+    --add-data "ui/preview_styles.css:ui" \
+    --add-data "resources/translations:resources/translations" \
+    --add-data "resources/cutemd.svg:resources" \
+    --collect-data latex2mathml \
+    --hidden-import PySide6.QtSvg \
+    --hidden-import PySide6.QtPdf \
+    --hidden-import requests \
+    main.py
+}
+
+package() {
+  cd "$startdir"
+
+  # Install the bundled application to /opt/cutemd
+  install -d "$pkgdir/opt/$pkgname"
+  cp -r "dist/$pkgname/"* "$pkgdir/opt/$pkgname/"
+
+  # Launcher wrapper in /usr/bin
+  install -d "$pkgdir/usr/bin"
+  cat > "$pkgdir/usr/bin/$pkgname" << BINEOF
+#!/bin/sh
+exec /opt/$pkgname/$pkgname "\$@"
+BINEOF
+  chmod 755 "$pkgdir/usr/bin/$pkgname"
+
+  # Desktop entry
+  install -Dm644 "resources/$pkgname.desktop" \
+    "$pkgdir/usr/share/applications/$pkgname.desktop"
+
+  # Application icon
+  install -Dm644 "resources/$pkgname.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/$pkgname.svg"
+}

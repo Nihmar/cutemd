@@ -72,6 +72,9 @@ cutemd/
 │   └── translations/          # Qt translation files (.ts / .qm)
 ├── scripts/                   # Build & utility scripts
 │   ├── build_appimage.sh      # Linux AppImage builder
+│   ├── build_deb.sh           # Debian / Ubuntu .deb builder
+│   ├── build_arch.sh          # Arch Linux package builder
+│   ├── PKGBUILD               # Arch Linux PKGBUILD template
 │   ├── build_windows.sh       # Windows .exe (Git Bash / WSL)
 │   ├── build_windows.bat      # Windows .exe (cmd / PowerShell)
 │   ├── cutemd_setup.iss       # Inno Setup installer script
@@ -84,6 +87,8 @@ cutemd/
 ```
 
 ## Building for distribution
+
+All build scripts produce a self-contained bundle — no Python, Qt, or other runtime dependencies are needed on the target system.
 
 ### Linux — AppImage
 
@@ -105,6 +110,67 @@ sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
 ```
 
 The AppImage is self-contained — no dependencies needed on the target system. It registers `text/markdown` MIME type so `.md` files open in CuteMD.
+
+### Linux — Debian / Ubuntu (.deb)
+
+```bash
+# Prerequisites: dpkg-deb (included in dpkg, standard on Debian/Ubuntu)
+uv pip install pyinstaller
+
+# Build the .deb package
+./scripts/build_deb.sh
+# → dist/cutemd_<version>_<arch>.deb
+
+# Install
+sudo apt install ./dist/cutemd_*.deb
+# or: sudo dpkg -i dist/cutemd_*.deb
+```
+
+The package installs to `/opt/cutemd/` with a launcher in `/usr/bin/cutemd`, a `.desktop` entry, and the application icon. Desktop MIME databases are refreshed automatically.
+
+To uninstall:
+```bash
+sudo apt remove cutemd       # remove the package
+sudo apt purge cutemd        # also remove config files
+```
+
+### Linux — Arch (.pkg.tar.zst)
+
+```bash
+# Prerequisites: makepkg, base-devel (standard on Arch), uv
+uv pip install pyinstaller
+
+# Build the Arch package
+./scripts/build_arch.sh
+# → dist/cutemd-<version>-1-<arch>.pkg.tar.zst
+
+# Install
+sudo pacman -U ./dist/cutemd-*.pkg.tar.zst
+```
+
+The package installs to `/opt/cutemd/` with a launcher in `/usr/bin/cutemd`, a `.desktop` entry, and the application icon.
+
+To uninstall:
+```bash
+sudo pacman -R cutemd
+```
+
+#### Using the PKGBUILD directly
+
+If you prefer to build from source with `makepkg` manually (e.g. for AUR submission or customisation), use the provided `scripts/PKGBUILD` template:
+
+```bash
+# 1. Create a build directory and copy source + PKGBUILD
+mkdir /tmp/cutemd-build && cd /tmp/cutemd-build
+cp -r /path/to/cutemd/{main.py,pyproject.toml,uv.lock,markdown,ui,resources} .
+
+# 2. Substitute the version and run makepkg
+sed "s/__VERSION__/$(grep -oP '__version__\s*=\s*"\K[^"]+' /path/to/cutemd/main.py)/" \
+    /path/to/cutemd/scripts/PKGBUILD > PKGBUILD
+
+makepkg -si
+# -s installs missing dependencies, -i installs the package after building
+```
 
 ### Windows
 
