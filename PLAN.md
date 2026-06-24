@@ -48,7 +48,6 @@
 
 ### 🎯 Priorità suggerita
 
-1. **Autosave** — salvataggio periodico su `.cutemd/.autosave/`
-2. **Tab drag-reorder** — `self._tabs.setMovable(True)` (una riga)
-3. **Backlinks pannello** — cerca wikilink `[[nomefile]]` negli altri file della cartella
-4. **Test CI** — almeno `uv run python -c "from ui.editor_tab import EditorTab"` in GitHub Actions
+1. **Tab drag-reorder** — `self._tabs.setMovable(True)` (una riga)
+2. **Backlinks pannello** — cerca wikilink `[[nomefile]]` negli altri file della cartella
+3. **Test CI** — almeno `uv run python -c "from ui.editor_tab import EditorTab"` in GitHub Actions
