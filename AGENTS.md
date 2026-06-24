@@ -8,7 +8,7 @@ uv sync                     # install/update dependencies
 uv run pyinstaller <args>   # use PyInstaller (must be in dev deps)
 ```
 
-There are **no tests, no linter, and no type checker** configured. Don't run commands that don't exist.
+There are **no tests, no linter, no type checker, and no CI** configured. Don't run commands that don't exist.
 
 ## Package boundaries
 
