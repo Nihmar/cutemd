@@ -261,9 +261,15 @@ class EditorTab(QWidget):
         self._pdf_viewer._scroll.viewport().installEventFilter(self._pdf_viewer)
 
         self._preview_stack = QStackedWidget()
-        self._preview_stack.addWidget(self.preview)
-        self._preview_stack.addWidget(self._image_viewer)
-        self._preview_stack.addWidget(self._pdf_viewer)
+        self._preview_stack.addWidget(self.preview)  # 0
+        self._preview_stack.addWidget(self._image_viewer)  # 1
+        self._preview_stack.addWidget(self._pdf_viewer)  # 2
+
+        # Loading spinner (index 3).
+        self._loading_label = QLabel()
+        self._loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading_label.setText(self.tr("Rendering\u2026"))
+        self._preview_stack.addWidget(self._loading_label)  # 3
         self._preview_stack.installEventFilter(self)
 
         # --- Scroll sync ---
@@ -496,6 +502,9 @@ class EditorTab(QWidget):
         self.status_changed.emit(f"{line}:{col}", "Markdown")
 
     def _on_text_changed(self) -> None:
+        # Debounce adattivo: 150 ms per file piccoli, 500 per file grandi.
+        lines = self.editor.document().blockCount()
+        self._preview_timer.setInterval(150 if lines < 2000 else 500)
         self._preview_timer.start()
         was_dirty = self._dirty
         self._dirty = self.is_modified
@@ -554,12 +563,14 @@ class EditorTab(QWidget):
             return
 
         self._preview_busy = True
+        self._preview_stack.setCurrentIndex(3)  # show spinner
         self._preview_worker.render_requested.emit(params)
 
     def _on_preview_ready(self, html: str) -> None:
         self._preview_busy = False
 
         self._syncing_scroll += 1
+        self._preview_stack.setCurrentIndex(0)  # back to preview
         self.preview.setHtml(html)
         self._syncing_scroll -= 1
 
