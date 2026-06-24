@@ -238,28 +238,59 @@ class WebDAVClient:
 _EXCLUDE_DIRS = {".cutemd", ".git", ".svn", "_dav"}
 
 
+def _mtime_ns_from_datetime(dt: datetime | None) -> int:
+    """Convert a datetime to integer nanoseconds since epoch."""
+    if dt is None:
+        return 0
+    return int(dt.timestamp() * 1_000_000_000)
+
+
+def _to_sec_ns(ns: int) -> int:
+    """Round nanosecond timestamp down to whole-second precision.
+
+    Remote (WebDAV) mtimes typically have 1-second resolution.
+    Normalising to second boundaries prevents false "remote changed"
+    detections caused by the precision mismatch with local files.
+    """
+    return (ns // 1_000_000_000) * 1_000_000_000
+
+
 def _set_file_mtime(path: Path, remote_mtime: datetime | None) -> None:
     if remote_mtime is None:
         return
-    ts = remote_mtime.timestamp()
-    os.utime(path, (ts, ts))
+    ns = _mtime_ns_from_datetime(remote_mtime)
+    os.utime(path, ns=(ns, ns))
 
 
-def _load_sync_state(local_root: Path) -> dict[str, float]:
+def _load_sync_state(local_root: Path) -> dict[str, int]:
+    """Load sync state, returning {relpath: last_known_mtime_ns}.
+
+    Values are integer nanoseconds since epoch.
+    Returns an empty dict if the file is missing or corrupted.
+    """
     path = local_root / ".cutemd" / "sync_state.json"
     if path.is_file():
         try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            # Coerce to int – older versions stored floats
+            return {k: int(v) for k, v in data.items()}
+        except (json.JSONDecodeError, OSError, ValueError):
             pass
     return {}
 
 
-def _save_sync_state(local_root: Path, state: dict[str, float]) -> None:
+def _save_sync_state(local_root: Path, state: dict[str, int]) -> None:
+    """Atomically write the sync-state file.
+
+    Uses a temp file + rename to prevent corruption on crash or
+    disk-full.
+    """
     dotdir = local_root / ".cutemd"
     dotdir.mkdir(parents=True, exist_ok=True)
-    path = dotdir / "sync_state.json"
-    path.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    real = dotdir / "sync_state.json"
+    tmp = dotdir / "sync_state.json.tmp"
+    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    os.replace(tmp, real)  # atomic on modern OSes
 
 
 def sync_folder(
@@ -269,6 +300,16 @@ def sync_folder(
     password: str,
     progress_callback: Callable[[str], None] | None = None,
 ) -> SyncResult:
+    """Synchronise a local folder with a WebDAV server.
+
+    The algorithm uses integer nanosecond timestamps throughout to
+    avoid floating-point precision issues.  Remote mtimes are
+    normalised to second boundaries (WebDAV servers rarely support
+    sub-second precision).  On the very first sync (empty local
+    state) the code bootstraps by recording the remote timestamp as
+    the baseline instead of blindly uploading or downloading
+    everything.
+    """
     result = SyncResult()
     client = WebDAVClient(webdav_url, username, password)
 
@@ -296,7 +337,7 @@ def sync_folder(
         local_entries[p.relative_to(local_root).as_posix()] = p
 
     sync_state = _load_sync_state(local_root)
-    new_state: dict[str, float] = dict(sync_state)
+    new_state: dict[str, int] = dict(sync_state)
     all_paths = set(remote.keys()) | set(local_entries.keys()) | set(sync_state.keys())
 
     if progress_callback:
@@ -309,115 +350,148 @@ def sync_folder(
         local_file = local_entries.get(rel)
         remote_info = remote.get(rel)
 
+        # ── directories ──────────────────────────────────────────
         if remote_info and remote_info.get("is_dir"):
             if not local_file:
-                local_dir = local_root / rel
-                local_dir.mkdir(parents=True, exist_ok=True)
+                (local_root / rel).mkdir(parents=True, exist_ok=True)
             continue
 
-        local_mtime = local_file.stat().st_mtime if local_file else 0.0
-        remote_mtime_dt = remote_info.get("lastmodified") if remote_info else None
-        remote_mtime = remote_mtime_dt.timestamp() if remote_mtime_dt else 0.0
-        recorded = sync_state.get(rel, 0.0)
+        # ── gather timestamps (integer nanoseconds) ───────────────
+        local_ns = local_file.stat().st_mtime_ns if local_file else 0
+        remote_dt = remote_info.get("lastmodified") if remote_info else None
+        remote_ns = _mtime_ns_from_datetime(remote_dt)
+        recorded = sync_state.get(rel, 0)
 
+        # ── neither side has the file ────────────────────────────
         if not local_file and not remote_info:
             if rel in sync_state:
                 del new_state[rel]
                 result.deleted.append(rel)
                 if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Deleted {_fmt_rel(rel)}")
+                    progress_callback(f"[{idx}/{total}] Deleted       {_fmt_rel(rel)}")
             continue
 
-        if local_file and not remote_info:
-            if rel in sync_state:
-                del new_state[rel]
-                local_file.unlink(missing_ok=True)
-                result.deleted.append(rel)
-                if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Deleted {_fmt_rel(rel)}")
-                continue
+        # ── first time seeing this path (bootstrap) ──────────────
+        if recorded == 0:
+            if local_file and remote_info:
+                # Both sides exist but we have no history.
+                # Bootstrap from the remote mtime to avoid a
+                # pointless mass-transfer on first sync.
+                # Fall back to local mtime if the server didn't
+                # provide a lastmodified timestamp.
+                if remote_ns > 0:
+                    _set_file_mtime(local_file, remote_dt)
+                    new_state[rel] = remote_ns
+                else:
+                    new_state[rel] = local_ns
+            elif local_file:
+                # Only local — upload immediately.
+                parent_rel = "/".join(rel.split("/")[:-1])
+                if parent_rel:
+                    client.mkdir(parent_rel)
+                if client.upload(local_file, rel):
+                    new_state[rel] = local_ns
+                    result.uploaded.append(rel)
+                    if progress_callback:
+                        progress_callback(
+                            f"[{idx}/{total}] Uploaded      {_fmt_rel(rel)}"
+                        )
+                else:
+                    result.errors.append(f"Upload failed: {rel}")
+            elif remote_info:
+                # Only remote — download immediately.
+                local_path = local_root / rel
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                if client.download(rel, local_path):
+                    _set_file_mtime(local_path, remote_dt)
+                    new_state[rel] = remote_ns
+                    result.downloaded.append(rel)
+                    if progress_callback:
+                        progress_callback(
+                            f"[{idx}/{total}] Downloaded    {_fmt_rel(rel)}"
+                        )
+                else:
+                    result.errors.append(f"Download failed: {rel}")
+            continue
 
-            parent_rel = "/".join(rel.split("/")[:-1])
-            if parent_rel:
-                client.mkdir(parent_rel)
+        # ── local only (was synced, now remote deleted) ──────────
+        if local_file and not remote_info:
+            del new_state[rel]
+            local_file.unlink(missing_ok=True)
+            result.deleted.append(rel)
+            if progress_callback:
+                progress_callback(f"[{idx}/{total}] Deleted       {_fmt_rel(rel)}")
+            continue
+
+        # ── remote only (was synced, now locally deleted) ────────
+        if remote_info and not local_file:
+            del new_state[rel]
+            client.delete(rel)
+            result.deleted.append(rel)
+            if progress_callback:
+                progress_callback(f"[{idx}/{total}] Deleted remote {_fmt_rel(rel)}")
+            continue
+
+        # ── both sides exist — detect changes ────────────────────
+        # Local comparison: exact (nanosecond precision).
+        # Remote comparison: rounded to seconds because WebDAV
+        # servers only expose second-level last-modified dates.
+        local_changed = local_ns != recorded
+        remote_changed = _to_sec_ns(remote_ns) != _to_sec_ns(recorded)
+
+        if not local_changed and not remote_changed:
+            # Nothing changed on either side.
+            new_state[rel] = recorded
+            result.conflicts_skipped.append(rel)
+
+        elif local_changed and not remote_changed:
+            # Only the local file was modified → upload.
             if client.upload(local_file, rel):
-                new_state[rel] = local_mtime
+                new_state[rel] = local_ns
                 result.uploaded.append(rel)
                 if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Uploaded {_fmt_rel(rel)}")
+                    progress_callback(f"[{idx}/{total}] Uploaded      {_fmt_rel(rel)}")
             else:
                 result.errors.append(f"Upload failed: {rel}")
 
-        elif remote_info and not local_file:
-            if rel in sync_state:
-                del new_state[rel]
-                client.delete(rel)
-                result.deleted.append(rel)
-                if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Deleted remote {_fmt_rel(rel)}")
-                continue
-
-            local_path = local_root / rel
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            if client.download(rel, local_path):
-                _set_file_mtime(local_path, remote_mtime_dt)
-                new_state[rel] = remote_mtime
+        elif remote_changed and not local_changed:
+            # Only the remote file was modified → download.
+            if client.download(rel, local_file):
+                _set_file_mtime(local_file, remote_dt)
+                new_state[rel] = remote_ns
                 result.downloaded.append(rel)
                 if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Downloaded {_fmt_rel(rel)}")
+                    progress_callback(f"[{idx}/{total}] Downloaded    {_fmt_rel(rel)}")
             else:
                 result.errors.append(f"Download failed: {rel}")
 
-        elif local_file and remote_info:
-            local_changed = local_mtime > recorded + 0.001
-            remote_changed = remote_mtime > recorded + 0.001
-
-            if local_changed and not remote_changed:
+        else:
+            # Both changed — conflict resolved by newer mtime.
+            # When timestamps are tied we skip to be safe.
+            if local_ns > remote_ns:
                 if client.upload(local_file, rel):
-                    new_state[rel] = local_mtime
+                    new_state[rel] = local_ns
                     result.uploaded.append(rel)
                     if progress_callback:
-                        progress_callback(f"[{idx}/{total}] Uploaded {_fmt_rel(rel)}")
+                        progress_callback(
+                            f"[{idx}/{total}] Uploaded      {_fmt_rel(rel)} (conflict)"
+                        )
                 else:
-                    result.errors.append(f"Upload failed: {rel}")
-
-            elif remote_changed and not local_changed:
+                    result.errors.append(f"Upload failed (conflict): {rel}")
+            elif remote_ns > local_ns:
                 if client.download(rel, local_file):
-                    _set_file_mtime(local_file, remote_mtime_dt)
-                    new_state[rel] = remote_mtime
+                    _set_file_mtime(local_file, remote_dt)
+                    new_state[rel] = remote_ns
                     result.downloaded.append(rel)
                     if progress_callback:
-                        progress_callback(f"[{idx}/{total}] Downloaded {_fmt_rel(rel)}")
+                        progress_callback(
+                            f"[{idx}/{total}] Downloaded    {_fmt_rel(rel)} (conflict)"
+                        )
                 else:
-                    result.errors.append(f"Download failed: {rel}")
-
-            elif local_changed and remote_changed:
-                if local_mtime > remote_mtime:
-                    if client.upload(local_file, rel):
-                        new_state[rel] = local_mtime
-                        result.uploaded.append(rel)
-                        if progress_callback:
-                            progress_callback(
-                                f"[{idx}/{total}] Uploaded {_fmt_rel(rel)} (conflict)"
-                            )
-                    else:
-                        result.errors.append(f"Upload failed (conflict): {rel}")
-                elif remote_mtime > local_mtime:
-                    if client.download(rel, local_file):
-                        _set_file_mtime(local_file, remote_mtime_dt)
-                        new_state[rel] = remote_mtime
-                        result.downloaded.append(rel)
-                        if progress_callback:
-                            progress_callback(
-                                f"[{idx}/{total}] Downloaded {_fmt_rel(rel)} (conflict)"
-                            )
-                    else:
-                        result.errors.append(f"Download failed (conflict): {rel}")
-                else:
-                    new_state[rel] = local_mtime
-                    result.conflicts_skipped.append(rel)
-
+                    result.errors.append(f"Download failed (conflict): {rel}")
             else:
+                # Equal mtimes — both sides claim changes, skip.
+                new_state[rel] = max(local_ns, remote_ns)
                 result.conflicts_skipped.append(rel)
 
     _save_sync_state(local_root, new_state)
