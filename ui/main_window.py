@@ -5,7 +5,15 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
+from PySide6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QPoint,
+    QSize,
+    Qt,
+    QTimer,
+    QVariantAnimation,
+)
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -38,6 +46,7 @@ from PySide6.QtWidgets import (
 )
 
 from ui import theme
+from ui.animation_speed import animation_duration_ms
 from ui.editor_context_menu import show_editor_context_menu
 from ui.editor_tab import EditorTab
 from ui.editor_toolbar import EditorToolbar
@@ -418,11 +427,45 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _show_left_panel(self) -> None:
         self._left_stack.show()
-        self._splitter.setSizes([220, max(self._splitter.width() - 220, 200)])
+        self._animate_splitter_to(220)
 
     def _hide_left_panel(self) -> None:
-        self._left_stack.hide()
-        self._splitter.setSizes([0, max(self._splitter.width(), 200)])
+        self._animate_splitter_to(0, on_finish=lambda: self._left_stack.hide())
+
+    def _animate_splitter_to(self, left_width: int, on_finish=None) -> None:
+        """Animate the main splitter's left panel width."""
+        total = self._splitter.width()
+        if total <= 0:
+            self._splitter.setSizes([left_width, max(total - left_width, 0)])
+            if on_finish:
+                on_finish()
+            return
+
+        if hasattr(self, "_tree_anim"):
+            self._tree_anim.stop()
+        start = self._splitter.sizes()[0]
+
+        self._splitter.setUpdatesEnabled(False)
+
+        self._tree_anim = QVariantAnimation(self)
+        self._tree_anim.setDuration(animation_duration_ms(150))
+        self._tree_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._tree_anim.setStartValue(0.0)
+        self._tree_anim.setEndValue(1.0)
+
+        def _step(progress: float) -> None:
+            cur = int(start + (left_width - start) * progress)
+            self._splitter.setSizes([max(cur, 0), max(total - cur, 0)])
+
+        self._tree_anim.valueChanged.connect(_step)
+
+        def _done() -> None:
+            self._splitter.setUpdatesEnabled(True)
+            if on_finish:
+                on_finish()
+
+        self._tree_anim.finished.connect(_done)
+        self._tree_anim.start()
 
     def _on_side_tree_toggled(self, checked: bool) -> None:
         if checked:

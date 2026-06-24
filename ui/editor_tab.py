@@ -5,7 +5,18 @@ from pathlib import Path
 from typing import Any
 
 from markdown_it import MarkdownIt
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtCore import (
+    QEasingCurve,
+    QEvent,
+    QPropertyAnimation,
+    QRect,
+    QSize,
+    Qt,
+    QThread,
+    QTimer,
+    QVariantAnimation,
+    Signal,
+)
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -35,6 +46,7 @@ from markdown.html_builder import (
     preprocess_wikilinks,
     strip_frontmatter,
 )
+from ui.animation_speed import animation_duration_ms
 from ui.find_bar import FindBar
 from ui.image_viewer import ImageViewer
 from ui.markdown_completer import MarkdownAutoCompleter
@@ -195,6 +207,8 @@ class EditorTab(QWidget):
         self._last_anchor: str = ""
         self._line_anchor_map: list[int] = []
         self._line_anchor_map_hash: int = 0
+        self._last_rendered_hash: int = 0
+        self._pending_render_hash: int = 0
         self._pending_sync_anchor: str = ""
         self._sync_retries = 0
         self._preview_visible = True
@@ -325,6 +339,7 @@ class EditorTab(QWidget):
     def set_theme(self, theme: str, pygments_style: str = "") -> None:
         if theme != self._theme:
             self._theme = theme
+            self._last_rendered_hash = 0
             self._highlighter.set_theme(theme)
             self._update_preview()
 
@@ -332,9 +347,49 @@ class EditorTab(QWidget):
         if visible == self._preview_visible:
             return
         self._preview_visible = visible
-        self._preview_stack.setVisible(visible)
+
+        total = self._splitter.width()
+        if total <= 0:
+            self._preview_stack.setVisible(visible)
+            if visible:
+                self._splitter.setSizes([total // 2, total // 2])
+                self._update_preview()
+            else:
+                self._splitter.setSizes([total, 0])
+            return
+
+        # Animate the splitter slide.
+        if hasattr(self, "_splitter_anim"):
+            self._splitter_anim.stop()
+        start_sizes = self._splitter.sizes()
+        end_editor = total if not visible else total // 2
+
+        self._splitter.setUpdatesEnabled(False)
+
+        self._splitter_anim = QVariantAnimation(self)
+        self._splitter_anim.setDuration(animation_duration_ms(150))
+        self._splitter_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._splitter_anim.setStartValue(0.0)
+        self._splitter_anim.setEndValue(1.0)
+
+        def _step(progress: float) -> None:
+            e = int(start_sizes[0] + (end_editor - start_sizes[0]) * progress)
+            self._splitter.setSizes([max(e, 0), max(total - e, 0)])
+
+        self._splitter_anim.valueChanged.connect(_step)
+
+        def _done() -> None:
+            self._splitter.setUpdatesEnabled(True)
+            if visible:
+                self._update_preview()
+            else:
+                self._preview_stack.setVisible(False)
+
+        self._splitter_anim.finished.connect(_done)
+
         if visible:
-            self._update_preview()
+            self._preview_stack.setVisible(True)
+        self._splitter_anim.start()
 
     def set_editor_font(self, family: str, size: int) -> None:
         self._editor_font_family = family
@@ -354,6 +409,7 @@ class EditorTab(QWidget):
     def set_preview_font(self, family: str, size: int) -> None:
         self._preview_font_family = family
         self._preview_font_size = size
+        self._last_rendered_hash = 0
         self._update_preview()
 
     # ------------------------------------------------------------------
@@ -361,6 +417,7 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
 
     def load_file(self, path: Path) -> None:
+        self._last_rendered_hash = 0
         ext = path.suffix.lower()
         if ext in self._IMG_EXTS:
             self._file_path = path
@@ -513,6 +570,8 @@ class EditorTab(QWidget):
 
     def set_images_dir(self, d: Path | None) -> None:
         """Set the configured images directory (from folder settings)."""
+        if d != self._images_dir:
+            self._last_rendered_hash = 0
         self._images_dir = d
         self.preview.set_images_dir(d)
 
@@ -541,7 +600,24 @@ class EditorTab(QWidget):
 
         base_dir = self._file_path.parent if self._file_path else Path.cwd()
         self.preview.set_base_dir(base_dir)
+
+        # Skip render if nothing meaningful changed.
         pw = self.preview.width()
+        params_hash = hash(
+            (
+                text,
+                self._preview_css,
+                self._theme,
+                self._preview_font_family,
+                self._preview_font_size,
+                str(base_dir),
+                max(pw, 200),
+                str(self._images_dir) if self._images_dir else "",
+            )
+        )
+        if params_hash == self._last_rendered_hash:
+            return
+        self._pending_render_hash = params_hash
 
         # Collect render params.
         params: dict[str, Any] = {
@@ -563,16 +639,29 @@ class EditorTab(QWidget):
             return
 
         self._preview_busy = True
-        self._preview_stack.setCurrentIndex(3)  # show spinner
+        # Delay spinner — fast renders don't need it.
+        self._spinner_timer = QTimer(self)
+        self._spinner_timer.setSingleShot(True)
+        self._spinner_timer.timeout.connect(
+            lambda: self._preview_stack.setCurrentIndex(3)
+        )
+        self._spinner_timer.start(100)
         self._preview_worker.render_requested.emit(params)
 
     def _on_preview_ready(self, html: str) -> None:
         self._preview_busy = False
+        # Cancel spinner if it hasn't fired yet.
+        if hasattr(self, "_spinner_timer"):
+            self._spinner_timer.stop()
 
         self._syncing_scroll += 1
         self._preview_stack.setCurrentIndex(0)  # back to preview
         self.preview.setHtml(html)
         self._syncing_scroll -= 1
+
+        # Track rendered state to skip redundant future renders.
+        if not self._preview_pending:
+            self._last_rendered_hash = self._pending_render_hash
 
         self._pending_sync_anchor = self._last_anchor
         self._sync_retries = 0
