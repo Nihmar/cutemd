@@ -147,6 +147,29 @@ class AppSettings(QObject):
         self._s.setValue("autosave_interval", value)
 
     # ------------------------------------------------------------------
+    # Auto-sync
+    # ------------------------------------------------------------------
+    def auto_sync_enabled(self, default: bool = False) -> bool:
+        val = self._s.value("auto_sync_enabled", default)
+        return str(val).lower() == "true" if isinstance(val, str) else bool(val)
+
+    def set_auto_sync_enabled(self, value: bool) -> None:
+        self._s.setValue("auto_sync_enabled", value)
+
+    def auto_sync_interval(self, default: int = 300) -> int:
+        return int(self._s.value("auto_sync_interval", default))
+
+    def set_auto_sync_interval(self, value: int) -> None:
+        self._s.setValue("auto_sync_interval", value)
+
+    def sync_on_save(self, default: bool = False) -> bool:
+        val = self._s.value("sync_on_save", default)
+        return str(val).lower() == "true" if isinstance(val, str) else bool(val)
+
+    def set_sync_on_save(self, value: bool) -> None:
+        self._s.setValue("sync_on_save", value)
+
+    # ------------------------------------------------------------------
     # Raw access (for backward compat / complex values)
     # ------------------------------------------------------------------
     def raw_value(self, key: str, default: Any = None) -> Any:

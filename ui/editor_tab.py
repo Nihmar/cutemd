@@ -506,8 +506,9 @@ class EditorTab(QWidget):
             )
             return False
 
-    def auto_save(self) -> None:
-        """Silently save if the file has a path and is modified."""
+    def auto_save(self) -> bool:
+        """Silently save if the file has a path and is modified.
+        Returns True if actually saved."""
         if (
             not self._is_binary_preview
             and self.is_modified
@@ -520,8 +521,10 @@ class EditorTab(QWidget):
                 self.editor.document().setModified(False)
                 self.modified_changed.emit(False)
                 self.title_changed.emit()
+                return True
             except OSError:
                 pass
+        return False
 
     def maybe_save(self) -> bool:
         if not self.is_modified:

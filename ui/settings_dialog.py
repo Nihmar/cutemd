@@ -134,6 +134,9 @@ class SettingsDialog(QDialog):
         current_webdav_user: str = "",
         current_webdav_pass: str = "",
         current_autosave_interval: int = 5,
+        current_auto_sync_enabled: bool = False,
+        current_auto_sync_interval: int = 300,
+        current_sync_on_save: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -427,6 +430,33 @@ class SettingsDialog(QDialog):
             sync_form.addRow("", test_btn)
 
             sync_page_layout.addLayout(sync_form)
+
+            auto_group = QGroupBox(self.tr("Auto Sync"))
+            auto_layout = QVBoxLayout(auto_group)
+
+            self._auto_sync_cb = QCheckBox(self.tr("Auto-sync periodically"))
+            self._auto_sync_cb.setChecked(current_auto_sync_enabled)
+            auto_layout.addWidget(self._auto_sync_cb)
+
+            interval_row = QHBoxLayout()
+            interval_row.addWidget(QLabel(self.tr("Interval:")))
+            self._auto_sync_interval = QSpinBox()
+            self._auto_sync_interval.setRange(1, 3600)
+            self._auto_sync_interval.setValue(current_auto_sync_interval)
+            self._auto_sync_interval.setSuffix(self.tr(" s"))
+            self._auto_sync_interval.setToolTip(self.tr("Sync every N seconds"))
+            interval_row.addWidget(self._auto_sync_interval)
+            interval_row.addStretch()
+            auto_layout.addLayout(interval_row)
+
+            self._sync_on_save_cb = QCheckBox(self.tr("Sync file immediately on save"))
+            self._sync_on_save_cb.setChecked(current_sync_on_save)
+            auto_layout.addWidget(self._sync_on_save_cb)
+
+            self._auto_sync_cb.toggled.connect(self._auto_sync_interval.setEnabled)
+            self._auto_sync_interval.setEnabled(current_auto_sync_enabled)
+
+            sync_page_layout.addWidget(auto_group)
             sync_page_layout.addStretch()
             self._stack.addWidget(sync_page)
 
@@ -553,6 +583,21 @@ class SettingsDialog(QDialog):
 
     def selected_autosave_interval(self) -> int:
         return self._autosave_spin.value()
+
+    def selected_auto_sync_enabled(self) -> bool:
+        if hasattr(self, "_auto_sync_cb"):
+            return self._auto_sync_cb.isChecked()
+        return False
+
+    def selected_auto_sync_interval(self) -> int:
+        if hasattr(self, "_auto_sync_interval"):
+            return self._auto_sync_interval.value()
+        return 300
+
+    def selected_sync_on_save(self) -> bool:
+        if hasattr(self, "_sync_on_save_cb"):
+            return self._sync_on_save_cb.isChecked()
+        return False
 
     def selected_webdav_url(self) -> str:
         if self._webdav_url_edit is not None:

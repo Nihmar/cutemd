@@ -109,6 +109,14 @@ class MainWindow(QMainWindow):
         self._autosave_timer.timeout.connect(self._on_autosave)
         self._autosave_timer.start()
 
+        # --- Auto-sync timer (starts only when enabled + WebDAV configured) ---
+        self._auto_sync_timer = QTimer(self)
+        self._auto_sync_timer.timeout.connect(
+            lambda: self._on_webdav_sync(auto_triggered=True)
+        )
+        self._auto_sync_interval = max(10, self._s.auto_sync_interval()) * 1000
+        self._auto_sync_timer.setInterval(self._auto_sync_interval)
+
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
 
@@ -885,6 +893,9 @@ class MainWindow(QMainWindow):
             current_webdav_user=webdav_user,
             current_webdav_pass=webdav_pass,
             current_autosave_interval=self._s.autosave_interval(),
+            current_auto_sync_enabled=self._s.auto_sync_enabled(),
+            current_auto_sync_interval=self._s.auto_sync_interval(),
+            current_sync_on_save=self._s.sync_on_save(),
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -1021,6 +1032,13 @@ class MainWindow(QMainWindow):
             else:
                 self._folder_settings.clear_webdav_config()
 
+            # --- Auto-sync settings ---
+            self._s.set_auto_sync_enabled(dlg.selected_auto_sync_enabled())
+            self._s.set_auto_sync_interval(dlg.selected_auto_sync_interval())
+            self._s.set_sync_on_save(dlg.selected_sync_on_save())
+
+            self._update_auto_sync_timer()
+
             self._update_menu_state()
         else:
             # No folder open — persist to global QSettings
@@ -1032,6 +1050,19 @@ class MainWindow(QMainWindow):
             self._s.set_line_number_mode(self._line_number_mode)
             self._s.set_cursor_width(self._cursor_width)
 
+    def _update_auto_sync_timer(self) -> None:
+        """Start or stop the auto-sync timer based on current settings."""
+        has_webdav = (
+            self._folder_settings is not None
+            and self._folder_settings.has_webdav_config()
+        )
+        if self._s.auto_sync_enabled() and has_webdav:
+            interval = max(10, self._s.auto_sync_interval()) * 1000
+            self._auto_sync_timer.setInterval(interval)
+            self._auto_sync_timer.start()
+        else:
+            self._auto_sync_timer.stop()
+
     def _on_toggle_preview(self, checked: bool) -> None:
         self._preview_visible = checked
         for i in range(self._tabs.count()):
@@ -1039,20 +1070,25 @@ class MainWindow(QMainWindow):
             if isinstance(tab, EditorTab):
                 tab.set_preview_visible(checked)
 
-    def _on_webdav_sync(self) -> None:
+    def _on_webdav_sync(self, auto_triggered: bool = False) -> None:
         if self._folder_settings is None or self._folder_path is None:
+            return
+
+        # Prevent concurrent syncs
+        if getattr(self, "_sync_busy", False):
             return
 
         cfg = self._folder_settings.load_webdav_config()
         if not cfg:
-            QMessageBox.information(
-                self,
-                self.tr("Sync"),
-                self.tr(
-                    "No WebDAV configuration found for this folder.\n"
-                    "Set it up in Settings \u2192 Sync."
-                ),
-            )
+            if not auto_triggered:
+                QMessageBox.information(
+                    self,
+                    self.tr("Sync"),
+                    self.tr(
+                        "No WebDAV configuration found for this folder.\n"
+                        "Set it up in Settings \u2192 Sync."
+                    ),
+                )
             return
 
         webdav_url = cfg.get("url", "")
@@ -1062,11 +1098,13 @@ class MainWindow(QMainWindow):
         from ui.webdav_sync import SyncResult, SyncThread
 
         if not webdav_url:
-            QMessageBox.warning(
-                self, self.tr("Sync"), self.tr("WebDAV URL is not configured.")
-            )
+            if not auto_triggered:
+                QMessageBox.warning(
+                    self, self.tr("Sync"), self.tr("WebDAV URL is not configured.")
+                )
             return
 
+        self._sync_busy = True
         self._status_sync.setText(self.tr("Syncing..."))
         self._sync_thread = SyncThread(self._folder_path, webdav_url, user, pwd)
 
@@ -1074,6 +1112,7 @@ class MainWindow(QMainWindow):
             self._status_sync.setText(self.tr("Sync: {}").format(msg))
 
         def _on_finished(result) -> None:
+            self._sync_busy = False
             r: SyncResult = result
             if r.errors:
                 self._status_sync.setText(self.tr("Sync completed with errors"))
@@ -1238,6 +1277,7 @@ class MainWindow(QMainWindow):
         self._search_panel.set_folder(path)
         self._add_recent_folder(path)
         self._s.set_last_folder(path)
+        self._update_auto_sync_timer()
         self._update_menu_state()
 
     def _restore_last_folder(self) -> None:
@@ -1331,6 +1371,7 @@ class MainWindow(QMainWindow):
         self._tree_panel.set_root_path("")
         self._search_panel.set_folder(None)
         self._s.remove_last_folder()
+        self._auto_sync_timer.stop()
         self._update_menu_state()
 
     def _on_tree_file_activated(self, path: str) -> None:
@@ -1469,10 +1510,15 @@ class MainWindow(QMainWindow):
 
     def _on_autosave(self) -> None:
         """Autosave: silently save all modified tabs with a file path."""
+        saved_any = False
         for i in range(self._tabs.count()):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab):
-                tab.auto_save()
+                if tab.auto_save() is not False:
+                    saved_any = True
+        # Sync-on-save: trigger sync if enabled and something was saved
+        if saved_any and self._s.sync_on_save():
+            self._on_webdav_sync(auto_triggered=True)
 
     def _on_new(self) -> None:
         self._add_tab()
@@ -1487,6 +1533,9 @@ class MainWindow(QMainWindow):
                 self._refresh_tab_title(tab)
                 if tab.file_path:
                     self._tree_panel.select_file(tab.file_path)
+                # Sync-on-save for manual saves
+                if self._s.sync_on_save():
+                    self._on_webdav_sync(auto_triggered=True)
         else:
             self._on_save_as()
 
@@ -1579,6 +1628,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:
         self._autosave_timer.stop()
+        self._auto_sync_timer.stop()
         for i in range(self._tabs.count() - 1, -1, -1):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab) and not tab.maybe_save():
