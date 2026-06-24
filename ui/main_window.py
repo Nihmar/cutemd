@@ -1114,33 +1114,29 @@ class MainWindow(QMainWindow):
         def _on_finished(result) -> None:
             self._sync_busy = False
             r: SyncResult = result
-            if r.errors:
-                self._status_sync.setText(self.tr("Sync completed with errors"))
-            else:
-                self._status_sync.setText(self.tr("Sync completed"))
 
-            msg_parts = []
+            # Build a concise status bar summary
+            parts = []
             if r.uploaded:
-                msg_parts.append(self.tr("{} uploaded").format(len(r.uploaded)))
+                parts.append(self.tr("{} uploaded").format(len(r.uploaded)))
             if r.downloaded:
-                msg_parts.append(self.tr("{} downloaded").format(len(r.downloaded)))
+                parts.append(self.tr("{} downloaded").format(len(r.downloaded)))
             if r.deleted:
-                msg_parts.append(self.tr("{} deleted").format(len(r.deleted)))
+                parts.append(self.tr("{} deleted").format(len(r.deleted)))
             if r.conflicts_skipped:
-                msg_parts.append(
-                    self.tr("{} up to date").format(len(r.conflicts_skipped))
-                )
+                parts.append(self.tr("{} up to date").format(len(r.conflicts_skipped)))
+            status = ", ".join(parts) if parts else self.tr("Sync completed")
             if r.errors:
-                msg_parts.append(self.tr("{} errors").format(len(r.errors)))
+                status += " \u2014 " + self.tr("{} errors").format(len(r.errors))
+                # Popup only on errors
+                summary = self.tr("Sync completed with errors")
+                if r.errors:
+                    summary += "\n\n" + "\n".join(r.errors[:5])
+                    if len(r.errors) > 5:
+                        summary += self.tr("\n...and {} more").format(len(r.errors) - 5)
+                QMessageBox.warning(self, self.tr("Sync Result"), summary)
 
-            summary = "\n".join(msg_parts)
-            if r.errors:
-                summary += "\n\n" + "\n".join(r.errors[:5])
-                if len(r.errors) > 5:
-                    summary += self.tr("\n...and {} more").format(len(r.errors) - 5)
-
-            QMessageBox.information(self, self.tr("Sync Result"), summary)
-
+            self._status_sync.setText(status)
             self._tree_panel.set_root_path(self._folder_path)
 
         self._sync_thread.progress.connect(_on_progress)
