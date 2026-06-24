@@ -9,7 +9,6 @@ from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
     QPoint,
-    QPropertyAnimation,
     QRect,
     QSize,
     Qt,
@@ -21,18 +20,13 @@ from PySide6.QtCore import (
 from PySide6.QtGui import (
     QColor,
     QFont,
-    QKeySequence,
     QMouseEvent,
     QPainter,
-    QShortcut,
     QTextCharFormat,
     QTextCursor,
-    QTextDocument,
 )
 from PySide6.QtWidgets import (
-    QHBoxLayout,
     QLabel,
-    QLineEdit,
     QMessageBox,
     QPlainTextEdit,
     QSplitter,
