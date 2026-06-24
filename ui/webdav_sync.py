@@ -141,23 +141,9 @@ class WebDAVClient:
                             pass
                     lm = prop.find(f"{_NS_D_PREFIX}getlastmodified")
                     if lm is not None and lm.text is not None:
-                        for fmt in (
-                            "%a, %d %b %Y %H:%M:%S %Z",
-                            "%a, %d %b %Y %H:%M:%S GMT",
-                            "%Y-%m-%dT%H:%M:%S%z",
-                            "%Y-%m-%dT%H:%M:%SZ",
-                        ):
-                            try:
-                                entry["lastmodified"] = datetime.strptime(
-                                    lm.text.strip(), fmt
-                                )
-                                if entry["lastmodified"].tzinfo is None:
-                                    entry["lastmodified"] = entry[
-                                        "lastmodified"
-                                    ].replace(tzinfo=timezone.utc)
-                                break
-                            except ValueError:
-                                continue
+                        dt = _parse_http_datetime(lm.text)
+                        if dt is not None:
+                            entry["lastmodified"] = dt
 
             raw_entries.append((raw, entry))
             if dir_href is None and entry["is_dir"]:
@@ -266,19 +252,9 @@ class WebDAVClient:
                     continue
                 lm = prop.find(f"{_NS_D_PREFIX}getlastmodified")
                 if lm is not None and lm.text:
-                    for fmt in (
-                        "%a, %d %b %Y %H:%M:%S %Z",
-                        "%a, %d %b %Y %H:%M:%S GMT",
-                        "%Y-%m-%dT%H:%M:%S%z",
-                        "%Y-%m-%dT%H:%M:%SZ",
-                    ):
-                        try:
-                            dt = datetime.strptime(lm.text.strip(), fmt)
-                            if dt.tzinfo is None:
-                                dt = dt.replace(tzinfo=timezone.utc)
-                            return _mtime_ns_from_datetime(dt)
-                        except ValueError:
-                            continue
+                    dt = _parse_http_datetime(lm.text)
+                    if dt is not None:
+                        return _mtime_ns_from_datetime(dt)
         except Exception:
             pass
         return 0
@@ -297,6 +273,24 @@ class WebDAVClient:
 # ---------------------------------------------------------------------------
 
 _EXCLUDE_DIRS = {".cutemd", ".git", ".svn", "_dav"}
+
+
+def _parse_http_datetime(text: str) -> datetime | None:
+    """Parse a WebDAV Last-Modified string into an aware datetime, or None."""
+    for fmt in (
+        "%a, %d %b %Y %H:%M:%S %Z",
+        "%a, %d %b %Y %H:%M:%S GMT",
+        "%Y-%m-%dT%H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%SZ",
+    ):
+        try:
+            dt = datetime.strptime(text.strip(), fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except ValueError:
+            continue
+    return None
 
 
 def _mtime_ns_from_datetime(dt: datetime | None) -> int:
@@ -341,9 +335,10 @@ def _load_sync_state(local_root: Path) -> dict[str, int]:
 
 
 def _record_upload(
-    client: "WebDAVClient",
+    client: WebDAVClient,
     local_file: Path,
     rel: str,
+    local_ns: int,
     new_state: dict[str, int],
 ) -> None:
     """Align local mtime to the server's value after a successful upload.
@@ -364,7 +359,7 @@ def _record_upload(
     else:
         # Fallback: server mtime unreadable (rare).  A one-time
         # upload→download cycle may happen on the next sync.
-        new_state[rel] = local_file.stat().st_mtime_ns
+        new_state[rel] = local_ns
 
 
 def _save_sync_state(local_root: Path, state: dict[str, int]) -> None:
@@ -483,7 +478,7 @@ def sync_folder(
                 for i in range(1, len(parts) + 1):
                     client.mkdir("/".join(parts[:i]))
                 if client.upload(local_file, rel):
-                    _record_upload(client, local_file, rel, new_state)
+                    _record_upload(client, local_file, rel, local_ns, new_state)
                     result.uploaded.append(rel)
                     if progress_callback:
                         progress_callback(
@@ -539,7 +534,7 @@ def sync_folder(
         elif local_changed and not remote_changed:
             # Only the local file was modified → upload.
             if client.upload(local_file, rel):
-                _record_upload(client, local_file, rel, new_state)
+                _record_upload(client, local_file, rel, local_ns, new_state)
                 result.uploaded.append(rel)
                 if progress_callback:
                     progress_callback(f"[{idx}/{total}] Uploaded      {_fmt_rel(rel)}")
@@ -562,7 +557,7 @@ def sync_folder(
             # When timestamps are tied we skip to be safe.
             if local_ns > remote_ns:
                 if client.upload(local_file, rel):
-                    _record_upload(client, local_file, rel, new_state)
+                    _record_upload(client, local_file, rel, local_ns, new_state)
                     result.uploaded.append(rel)
                     if progress_callback:
                         progress_callback(
