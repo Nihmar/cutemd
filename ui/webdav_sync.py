@@ -110,7 +110,7 @@ class WebDAVClient:
             timeout=self._timeout,
         )
         if resp.status_code not in (207, 200):
-            return
+            raise RuntimeError(f"PROPFIND {url} -> HTTP {resp.status_code}")
 
         root = ET.fromstring(resp.content)
         raw_entries: list[tuple[str, dict]] = []
@@ -216,12 +216,13 @@ class WebDAVClient:
     def download(self, remote_rel: str, local_path: Path) -> bool:
         url = self._build_url(remote_rel)
         try:
-            resp = self._session.get(url, timeout=self._timeout)
+            resp = self._session.get(url, stream=True, timeout=self._timeout)
             if resp.status_code != 200:
                 return False
             local_path.parent.mkdir(parents=True, exist_ok=True)
             with open(local_path, "wb") as fh:
-                fh.write(resp.content)
+                for chunk in resp.iter_content(chunk_size=65536):
+                    fh.write(chunk)
             return True
         except Exception:
             return False
