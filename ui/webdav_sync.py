@@ -85,24 +85,18 @@ class WebDAVClient:
         except requests.RequestException as e:
             return False, str(e)
 
-    def list_files(self) -> dict[str, dict]:
-        """Return a flat {relpath: metadata} dict, or an empty dict on failure.
+    def list_files(self) -> tuple[bool, dict[str, dict]]:
+        """Return (ok, {relpath: metadata}) for every file on the server.
 
-        The caller MUST check whether the result is usable: an empty dict
-        with no error is ambiguous (truly empty remote vs listing failure).
-        We use a separate flag returned via a mutable wrapper so the sync
-        logic can abort safely.
+        If *ok* is False the remote listing failed and the dict is empty.
+        The caller must honour the flag.
         """
         result: dict[str, dict] = {}
-        success = True
         try:
             self._list_files_recursive("", result)
+            return True, result
         except Exception:
-            result.clear()
-            success = False
-        # Attach the success flag to the dict so callers can inspect it.
-        result["__success__"] = {"ok": success}  # type: ignore[assignment]
-        return result
+            return False, {}
 
     def _list_files_recursive(self, rel_dir: str, result: dict[str, dict]) -> None:
         url = self._build_url(rel_dir)
@@ -179,7 +173,10 @@ class WebDAVClient:
             return
 
         if dir_href is None:
-            dir_href = raw_entries[0][0]
+            # The request URL didn't appear in any response entry.
+            # This should never happen with a well-behaved server;
+            # bail out rather than guessing the wrong directory.
+            return
 
         for raw, entry in raw_entries:
             rel = self._make_rel(raw, dir_href, rel_dir)
@@ -346,8 +343,8 @@ def sync_folder(
 
     if progress_callback:
         progress_callback("Listing remote files...")
-    remote = client.list_files()
-    if not remote.pop("__success__", {}).get("ok", False):  # type: ignore[arg-type]
+    ok, remote = client.list_files()
+    if not ok:
         result.errors.append("Remote listing failed — aborting sync")
         return result
 
