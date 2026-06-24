@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from markdown_it import MarkdownIt
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -31,7 +31,6 @@ from PySide6.QtWidgets import (
 )
 
 from markdown.html_builder import (
-    build_html,
     preprocess_wikilink_images,
     preprocess_wikilinks,
     strip_frontmatter,
@@ -41,6 +40,7 @@ from ui.image_viewer import ImageViewer
 from ui.markdown_completer import MarkdownAutoCompleter
 from ui.pdf_viewer import PdfViewer
 from ui.preview_browser import PreviewTextBrowser, get_image_size
+from ui.preview_worker import PreviewWorker
 from ui.syntax_highlighter import MarkdownHighlighter
 
 # ---------------------------------------------------------------------------
@@ -201,6 +201,10 @@ class EditorTab(QWidget):
         self._current_line_sel: object = None
         self._is_binary_preview = False
 
+        # Async preview state.
+        self._preview_busy = False
+        self._preview_pending = False
+
         self._hover_link_key: tuple[int, int, int] | None = None
 
         self._editor_font_family = editor_font_family
@@ -210,6 +214,14 @@ class EditorTab(QWidget):
 
         # --- Editor ---
         self.editor = QPlainTextEdit()
+
+        # Timer must exist before textChanged is connected (may fire
+        # synchronously during setPlainText).
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(300)
+        self._preview_timer.timeout.connect(self._update_preview)
+
         self._apply_editor_font()
         self.editor.setTabStopDistance(40)
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
@@ -258,11 +270,12 @@ class EditorTab(QWidget):
         self.editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
         self.preview.verticalScrollBar().valueChanged.connect(self._on_preview_scrolled)
 
-        # --- Debounce timer ---
-        self._preview_timer = QTimer(self)
-        self._preview_timer.setSingleShot(True)
-        self._preview_timer.setInterval(300)
-        self._preview_timer.timeout.connect(self._update_preview)
+        # --- Async preview worker ---
+        self._preview_thread = QThread(self)
+        self._preview_worker = PreviewWorker()
+        self._preview_worker.moveToThread(self._preview_thread)
+        self._preview_worker.result_ready.connect(self._on_preview_ready)
+        self._preview_thread.start()
 
         # --- Layout ---
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -521,18 +534,30 @@ class EditorTab(QWidget):
         self.preview.set_base_dir(base_dir)
         pw = self.preview.width()
 
-        html = build_html(
-            text=text,
-            md=self._md,
-            preview_css=self._preview_css,
-            theme=self._theme,
-            font_family=self._preview_font_family,
-            font_size=self._preview_font_size,
-            base_dir=base_dir,
-            max_width=max(pw, 200),
-            get_image_size=get_image_size,
-            images_dir=self._images_dir,
-        )
+        # Collect render params.
+        params: dict[str, Any] = {
+            "text": text,
+            "md": self._md,
+            "preview_css": self._preview_css,
+            "theme": self._theme,
+            "font_family": self._preview_font_family,
+            "font_size": self._preview_font_size,
+            "base_dir": base_dir,
+            "max_width": max(pw, 200),
+            "get_image_size": get_image_size,
+            "images_dir": self._images_dir,
+        }
+
+        if self._preview_busy:
+            self._preview_pending = True
+            self._pending_preview_params = params
+            return
+
+        self._preview_busy = True
+        self._preview_worker.render_requested.emit(params)
+
+    def _on_preview_ready(self, html: str) -> None:
+        self._preview_busy = False
 
         self._syncing_scroll += 1
         self.preview.setHtml(html)
@@ -541,6 +566,12 @@ class EditorTab(QWidget):
         self._pending_sync_anchor = self._last_anchor
         self._sync_retries = 0
         self._sync_preview_scroll()
+
+        if self._preview_pending:
+            self._preview_pending = False
+            params = self._pending_preview_params
+            self._preview_busy = True
+            self._preview_worker.render_requested.emit(params)
 
     def _build_line_anchor_map(self, text: str) -> list[int]:
         from markdown.tools import BLOCK_OPEN_TYPES
