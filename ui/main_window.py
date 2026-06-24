@@ -101,6 +101,7 @@ class MainWindow(QMainWindow):
         self._line_number_mode = self._s.line_number_mode()
         self._cursor_width = self._s.cursor_width()
         self._smart_editing = self._s.smart_editing()
+        self._smart_editing["link_style"] = self._s.raw_value("link_style", "md")
 
         # --- Autosave timer ---
         self._autosave_timer = QTimer(self)
@@ -167,6 +168,7 @@ class MainWindow(QMainWindow):
             "act_redo": self.act_redo,
             "act_find": self.act_find,
             "act_find_files": self.act_find_files,
+            "act_replace_files": self.act_replace_files,
             "act_toggle_preview": self.act_toggle_preview,
             "act_toggle_split": self.act_toggle_split,
             "act_toggle_tree": self.act_toggle_tree,
@@ -174,6 +176,11 @@ class MainWindow(QMainWindow):
             "act_settings": self.act_settings,
             "act_shortcuts": self.act_shortcuts,
             "act_webdav_sync": self.act_webdav_sync,
+            "act_zoom_in": self.act_zoom_in,
+            "act_zoom_out": self.act_zoom_out,
+            "act_zoom_reset": self.act_zoom_reset,
+            "act_zoom_preview_in": self.act_zoom_preview_in,
+            "act_zoom_preview_out": self.act_zoom_preview_out,
         }
         self._shortcut_mgr = ShortcutManager(None)
         self._shortcut_mgr.apply(self._all_actions)
@@ -234,6 +241,12 @@ class MainWindow(QMainWindow):
         )
         self.act_find_files.triggered.connect(self._on_find_in_files)
 
+        self.act_replace_files = QAction(self.tr("Replace in &Files…"), self)
+        self.act_replace_files.setShortcut(
+            QKeySequence(Qt.Modifier.CTRL | Qt.Modifier.SHIFT | Qt.Key.Key_H)
+        )
+        self.act_replace_files.triggered.connect(self._on_replace_in_files)
+
         # View
         self.act_toggle_preview = QAction(self.tr("Toggle &Preview"), self)
         self.act_toggle_preview.setCheckable(True)
@@ -266,6 +279,27 @@ class MainWindow(QMainWindow):
         self.act_webdav_sync.setShortcut(QKeySequence("Ctrl+Shift+S"))
         self.act_webdav_sync.triggered.connect(self._on_webdav_sync)
 
+        # Zoom
+        self.act_zoom_in = QAction(self.tr("Zoom &In (Editor)"), self)
+        self.act_zoom_in.setShortcut(QKeySequence("Ctrl+="))
+        self.act_zoom_in.triggered.connect(lambda: self._zoom_editor(1))
+
+        self.act_zoom_out = QAction(self.tr("Zoom &Out (Editor)"), self)
+        self.act_zoom_out.setShortcut(QKeySequence("Ctrl+-"))
+        self.act_zoom_out.triggered.connect(lambda: self._zoom_editor(-1))
+
+        self.act_zoom_reset = QAction(self.tr("&Reset Zoom"), self)
+        self.act_zoom_reset.setShortcut(QKeySequence("Ctrl+0"))
+        self.act_zoom_reset.triggered.connect(self._zoom_reset)
+
+        self.act_zoom_preview_in = QAction(self.tr("Zoom Preview &In"), self)
+        self.act_zoom_preview_in.setShortcut(QKeySequence("Ctrl+Shift+="))
+        self.act_zoom_preview_in.triggered.connect(lambda: self._zoom_preview(1))
+
+        self.act_zoom_preview_out = QAction(self.tr("Zoom Preview O&ut"), self)
+        self.act_zoom_preview_out.setShortcut(QKeySequence("Ctrl+Shift+-"))
+        self.act_zoom_preview_out.triggered.connect(lambda: self._zoom_preview(-1))
+
     # ------------------------------------------------------------------
     # Menubar
     # ------------------------------------------------------------------
@@ -289,6 +323,7 @@ class MainWindow(QMainWindow):
         self._edit_menu.addSeparator()
         self._edit_menu.addAction(self.act_find)
         self._edit_menu.addAction(self.act_find_files)
+        self._edit_menu.addAction(self.act_replace_files)
 
         self._view_menu = mb.addMenu(self.tr("&View"))
         self._view_menu.addAction(self.act_toggle_preview)
@@ -296,6 +331,13 @@ class MainWindow(QMainWindow):
         self._view_menu.addSeparator()
         self._view_menu.addAction(self.act_toggle_tree)
         self._view_menu.addAction(self.act_toggle_statusbar)
+        self._view_menu.addSeparator()
+        self._view_menu.addAction(self.act_zoom_in)
+        self._view_menu.addAction(self.act_zoom_out)
+        self._view_menu.addAction(self.act_zoom_reset)
+        self._view_menu.addSeparator()
+        self._view_menu.addAction(self.act_zoom_preview_in)
+        self._view_menu.addAction(self.act_zoom_preview_out)
 
         self._settings_menu = mb.addMenu(self.tr("&Settings"))
         self._settings_menu.addAction(self.act_settings)
@@ -404,6 +446,7 @@ class MainWindow(QMainWindow):
         # --- Inline status bar ---
         self._status_file = QLabel("...")
         self._status_sync = QLabel("")
+        self._status_encoding = QLabel("")
         self._status_cursor = QLabel("Ln 1, Col 1")
         self._status_words = QLabel("0 words")
         status_widget = QWidget()
@@ -412,6 +455,7 @@ class MainWindow(QMainWindow):
         sl.setContentsMargins(8, 1, 8, 1)
         sl.addWidget(self._status_file, 1)
         sl.addWidget(self._status_sync)
+        sl.addWidget(self._status_encoding)
         sl.addWidget(self._status_cursor)
         sl.addWidget(self._status_words)
 
@@ -573,6 +617,7 @@ class MainWindow(QMainWindow):
         tab.file_link_clicked.connect(
             lambda target, t=tab: self._on_file_link_clicked(t, target)
         )
+        tab.encoding_changed.connect(self._on_tab_encoding_changed)
 
         # Right-click context menu on the editor
         tab.editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -650,6 +695,9 @@ class MainWindow(QMainWindow):
         self._status_cursor.setText(cursor)
         self._status_words.setText(words)
 
+    def _on_tab_encoding_changed(self, encoding: str) -> None:
+        self._status_encoding.setText(encoding)
+
     def _on_tab_close_requested(self, index: int) -> None:
         tab = self._tabs.widget(index)
         if isinstance(tab, EditorTab) and not tab.maybe_save():
@@ -722,6 +770,24 @@ class MainWindow(QMainWindow):
             self._search_panel._search_input.setFocus()
             self._search_panel._search_input.selectAll()
 
+    def _on_replace_in_files(self) -> None:
+        if self._folder_path is None:
+            return
+        if self._left_stack.currentIndex() == 1 and not self._left_stack.isHidden():
+            self._search_panel._replace_input.setFocus()
+            self._search_panel._replace_input.selectAll()
+        else:
+            self._side_search_btn.blockSignals(True)
+            self._side_tree_btn.blockSignals(True)
+            self._side_search_btn.setChecked(True)
+            self._side_tree_btn.setChecked(False)
+            self._side_search_btn.blockSignals(False)
+            self._side_tree_btn.blockSignals(False)
+            self._left_stack.setCurrentIndex(1)
+            self._show_left_panel()
+            self._search_panel._replace_input.setFocus()
+            self._search_panel._replace_input.selectAll()
+
     def _open_file_at_line(self, location: tuple) -> None:
         path, line_num = location
         existing = self._find_tab_for_file(path)
@@ -736,15 +802,13 @@ class MainWindow(QMainWindow):
                 tab = self._add_tab()
                 tab.load_file(path)
         # Position cursor at the target line
-        cursor = tab.editor.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.Start)
-        cursor.movePosition(
-            QTextCursor.MoveOperation.NextBlock,
-            QTextCursor.MoveMode.MoveAnchor,
-            line_num - 1,
-        )
-        tab.editor.setTextCursor(cursor)
-        tab.editor.centerCursor()
+        block = tab.editor.document().findBlockByNumber(line_num - 1)
+        if block.isValid():
+            cursor = QTextCursor(block)
+            cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+            tab.editor.setTextCursor(cursor)
+            tab.editor.centerCursor()
+        tab.editor.setFocus()
 
     def _on_editor_context_menu(self, point: QPoint) -> None:
         show_editor_context_menu(
@@ -896,6 +960,7 @@ class MainWindow(QMainWindow):
             current_auto_sync_enabled=self._s.auto_sync_enabled(),
             current_auto_sync_interval=self._s.auto_sync_interval(),
             current_sync_on_save=self._s.sync_on_save(),
+            current_session_restore_enabled=self._s.session_restore_enabled(),
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -1037,6 +1102,9 @@ class MainWindow(QMainWindow):
             self._s.set_auto_sync_interval(dlg.selected_auto_sync_interval())
             self._s.set_sync_on_save(dlg.selected_sync_on_save())
 
+            # --- Session restore ---
+            self._s.set_session_restore_enabled(dlg.selected_session_restore_enabled())
+
             self._update_auto_sync_timer()
 
             self._update_menu_state()
@@ -1158,10 +1226,17 @@ class MainWindow(QMainWindow):
             "act_redo": self.act_redo,
             "act_find": self.act_find,
             "act_find_files": self.act_find_files,
+            "act_replace_files": self.act_replace_files,
             "act_toggle_preview": self.act_toggle_preview,
             "act_toggle_split": self.act_toggle_split,
             "act_toggle_tree": self.act_toggle_tree,
             "act_toggle_statusbar": self.act_toggle_statusbar,
+            "act_zoom_in": self.act_zoom_in,
+            "act_zoom_out": self.act_zoom_out,
+            "act_zoom_reset": self.act_zoom_reset,
+            "act_zoom_preview_in": self.act_zoom_preview_in,
+            "act_zoom_preview_out": self.act_zoom_preview_out,
+            "act_webdav_sync": self.act_webdav_sync,
             "act_settings": self.act_settings,
             "act_shortcuts": self.act_shortcuts,
         }
@@ -1207,6 +1282,30 @@ class MainWindow(QMainWindow):
                 if cur == Qt.Orientation.Horizontal
                 else Qt.Orientation.Horizontal
             )
+
+    # ------------------------------------------------------------------
+    # Zoom
+    # ------------------------------------------------------------------
+    def _zoom_editor(self, delta: int) -> None:
+        tab = self._current_tab()
+        if tab is None:
+            return
+        tab.zoom_editor(delta)
+        self._editor_font_size = tab.editor_font_size()
+
+    def _zoom_preview(self, delta: int) -> None:
+        tab = self._current_tab()
+        if tab is None:
+            return
+        tab.zoom_preview(delta)
+        self._preview_font_size = tab.preview_font_size()
+
+    def _zoom_reset(self) -> None:
+        tab = self._current_tab()
+        if tab is None:
+            return
+        tab.set_editor_font(self._editor_font_family, self._editor_font_size)
+        tab.set_preview_font(self._preview_font_family, self._preview_font_size)
 
     # ------------------------------------------------------------------
     # File operations
@@ -1290,6 +1389,11 @@ class MainWindow(QMainWindow):
             self._update_menu_state()
             return
 
+        # Try session restore first (if enabled and no CLI files)
+        if self._restore_session():
+            self._update_menu_state()
+            return
+
         last = self._s.last_folder()
         if last and Path(last).is_dir():
             self._set_folder(Path(last))
@@ -1313,6 +1417,8 @@ class MainWindow(QMainWindow):
         self.act_close_folder.setEnabled(folder_mode)
         self.act_find_files.setVisible(folder_mode)
         self.act_find_files.setEnabled(folder_mode)
+        self.act_replace_files.setVisible(folder_mode)
+        self.act_replace_files.setEnabled(folder_mode)
         webdav_ready = (
             folder_mode
             and self._folder_settings is not None
@@ -1352,6 +1458,46 @@ class MainWindow(QMainWindow):
         recent = [p for p in recent if p != sp]
         recent.insert(0, sp)
         self._s.set_recent_folders(recent[:10])
+
+    def _save_session(self) -> None:
+        """Save the list of open tab file paths and current folder to settings."""
+        tabs: list[str] = []
+        for i in range(self._tabs.count()):
+            tab = self._tabs.widget(i)
+            if isinstance(tab, EditorTab) and tab.file_path:
+                tabs.append(str(tab.file_path))
+        self._s.set_session_restore_tabs(tabs)
+        if self._folder_path:
+            self._s.set_raw_value("session_restore_folder", str(self._folder_path))
+        else:
+            self._s.set_raw_value("session_restore_folder", "")
+
+    def _restore_session(self) -> bool:
+        """Restore folder and open tabs from the last session. Returns True if any tabs restored."""
+        if not self._s.session_restore_enabled():
+            return False
+        # Restore folder first if one was open
+        folder_str = self._s.raw_value("session_restore_folder", "")
+        if folder_str:
+            folder = Path(folder_str)
+            if folder.is_dir():
+                self._set_folder(folder)
+        saved_tabs = self._s.session_restore_tabs()
+        if not saved_tabs:
+            return False
+        restored = 0
+        for path_str in saved_tabs:
+            p = Path(path_str)
+            if p.is_file():
+                tab = self._add_tab()
+                tab.load_file(p)
+                restored += 1
+        if restored > 0:
+            # Remove the untitled tab left by _set_folder / the initial one
+            untitled = self._tabs.widget(0)
+            if isinstance(untitled, EditorTab) and untitled.file_path is None:
+                self._tabs.removeTab(0)
+        return restored > 0
 
     def _on_close_folder(self) -> None:
         tab = self._current_tab()
@@ -1597,6 +1743,7 @@ class MainWindow(QMainWindow):
         self.act_redo.setText(self.tr("&Redo"))
         self.act_find.setText(self.tr("&Find…"))
         self.act_find_files.setText(self.tr("Find in &Files…"))
+        self.act_replace_files.setText(self.tr("Replace in &Files…"))
         self.act_toggle_preview.setText(self.tr("Toggle &Preview"))
         self.act_toggle_split.setText(self.tr("Toggle Split &Orientation"))
         self.act_toggle_tree.setText(self.tr("Toggle &File Tree"))
@@ -1604,6 +1751,11 @@ class MainWindow(QMainWindow):
         self.act_settings.setText(self.tr("&Settings…"))
         self.act_shortcuts.setText(self.tr("&Keyboard Shortcuts…"))
         self.act_webdav_sync.setText(self.tr("&Sync Now"))
+        self.act_zoom_in.setText(self.tr("Zoom &In (Editor)"))
+        self.act_zoom_out.setText(self.tr("Zoom &Out (Editor)"))
+        self.act_zoom_reset.setText(self.tr("&Reset Zoom"))
+        self.act_zoom_preview_in.setText(self.tr("Zoom Preview &In"))
+        self.act_zoom_preview_out.setText(self.tr("Zoom Preview O&ut"))
 
         # Menu titles
         self._file_menu.setTitle(self.tr("&File"))
@@ -1630,6 +1782,9 @@ class MainWindow(QMainWindow):
             if isinstance(tab, EditorTab) and not tab.maybe_save():
                 event.ignore()
                 return
+        # Save session if enabled
+        if self._s.session_restore_enabled():
+            self._save_session()
         self._s.set_window_geometry(self.saveGeometry())
         event.accept()
 

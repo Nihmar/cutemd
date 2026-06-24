@@ -1,6 +1,6 @@
 """Entry point for CuteMD – a non-WYSIWYG Markdown editor."""
 
-__version__ = "0.9.7.1"
+__version__ = "0.9.8"
 
 import sys
 from pathlib import Path

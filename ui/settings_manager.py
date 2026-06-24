@@ -170,6 +170,25 @@ class AppSettings(QObject):
         self._s.setValue("sync_on_save", value)
 
     # ------------------------------------------------------------------
+    # Session restore
+    # ------------------------------------------------------------------
+    def session_restore_enabled(self, default: bool = False) -> bool:
+        val = self._s.value("session_restore_enabled", default)
+        return str(val).lower() == "true" if isinstance(val, str) else bool(val)
+
+    def set_session_restore_enabled(self, value: bool) -> None:
+        self._s.setValue("session_restore_enabled", value)
+
+    def session_restore_tabs(self) -> list[str]:
+        val = self._s.value("session_restore_tabs", [])
+        if isinstance(val, str):
+            return [val] if val else []
+        return list(val) if isinstance(val, list) else []
+
+    def set_session_restore_tabs(self, tabs: list[str]) -> None:
+        self._s.setValue("session_restore_tabs", tabs)
+
+    # ------------------------------------------------------------------
     # Raw access (for backward compat / complex values)
     # ------------------------------------------------------------------
     def raw_value(self, key: str, default: Any = None) -> Any:

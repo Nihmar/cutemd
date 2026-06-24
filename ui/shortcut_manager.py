@@ -19,10 +19,16 @@ DEFAULT_SHORTCUTS: dict[str, str] = {
     "act_redo": "Ctrl+Shift+Z",
     "act_find": "Ctrl+F",
     "act_find_files": "Ctrl+Shift+F",
+    "act_replace_files": "Ctrl+Shift+H",
     "act_toggle_preview": "Ctrl+P",
     "act_toggle_tree": "Ctrl+B",
     "act_settings": "Ctrl+,",
     "act_shortcuts": "Ctrl+/",
+    "act_zoom_in": "Ctrl+=",
+    "act_zoom_out": "Ctrl+-",
+    "act_zoom_reset": "Ctrl+0",
+    "act_zoom_preview_in": "Ctrl+Shift+=",
+    "act_zoom_preview_out": "Ctrl+Shift+-",
 }
 
 

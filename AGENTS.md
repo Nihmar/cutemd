@@ -77,6 +77,12 @@ On Linux/AppImage, version is read from `pyproject.toml` / `main.py.__version__`
 
 `translations.py` hardcodes `QSettings("cutemd", "cutemd")` (org, app). `main_window.py` uses the same. Don't change the org/app names without updating both.
 
+## UI completeness rule
+
+Every setting stored to QSettings (or any other config store) **must** have a visible UI control to let the user view and change it. Every keyboard shortcut **must** be listed in a menu, have an icon-label tooltip, or appear in the Shortcuts editor. Never leave a setting or shortcut accessible only via raw config editing — add the corresponding UI widget, menu action, or shortcut-table entry in the same commit.
+
+Similarly, when adding a new action (even without a QSetting), always add a menu entry so the user can discover it.
+
 ## WebDAV sync notes
 
 - Credentials are stored **plaintext** in `.cutemd/webdav.json` as `{"url", "username", "password"}`.

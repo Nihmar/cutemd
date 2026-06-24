@@ -26,6 +26,7 @@ from PySide6.QtGui import (
     QTextCursor,
 )
 from PySide6.QtWidgets import (
+    QApplication,
     QLabel,
     QMessageBox,
     QPlainTextEdit,
@@ -50,6 +51,28 @@ from ui.pdf_viewer import PdfViewer
 from ui.preview_browser import PreviewTextBrowser, get_image_size
 from ui.preview_worker import PreviewWorker
 from ui.syntax_highlighter import MarkdownHighlighter
+
+_LARGE_FILE_THRESHOLD = 1_048_576  # 1 MB
+
+
+def _read_file_with_encoding(path: Path) -> tuple[str | None, str]:
+    """Read a file trying multiple encodings. Returns (text, encoding) or
+    (None, error_message)."""
+    try:
+        return path.read_text(encoding="utf-8"), "utf-8"
+    except (UnicodeDecodeError, UnicodeError):
+        pass
+    for enc in ("utf-8-sig", "cp1252", "iso-8859-1", "latin-1", "ascii"):
+        try:
+            return path.read_text(encoding=enc), enc
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    try:
+        raw = path.read_bytes()
+        return raw.decode("utf-8", errors="replace"), "utf-8 (broken)"
+    except OSError as e:
+        return None, str(e)
+
 
 # ---------------------------------------------------------------------------
 # LineNumberArea
@@ -166,12 +189,14 @@ class EditorTab(QWidget):
     status_changed = Signal(str, str)
     title_changed = Signal()
     file_link_clicked = Signal(str)
+    encoding_changed = Signal(str)
 
     _MD_EXTS = frozenset({".md", ".markdown"})
     _IMG_EXTS = frozenset(
         {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"}
     )
     _PDF_EXTS = frozenset({".pdf"})
+    _DROP_EXTS = _IMG_EXTS | _MD_EXTS
 
     # -- Link detection in the editor (clickable links + hover underline) --
     _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
@@ -210,6 +235,10 @@ class EditorTab(QWidget):
         self._preview_visible = True
         self._current_line_sel: object = None
         self._is_binary_preview = False
+        self._file_encoding: str = "utf-8"
+        self._large_file = False
+        self._link_style: str = "md"
+        self._drag_active = False
 
         # Async preview state.
         self._preview_busy = False
@@ -232,6 +261,7 @@ class EditorTab(QWidget):
 
         # --- Editor ---
         self.editor = QPlainTextEdit()
+        self.editor.setAcceptDrops(True)
 
         # Timer must exist before textChanged is connected (may fire
         # synchronously during setPlainText).
@@ -260,6 +290,7 @@ class EditorTab(QWidget):
         self._viewport.setMouseTracking(True)
         self._viewport.installEventFilter(self)
         self._completer = MarkdownAutoCompleter(self.editor, smart_editing, self)
+        self._link_style = (smart_editing or {}).get("link_style", "md")
 
         # --- Preview stack ---
         self.preview = PreviewTextBrowser()
@@ -407,6 +438,7 @@ class EditorTab(QWidget):
 
     def set_smart_editing(self, settings: dict[str, Any]) -> None:
         self._completer.update_settings(settings)
+        self._link_style = settings.get("link_style", self._link_style)
 
     def set_cursor_width(self, width: int) -> None:
         self.editor.setCursorWidth(width)
@@ -416,6 +448,36 @@ class EditorTab(QWidget):
         self._preview_font_size = size
         self._last_rendered_hash = 0
         self._update_preview()
+
+    # ------------------------------------------------------------------
+    # Zoom
+    # ------------------------------------------------------------------
+    _ZOOM_STEP = 1
+    _ZOOM_MIN = 6
+    _ZOOM_MAX = 40
+
+    def zoom_editor(self, delta: int) -> None:
+        """Zoom the editor font by *delta* points (+1/-1)."""
+        new_size = max(self._ZOOM_MIN, min(self._ZOOM_MAX, self._editor_font_size + delta))
+        if new_size == self._editor_font_size:
+            return
+        self._editor_font_size = new_size
+        self._apply_editor_font()
+
+    def zoom_preview(self, delta: int) -> None:
+        """Zoom the preview font by *delta* points (+1/-1)."""
+        new_size = max(self._ZOOM_MIN, min(self._ZOOM_MAX, self._preview_font_size + delta))
+        if new_size == self._preview_font_size:
+            return
+        self._preview_font_size = new_size
+        self._last_rendered_hash = 0
+        self._update_preview()
+
+    def editor_font_size(self) -> int:
+        return self._editor_font_size
+
+    def preview_font_size(self) -> int:
+        return self._preview_font_size
 
     # ------------------------------------------------------------------
     # File I/O
@@ -435,18 +497,18 @@ class EditorTab(QWidget):
             self.title_changed.emit()
             return
 
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError as e:
+        text, encoding = _read_file_with_encoding(path)
+        if text is None:
             QMessageBox.critical(
                 self,
                 self.tr("Error"),
-                self.tr("Could not open file:\n{}").format(e),
+                self.tr("Could not open file:\n{}").format(encoding),
             )
             return
 
         self.editor.setPlainText(text)
         self._file_path = path
+        self._file_encoding = encoding
         self._saved_text = text
         self._dirty = False
         self._is_binary_preview = False
@@ -454,11 +516,18 @@ class EditorTab(QWidget):
         self._preview_stack.setCurrentIndex(0)
         self._splitter.setSizes([500, 500])
         self.title_changed.emit()
+        self.encoding_changed.emit(encoding)
 
         if ext in self._MD_EXTS:
             self._highlighter.setDocument(self.editor.document())
         else:
             self._highlighter.setDocument(None)
+
+        # Detect large file and disable expensive features
+        self._large_file = path.stat().st_size > _LARGE_FILE_THRESHOLD
+        if self._large_file:
+            self._highlighter.setDocument(None)
+            self._preview_stack.setCurrentIndex(0)
 
     def _load_image(self, path: Path) -> None:
         self.editor.setPlainText(self.tr("Image preview \u2014 {}").format(path.name))
@@ -581,9 +650,20 @@ class EditorTab(QWidget):
         cursor = self.editor.textCursor()
         line = cursor.blockNumber() + 1
         col = cursor.columnNumber() + 1
-        self.status_changed.emit(f"{line}:{col}", "Markdown")
+        if self._large_file:
+            words = self.tr("{} words (large file)").format(
+                len(self.editor.toPlainText().split())
+            )
+        else:
+            words = self.tr("{} words").format(
+                len(self.editor.toPlainText().split())
+            )
+        self.status_changed.emit(f"{line}:{col}", words)
 
     def _on_text_changed(self) -> None:
+        # Large files: disable preview and skip expensive work.
+        if self._large_file:
+            return
         # Debounce adattivo: 150 ms per file piccoli, 500 per file grandi.
         lines = self.editor.document().blockCount()
         self._preview_timer.setInterval(150 if lines < 2000 else 500)
@@ -605,7 +685,7 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
 
     def _update_preview(self) -> None:
-        if not self._preview_visible or self._is_binary_preview:
+        if not self._preview_visible or self._is_binary_preview or self._large_file:
             return
         raw_text = self.editor.toPlainText()
         text = strip_frontmatter(raw_text)
@@ -822,12 +902,12 @@ class EditorTab(QWidget):
         cls, pos_in_block: int, text: str
     ) -> tuple[str, int, int] | None:
         for m in cls._WIKILINK_RE.finditer(text):
-            if m.start() <= pos_in_block <= m.end():
+            if m.start() <= pos_in_block < m.end():
                 inner = m.group(1).strip()
                 target = inner.split("|")[-1].strip() if "|" in inner else inner
                 return (target, m.start(), m.end())
         for m in cls._LINK_RE.finditer(text):
-            if m.start() <= pos_in_block <= m.end():
+            if m.start() <= pos_in_block < m.end():
                 return (m.group(2).strip(), m.start(), m.end())
         return None
 
@@ -1004,17 +1084,188 @@ class EditorTab(QWidget):
                     )
                 )
                 return super().eventFilter(obj, event)
+            if event.type() == QEvent.Type.KeyPress:
+                key_event = event  # type: ignore[assignment]
+                if key_event.key() == Qt.Key.Key_V and bool(
+                    key_event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                ):
+                    if self._paste_image_from_clipboard():
+                        return True
 
         elif obj is self._viewport:
             if event.type() == QEvent.Type.MouseMove:
                 self._on_mouse_move(event)  # type: ignore[arg-type]
             elif event.type() == QEvent.Type.MouseButtonRelease:
                 return self._on_mouse_click(event)  # type: ignore[arg-type]
+            elif event.type() == QEvent.Type.DragEnter:
+                self._on_drag_enter(event)  # type: ignore[arg-type]
+                if not self._drag_active:
+                    return False
+                return True
+            elif event.type() == QEvent.Type.DragLeave:
+                self._drag_active = False
+                return False
+            elif event.type() == QEvent.Type.DragMove:
+                if self._drag_active:
+                    event.acceptProposedAction()  # type: ignore[attr-defined]
+                    return True
+                return False
+            elif event.type() == QEvent.Type.Drop:
+                if self._drag_active and self._on_drop(event):  # type: ignore[arg-type]
+                    self._drag_active = False
+                    return True
+                self._drag_active = False
 
         elif obj is self._preview_stack and event.type() == QEvent.Type.Resize:
             self._preview_timer.start()
 
         return super().eventFilter(obj, event)
+
+    def _paste_image_from_clipboard(self) -> bool:
+        """Check if the clipboard contains an image (bitmap or file URL)
+        and paste it. Returns True if handled."""
+
+        clipboard = QApplication.clipboard()
+        if clipboard is None:
+            return False
+
+        # 1) Try file URLs first (copy from Explorer / file manager)
+        mime = clipboard.mimeData()
+        if mime is not None and mime.hasUrls():
+            for url in mime.urls():
+                if url.isLocalFile():
+                    path = Path(url.toLocalFile())
+                    ext = path.suffix.lower()
+                    if ext in self._IMG_EXTS and path.is_file():
+                        return self._handle_image_file(path)
+                    if ext in self._MD_EXTS and path.is_file():
+                        return self._handle_md_file(path)
+
+        # 2) Try bitmap data (copy from browser / screenshot)
+        img = clipboard.image()
+        if not img.isNull():
+            if self._images_dir is None:
+                return False
+            import datetime
+
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"paste_{ts}.png"
+            dest = self._images_dir / filename
+            self._images_dir.mkdir(parents=True, exist_ok=True)
+            if not img.save(str(dest), "PNG"):
+                return False
+            return self._insert_image_link(dest)
+
+        return False
+
+    def _handle_image_file(self, path: Path) -> bool:
+        """Copy a local image file to the images dir and insert a link.
+        Returns True if handled."""
+        dest_dir = self._images_dir
+        if dest_dir is None:
+            # Fallback: use file's directory (or CWD) + "images" subfolder
+            base = self._file_path.parent if self._file_path else Path.cwd()
+            dest_dir = base / "images"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest = dest_dir / path.name
+        if dest.exists():
+            stem = path.stem
+            ext = path.suffix
+            n = 1
+            while dest.exists():
+                dest = dest_dir / f"{stem}_{n}{ext}"
+                n += 1
+        import shutil
+        try:
+            shutil.copy2(str(path), str(dest))
+        except OSError:
+            return False
+        return self._insert_image_link(dest)
+
+    def _insert_image_link(self, dest: Path) -> bool:
+        """Insert a link to *dest* at the cursor position, respecting
+        the configured link style. Returns True."""
+        if self._file_path and self._file_path.parent:
+            try:
+                rel = dest.relative_to(self._file_path.parent)
+                link = rel.as_posix()
+            except ValueError:
+                link = dest.as_posix()
+        else:
+            link = dest.as_posix()
+
+        if self._link_style == "wiki":
+            syntax = f"![[{link}]]"
+        else:
+            syntax = f"![{dest.stem}]({link})"
+
+        cursor = self.editor.textCursor()
+        cursor.insertText(syntax)
+        self.editor.setFocus()
+        return True
+
+    def _handle_md_file(self, path: Path) -> bool:
+        """Insert a link to a markdown file at the cursor position,
+        respecting the configured link style. Returns True."""
+        if self._file_path and self._file_path.parent:
+            try:
+                rel = path.relative_to(self._file_path.parent)
+                link = rel.as_posix()
+            except ValueError:
+                link = path.as_posix()
+        else:
+            link = path.as_posix()
+
+        if self._link_style == "wiki":
+            syntax = f"[[{link}]]"
+        else:
+            syntax = f"[{path.stem}]({link})"
+
+        cursor = self.editor.textCursor()
+        cursor.insertText(syntax)
+        self.editor.setFocus()
+        return True
+
+    def _on_drag_enter(self, event) -> None:
+        """Accept drag events that contain image or markdown files."""
+        from PySide6.QtCore import QUrl
+
+        self._drag_active = False
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    path = Path(url.toLocalFile())
+                    if path.suffix.lower() in self._DROP_EXTS:
+                        self._drag_active = True
+                        event.acceptProposedAction()
+                        return
+        event.ignore()
+
+    def _on_drop(self, event) -> bool:
+        """Handle dropped image or markdown files. Returns True if handled."""
+        from PySide6.QtCore import QUrl
+
+        if not event.mimeData().hasUrls():
+            return False
+
+        handled = False
+        for url in event.mimeData().urls():
+            if not url.isLocalFile():
+                continue
+            path = Path(url.toLocalFile())
+            ext = path.suffix.lower()
+            if ext in self._IMG_EXTS:
+                if self._handle_image_file(path):
+                    handled = True
+            elif ext in self._MD_EXTS:
+                if self._handle_md_file(path):
+                    handled = True
+
+        if handled:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+        return handled
 
     def changeEvent(self, event) -> None:
         if event.type() == QEvent.Type.LanguageChange:

@@ -7,6 +7,7 @@ as a callback by the UI layer.
 import re
 from pathlib import Path
 from typing import Callable
+from urllib.parse import unquote
 
 _IMG_EXTS_RE = re.compile(r"\.(png|jpg|jpeg|gif|bmp|svg|webp|ico)$", re.I)
 _IMG_DIMS_RE = re.compile(r'(<img\s+)(src="([^"]*)")')
@@ -37,6 +38,7 @@ def _rglob_search(filename: str, root: Path) -> Path | None:
 def resolve_image_path(
     src: str, base_dir: Path, images_dir: Path | None = None
 ) -> Path | None:
+    src = unquote(src)
     p = Path(src)
     if not needs_loading(src) or p.is_absolute():
         return p if p.is_file() else None

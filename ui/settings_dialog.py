@@ -137,6 +137,7 @@ class SettingsDialog(QDialog):
         current_auto_sync_enabled: bool = False,
         current_auto_sync_interval: int = 300,
         current_sync_on_save: bool = False,
+        current_session_restore_enabled: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -347,6 +348,10 @@ class SettingsDialog(QDialog):
         clear_btn = QPushButton(self.tr("Clear last folder"))
         clear_btn.clicked.connect(self._clear_last_folder)
         storage_form.addRow("", clear_btn)
+
+        self._session_restore_cb = QCheckBox(self.tr("Restore open tabs on startup"))
+        self._session_restore_cb.setChecked(current_session_restore_enabled)
+        storage_form.addRow("", self._session_restore_cb)
 
         storage_page_layout.addLayout(storage_form)
         storage_page_layout.addStretch()
@@ -598,6 +603,9 @@ class SettingsDialog(QDialog):
         if hasattr(self, "_sync_on_save_cb"):
             return self._sync_on_save_cb.isChecked()
         return False
+
+    def selected_session_restore_enabled(self) -> bool:
+        return self._session_restore_cb.isChecked()
 
     def selected_webdav_url(self) -> str:
         if self._webdav_url_edit is not None:

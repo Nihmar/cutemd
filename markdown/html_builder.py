@@ -41,7 +41,8 @@ def preprocess_wikilink_images(text: str) -> str:
     def _repl(m: re.Match) -> str:
         target = m.group(1).strip()
         alt = m.group(2).strip() if m.group(2) else target
-        return f"![{alt}]({target})"
+        from urllib.parse import quote as _uq
+        return f"![{alt}]({_uq(target, safe='/')})"
 
     return _WIKILINK_IMG_RE.sub(_repl, text)
 
@@ -51,10 +52,11 @@ def preprocess_wikilinks(text: str) -> str:
 
     def _repl(m: re.Match) -> str:
         inner = m.group(1).strip()
+        from urllib.parse import quote as _uq
         if "|" in inner:
             display, _, target = inner.partition("|")
-            return f"[{display.strip()}]({target.strip()})"
-        return f"[{inner}]({inner})"
+            return f"[{display.strip()}]({_uq(target.strip(), safe='/')})"
+        return f"[{inner}]({_uq(inner, safe='/')})"
 
     return _WIKILINK_RE.sub(_repl, text)
 
