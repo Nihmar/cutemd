@@ -73,8 +73,7 @@ class WebDAVClient:
         url = self._base.rstrip("/") + "/"
         try:
             resp = self._session.request(
-                "PROPFIND",
-                url,
+                "PROPFIND", url,
                 data=_PROP_FIND_BODY,
                 headers={"Depth": "0"},
                 timeout=self._timeout,
@@ -327,8 +326,16 @@ def _load_sync_state(local_root: Path) -> dict[str, int]:
     if path.is_file():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            # Coerce to int – older versions stored floats
-            return {k: int(v) for k, v in data.items()}
+            result: dict[str, int] = {}
+            for k, v in data.items():
+                v = int(v)
+                # Detect old format (float seconds, ~1.7e9) vs new
+                # format (integer nanoseconds, ~1.7e18).  Values
+                # below 10^12 are definitely seconds.
+                if v < 1_000_000_000_000:
+                    v *= 1_000_000_000
+                result[k] = v
+            return result
         except (json.JSONDecodeError, OSError, ValueError):
             pass
     return {}
