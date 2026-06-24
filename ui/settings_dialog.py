@@ -1,11 +1,10 @@
 """Settings dialog — theme and font selection."""
 
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QFontDatabase, QKeySequence
-from typing import Any
-
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -134,6 +133,7 @@ class SettingsDialog(QDialog):
         current_webdav_url: str = "",
         current_webdav_user: str = "",
         current_webdav_pass: str = "",
+        current_autosave_interval: int = 5,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -265,24 +265,16 @@ class SettingsDialog(QDialog):
         self._smart_enabled = QCheckBox(self.tr("Enable smart editing"))
         self._smart_enabled.setChecked(smart["enabled"])
 
-        self._auto_pair_cb = QCheckBox(
-            self.tr("Auto-pair delimiters (*, _, ~, `)")
-        )
+        self._auto_pair_cb = QCheckBox(self.tr("Auto-pair delimiters (*, _, ~, `)"))
         self._auto_pair_cb.setChecked(smart["auto_pair"])
 
-        self._auto_brackets_cb = QCheckBox(
-            self.tr("Auto-pair brackets ([], ())")
-        )
+        self._auto_brackets_cb = QCheckBox(self.tr("Auto-pair brackets ([], ())"))
         self._auto_brackets_cb.setChecked(smart["auto_pair_brackets"])
 
-        self._continue_lists_cb = QCheckBox(
-            self.tr("Continue lists on Enter")
-        )
+        self._continue_lists_cb = QCheckBox(self.tr("Continue lists on Enter"))
         self._continue_lists_cb.setChecked(smart["continue_lists"])
 
-        self._backspace_pairs_cb = QCheckBox(
-            self.tr("Remove empty pairs on Backspace")
-        )
+        self._backspace_pairs_cb = QCheckBox(self.tr("Remove empty pairs on Backspace"))
         self._backspace_pairs_cb.setChecked(smart["backspace_pairs"])
 
         smart_layout.addWidget(self._smart_enabled)
@@ -304,6 +296,19 @@ class SettingsDialog(QDialog):
         self._backspace_pairs_cb.setEnabled(enabled)
 
         editor_page_layout.addWidget(smart_group)
+
+        # Autosave
+        autosave_form = QFormLayout()
+        self._autosave_spin = QSpinBox()
+        self._autosave_spin.setRange(1, 300)
+        self._autosave_spin.setSuffix(self.tr(" s"))
+        self._autosave_spin.setToolTip(
+            self.tr("Automatically save open files every N seconds")
+        )
+        self._autosave_spin.setValue(current_autosave_interval)
+        autosave_form.addRow(self.tr("Autosave interval:"), self._autosave_spin)
+        editor_page_layout.addLayout(autosave_form)
+
         editor_page_layout.addStretch()
         self._stack.addWidget(editor_page)
 
@@ -352,15 +357,21 @@ class SettingsDialog(QDialog):
 
             self._shortcuts_table = QTableWidget()
             self._shortcuts_table.setColumnCount(3)
-            self._shortcuts_table.setHorizontalHeaderLabels([
-                self.tr("Action"), self.tr("Default"), self.tr("Custom"),
-            ])
+            self._shortcuts_table.setHorizontalHeaderLabels(
+                [
+                    self.tr("Action"),
+                    self.tr("Default"),
+                    self.tr("Custom"),
+                ]
+            )
             self._shortcuts_table.horizontalHeader().setStretchLastSection(True)
             self._shortcuts_table.horizontalHeader().setSectionResizeMode(
                 0, QHeaderView.ResizeMode.Stretch
             )
             self._shortcuts_table.verticalHeader().setVisible(False)
-            self._shortcuts_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+            self._shortcuts_table.setSelectionMode(
+                QTableWidget.SelectionMode.NoSelection
+            )
 
             shortcut_rows = []
             for name, default_seq in DEFAULT_SHORTCUTS.items():
@@ -471,7 +482,7 @@ class SettingsDialog(QDialog):
         self._editor_font_combo.select_first()
         self._editor_font_size.setValue(11)
         self._line_number_combo.setCurrentIndex(1)  # all lines
-        self._link_style_combo.setCurrentIndex(0)    # markdown links
+        self._link_style_combo.setCurrentIndex(0)  # markdown links
         self._preview_font_combo.select_first()
         self._preview_font_size.setValue(16)
         # Smart editing defaults
@@ -530,13 +541,18 @@ class SettingsDialog(QDialog):
                 if isinstance(editor, QKeySequenceEdit):
                     seq = editor.keySequence()
                     if not seq.isEmpty():
-                        shortcuts[name] = seq.toString(QKeySequence.SequenceFormat.PortableText)
+                        shortcuts[name] = seq.toString(
+                            QKeySequence.SequenceFormat.PortableText
+                        )
         return shortcuts
 
     def selected_images_dir(self) -> str | None:
         if self._images_dir_edit is not None:
             return self._images_dir_edit.text().strip() or None
         return None
+
+    def selected_autosave_interval(self) -> int:
+        return self._autosave_spin.value()
 
     def selected_webdav_url(self) -> str:
         if self._webdav_url_edit is not None:
@@ -579,8 +595,10 @@ class SettingsDialog(QDialog):
         QMessageBox.information(
             self,
             self.tr("Storage"),
-            self.tr("Last folder and recent folders list cleared.\n"
-                     "You will be prompted to choose a folder on next launch."),
+            self.tr(
+                "Last folder and recent folders list cleared.\n"
+                "You will be prompted to choose a folder on next launch."
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -607,18 +625,22 @@ class SettingsDialog(QDialog):
         pw = self._webdav_pass_edit.text() if self._webdav_pass_edit else ""
 
         if not url:
-            QMessageBox.warning(self, self.tr("Test Connection"), self.tr("Please enter a URL."))
+            QMessageBox.warning(
+                self, self.tr("Test Connection"), self.tr("Please enter a URL.")
+            )
             return
 
         client = WebDAVClient(url, user, pw)
         ok, err = client.test_connection()
         if ok:
             QMessageBox.information(
-                self, self.tr("Test Connection"),
+                self,
+                self.tr("Test Connection"),
                 self.tr("Connection successful!"),
             )
         else:
             QMessageBox.warning(
-                self, self.tr("Test Connection"),
+                self,
+                self.tr("Test Connection"),
                 self.tr("Connection failed:\n{}").format(err),
             )

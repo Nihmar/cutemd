@@ -138,6 +138,15 @@ class AppSettings(QObject):
         self._s.setValue("window_geometry", geometry)
 
     # ------------------------------------------------------------------
+    # Autosave
+    # ------------------------------------------------------------------
+    def autosave_interval(self, default: int = 5) -> int:
+        return int(self._s.value("autosave_interval", default))
+
+    def set_autosave_interval(self, value: int) -> None:
+        self._s.setValue("autosave_interval", value)
+
+    # ------------------------------------------------------------------
     # Raw access (for backward compat / complex values)
     # ------------------------------------------------------------------
     def raw_value(self, key: str, default: Any = None) -> Any:

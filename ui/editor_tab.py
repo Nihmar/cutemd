@@ -512,6 +512,23 @@ class EditorTab(QWidget):
             )
             return False
 
+    def auto_save(self) -> None:
+        """Silently save if the file has a path and is modified."""
+        if (
+            not self._is_binary_preview
+            and self.is_modified
+            and self._file_path is not None
+        ):
+            try:
+                self._file_path.write_text(self.editor.toPlainText(), encoding="utf-8")
+                self._saved_text = self.editor.toPlainText()
+                self._dirty = False
+                self.editor.document().setModified(False)
+                self.modified_changed.emit(False)
+                self.title_changed.emit()
+            except OSError:
+                pass
+
     def maybe_save(self) -> bool:
         if not self.is_modified:
             return True
@@ -939,27 +956,25 @@ class EditorTab(QWidget):
                     if p2.is_file():
                         return p2.resolve()
 
-        # Fallback: walk up the directory tree looking for the file
-        # (handles Obsidian vaults where images are in a sibling/parent folder).
-        search_dir = base
-        for _ in range(5):  # max 5 levels up
-            search_dir = search_dir.parent
-            # Direct match in this directory
-            candidate = search_dir / target_path.name
-            if candidate.is_file():
-                return candidate.resolve()
-            # Check immediate subdirectories (e.g. attachments/, images/, assets/)
-            try:
-                for child in search_dir.iterdir():
-                    if child.is_dir() and not child.name.startswith("."):
-                        c2 = child / target_path.name
-                        if c2.is_file():
-                            return c2.resolve()
-            except PermissionError:
-                pass
-            # Stop at filesystem root
-            if search_dir.parent == search_dir:
-                break
+        # Fallback: full recursive search of the vault root.
+        # If images_dir is known, its parent is the vault root.
+        vault_root = self._images_dir.parent if self._images_dir is not None else base
+        target_name = target_path.name.lower()
+        try:
+            for p in vault_root.rglob("*"):
+                if p.is_file() and p.name.lower() == target_name:
+                    # Skip hidden directories
+                    try:
+                        if any(
+                            part.startswith(".")
+                            for part in p.relative_to(vault_root).parts
+                        ):
+                            continue
+                    except ValueError:
+                        pass
+                    return p.resolve()
+        except PermissionError:
+            pass
 
         return None
 

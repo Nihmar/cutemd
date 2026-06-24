@@ -19,40 +19,18 @@ def needs_loading(src: str) -> bool:
     return bool(_IMG_EXTS_RE.search(src))
 
 
-def _search_image(filename: str, start_dir: Path, max_up: int = 3) -> Path | None:
-    """Last-resort recursive search for *filename*.
-
-    Walks up to *max_up* ancestor levels from *start_dir*, scanning
-    descendants up to depth 3 at each level.  Stops at the filesystem
-    root or the user's home directory.
-
-    This is intentionally narrow — the configured images directory
-    should be the primary lookup path.
-    """
+def _rglob_search(filename: str, root: Path) -> Path | None:
+    """Full recursive search for *filename* under *root*."""
     target = filename.lower()
-    seen: set[Path] = set()
-    home = Path.home().resolve()
-
-    current = start_dir.resolve()
-    for _ in range(max_up):
-        stack = [(current, 0)]
-        while stack:
-            d, depth = stack.pop()
-            if d in seen:
-                continue
-            seen.add(d)
+    for p in root.rglob("*"):
+        if p.is_file() and p.name.lower() == target:
+            # Skip hidden directories (like .cutemd)
             try:
-                for entry in d.iterdir():
-                    if entry.is_file() and entry.name.lower() == target:
-                        return entry.resolve()
-                    if entry.is_dir() and depth < 3:
-                        stack.append((entry, depth + 1))
-            except PermissionError:
-                continue
-
-        if current == home or current.parent == current:
-            break
-        current = current.parent
+                if any(part.startswith(".") for part in p.relative_to(root).parts):
+                    continue
+            except ValueError:
+                pass
+            return p.resolve()
     return None
 
 
@@ -68,14 +46,16 @@ def resolve_image_path(
     if resolved.is_file():
         return resolved
 
-    # 2. Configured images directory (fast, no recursion).
+    # 2. Configured images directory.
     if images_dir is not None:
         resolved = (images_dir / p.name).resolve()
         if resolved.is_file():
             return resolved
 
-    # 3. Limited recursive fallback.
-    return _search_image(p.name, base_dir)
+    # 3. Full recursive search of the vault root.
+    #    If images_dir is known, its parent is the vault root.
+    vault_root = images_dir.parent if images_dir is not None else base_dir
+    return _rglob_search(p.name, vault_root)
 
 
 # Signature: (path_str, max_width) -> (width, height) or None

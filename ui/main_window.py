@@ -57,6 +57,7 @@ from ui.settings_manager import AppSettings
 from ui.shortcut_manager import ShortcutManager
 from ui.theme_manager import ThemeManager
 from ui.themes import get_theme, system_theme
+from ui.toc_panel import TocPanel
 from ui.webdav_sync import sync_folder
 
 # ---------------------------------------------------------------------------
@@ -100,6 +101,13 @@ class MainWindow(QMainWindow):
         self._line_number_mode = self._s.line_number_mode()
         self._cursor_width = self._s.cursor_width()
         self._smart_editing = self._s.smart_editing()
+
+        # --- Autosave timer ---
+        self._autosave_timer = QTimer(self)
+        self._autosave_interval = max(1, self._s.autosave_interval()) * 1000
+        self._autosave_timer.setInterval(self._autosave_interval)
+        self._autosave_timer.timeout.connect(self._on_autosave)
+        self._autosave_timer.start()
 
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
@@ -328,6 +336,11 @@ class MainWindow(QMainWindow):
         )
         lt_layout.addWidget(self._side_search_btn)
 
+        self._side_toc_btn = _side_btn(
+            "toc", self.tr("Table of Contents"), slot=self._on_side_toc_toggled
+        )
+        lt_layout.addWidget(self._side_toc_btn)
+
         lt_layout.addStretch()
 
         self._side_folder_btn = QToolButton()
@@ -355,10 +368,14 @@ class MainWindow(QMainWindow):
             lambda path, line: self._open_file_at_line((path, line))
         )
 
-        # --- Left stack (tree / search) ---
+        # --- Left stack (tree / search / toc) ---
         self._left_stack = QStackedWidget()
         self._left_stack.addWidget(self._tree_panel)
         self._left_stack.addWidget(self._search_panel)
+
+        self._toc_panel = TocPanel()
+        self._toc_panel.heading_activated.connect(self._on_toc_heading_activated)
+        self._left_stack.addWidget(self._toc_panel)
 
         # --- Tabs ---
         self._tabs = QTabWidget()
@@ -491,6 +508,41 @@ class MainWindow(QMainWindow):
         else:
             self._hide_left_panel()
 
+    def _on_side_toc_toggled(self, checked: bool) -> None:
+        if checked:
+            self._side_tree_btn.blockSignals(True)
+            self._side_tree_btn.setChecked(False)
+            self._side_tree_btn.blockSignals(False)
+            self._side_search_btn.blockSignals(True)
+            self._side_search_btn.setChecked(False)
+            self._side_search_btn.blockSignals(False)
+            self._left_stack.setCurrentIndex(2)
+            self._show_left_panel()
+            self._rebuild_toc()
+        else:
+            self._hide_left_panel()
+
+    def _rebuild_toc(self) -> None:
+        """Rebuild the table of contents from the current tab's editor content."""
+        tab = self._current_tab()
+        if tab and not tab._is_binary_preview:
+            text = tab.editor.toPlainText()
+            self._toc_panel.rebuild(text)
+        else:
+            self._toc_panel.clear()
+
+    def _on_toc_heading_activated(self, line: int) -> None:
+        """Scroll the editor to the given heading line."""
+        tab = self._current_tab()
+        if tab is None:
+            return
+        cursor = tab.editor.textCursor()
+        block = tab.editor.document().findBlockByNumber(line)
+        if block.isValid():
+            cursor.setPosition(block.position())
+            tab.editor.setTextCursor(cursor)
+            tab.editor.centerCursor()
+
     # ------------------------------------------------------------------
     # Tab management
     # ------------------------------------------------------------------
@@ -517,6 +569,9 @@ class MainWindow(QMainWindow):
         # Right-click context menu on the editor
         tab.editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         tab.editor.customContextMenuRequested.connect(self._on_editor_context_menu)
+
+        # Live TOC update
+        tab.editor.textChanged.connect(self._on_editor_text_changed)
 
         idx = self._tabs.addTab(tab, tab.display_name())
         self._tabs.setTabToolTip(idx, tab.tooltip())
@@ -568,6 +623,14 @@ class MainWindow(QMainWindow):
             self._connect_edit_actions(tab)
             tab._emit_status()
             self._update_window_title()
+            # Rebuild TOC if the panel is visible
+            if self._side_toc_btn.isChecked():
+                self._rebuild_toc()
+
+    def _on_editor_text_changed(self) -> None:
+        """Rebuild TOC when editor content changes (only if TOC is open)."""
+        if self._side_toc_btn.isChecked():
+            self._rebuild_toc()
 
     def _on_tab_modified(self, _modified: bool) -> None:
         tab = self.sender()
@@ -821,6 +884,7 @@ class MainWindow(QMainWindow):
             current_webdav_url=webdav_url,
             current_webdav_user=webdav_user,
             current_webdav_pass=webdav_pass,
+            current_autosave_interval=self._s.autosave_interval(),
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -904,6 +968,13 @@ class MainWindow(QMainWindow):
                 tab = self._tabs.widget(i)
                 if isinstance(tab, EditorTab):
                     tab.set_smart_editing(new_se)
+
+        # --- Autosave interval ---
+        new_asi = dlg.selected_autosave_interval()
+        if new_asi != self._s.autosave_interval():
+            self._s.set_autosave_interval(new_asi)
+            self._autosave_interval = max(1, new_asi) * 1000
+            self._autosave_timer.setInterval(self._autosave_interval)
 
         # --- Per-folder settings (shortcuts, images, WebDAV, appearance) ---
         if self._folder_settings is not None:
@@ -1396,6 +1467,13 @@ class MainWindow(QMainWindow):
 
         return None
 
+    def _on_autosave(self) -> None:
+        """Autosave: silently save all modified tabs with a file path."""
+        for i in range(self._tabs.count()):
+            tab = self._tabs.widget(i)
+            if isinstance(tab, EditorTab):
+                tab.auto_save()
+
     def _on_new(self) -> None:
         self._add_tab()
         self._update_window_title()
@@ -1500,6 +1578,7 @@ class MainWindow(QMainWindow):
         super().changeEvent(event)
 
     def closeEvent(self, event) -> None:
+        self._autosave_timer.stop()
         for i in range(self._tabs.count() - 1, -1, -1):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab) and not tab.maybe_save():
