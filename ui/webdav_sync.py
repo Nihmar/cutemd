@@ -243,6 +243,46 @@ class WebDAVClient:
         except Exception:
             return False
 
+    def get_remote_mtime_ns(self, remote_rel: str) -> int:
+        """PROPFIND Depth:0 on a single file, returning its mtime in ns.
+        Returns 0 if the request fails or the mtime is unreadable."""
+        url = self._build_url(remote_rel)
+        try:
+            resp = self._session.request(
+                "PROPFIND", url,
+                data=_PROP_FIND_BODY,
+                headers={"Depth": "0"},
+                timeout=self._timeout,
+            )
+            if resp.status_code not in (207, 200):
+                return 0
+            root = ET.fromstring(resp.content)
+            for response in root.findall(f"{_NS_D_PREFIX}response"):
+                propstat = response.find(f"{_NS_D_PREFIX}propstat")
+                if propstat is None:
+                    continue
+                prop = propstat.find(f"{_NS_D_PREFIX}prop")
+                if prop is None:
+                    continue
+                lm = prop.find(f"{_NS_D_PREFIX}getlastmodified")
+                if lm is not None and lm.text:
+                    for fmt in (
+                        "%a, %d %b %Y %H:%M:%S %Z",
+                        "%a, %d %b %Y %H:%M:%S GMT",
+                        "%Y-%m-%dT%H:%M:%S%z",
+                        "%Y-%m-%dT%H:%M:%SZ",
+                    ):
+                        try:
+                            dt = datetime.strptime(lm.text.strip(), fmt)
+                            if dt.tzinfo is None:
+                                dt = dt.replace(tzinfo=timezone.utc)
+                            return _mtime_ns_from_datetime(dt)
+                        except ValueError:
+                            continue
+        except Exception:
+            pass
+        return 0
+
     def _build_url(self, remote_rel: str) -> str:
         if not remote_rel:
             return self._base
@@ -298,6 +338,33 @@ def _load_sync_state(local_root: Path) -> dict[str, int]:
         except (json.JSONDecodeError, OSError, ValueError):
             pass
     return {}
+
+
+def _record_upload(
+    client: "WebDAVClient",
+    local_file: Path,
+    rel: str,
+    new_state: dict[str, int],
+) -> None:
+    """Align local mtime to the server's value after a successful upload.
+
+    Apache mod_dav (OpenMediaVault, etc.) ignores the client's mtime
+    during a PUT and assigns the server's current time.  If we kept the
+    local mtime in the sync state, the next PROPFIND would report a
+    different value (the server-assigned one) and trigger a false
+    remote-changed → re-download loop.
+
+    We PROPFIND the just-uploaded file, read the actual server mtime,
+    and align both the local file's mtime and the sync state to it.
+    """
+    server_ns = client.get_remote_mtime_ns(rel)
+    if server_ns > 0:
+        os.utime(local_file, ns=(server_ns, server_ns))
+        new_state[rel] = server_ns
+    else:
+        # Fallback: server mtime unreadable (rare).  A one-time
+        # upload→download cycle may happen on the next sync.
+        new_state[rel] = local_file.stat().st_mtime_ns
 
 
 def _save_sync_state(local_root: Path, state: dict[str, int]) -> None:
@@ -416,7 +483,7 @@ def sync_folder(
                 for i in range(1, len(parts) + 1):
                     client.mkdir("/".join(parts[:i]))
                 if client.upload(local_file, rel):
-                    new_state[rel] = local_ns
+                    _record_upload(client, local_file, rel, new_state)
                     result.uploaded.append(rel)
                     if progress_callback:
                         progress_callback(
@@ -472,7 +539,7 @@ def sync_folder(
         elif local_changed and not remote_changed:
             # Only the local file was modified → upload.
             if client.upload(local_file, rel):
-                new_state[rel] = local_ns
+                _record_upload(client, local_file, rel, new_state)
                 result.uploaded.append(rel)
                 if progress_callback:
                     progress_callback(f"[{idx}/{total}] Uploaded      {_fmt_rel(rel)}")
@@ -495,7 +562,7 @@ def sync_folder(
             # When timestamps are tied we skip to be safe.
             if local_ns > remote_ns:
                 if client.upload(local_file, rel):
-                    new_state[rel] = local_ns
+                    _record_upload(client, local_file, rel, new_state)
                     result.uploaded.append(rel)
                     if progress_callback:
                         progress_callback(
