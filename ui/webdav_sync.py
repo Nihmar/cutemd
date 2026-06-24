@@ -11,6 +11,18 @@ from urllib.parse import unquote
 
 import requests
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _fmt_rel(rel_path: str, width: int = 50) -> str:
+    """Format a relative path to exactly *width* chars, truncating on the right."""
+    lp = len(rel_path)
+    if lp > width:
+        rel_path = rel_path[: width - 3] + "..."
+    return rel_path.ljust(width)
+
 
 # ---------------------------------------------------------------------------
 # Data model
@@ -61,8 +73,11 @@ class WebDAVClient:
         url = self._base.rstrip("/") + "/"
         try:
             resp = self._session.request(
-                "PROPFIND", url, data=_PROP_FIND_BODY,
-                headers={"Depth": "0"}, timeout=self._timeout,
+                "PROPFIND",
+                url,
+                data=_PROP_FIND_BODY,
+                headers={"Depth": "0"},
+                timeout=self._timeout,
             )
             if resp.status_code in (207, 200, 301, 302):
                 return True, ""
@@ -83,8 +98,11 @@ class WebDAVClient:
         if not url.endswith("/"):
             url += "/"
         resp = self._session.request(
-            "PROPFIND", url, data=_PROP_FIND_BODY,
-            headers={"Depth": "1"}, timeout=self._timeout,
+            "PROPFIND",
+            url,
+            data=_PROP_FIND_BODY,
+            headers={"Depth": "1"},
+            timeout=self._timeout,
         )
         if resp.status_code not in (207, 200):
             return
@@ -105,7 +123,10 @@ class WebDAVClient:
                 prop = propstat.find(f"{_NS_D_PREFIX}prop")
                 if prop is not None:
                     rt = prop.find(f"{_NS_D_PREFIX}resourcetype")
-                    if rt is not None and rt.find(f"{_NS_D_PREFIX}collection") is not None:
+                    if (
+                        rt is not None
+                        and rt.find(f"{_NS_D_PREFIX}collection") is not None
+                    ):
                         entry["is_dir"] = True
                     cl = prop.find(f"{_NS_D_PREFIX}getcontentlength")
                     if cl is not None and cl.text is not None:
@@ -122,9 +143,13 @@ class WebDAVClient:
                             "%Y-%m-%dT%H:%M:%SZ",
                         ):
                             try:
-                                entry["lastmodified"] = datetime.strptime(lm.text.strip(), fmt)
+                                entry["lastmodified"] = datetime.strptime(
+                                    lm.text.strip(), fmt
+                                )
                                 if entry["lastmodified"].tzinfo is None:
-                                    entry["lastmodified"] = entry["lastmodified"].replace(tzinfo=timezone.utc)
+                                    entry["lastmodified"] = entry[
+                                        "lastmodified"
+                                    ].replace(tzinfo=timezone.utc)
                                 break
                             except ValueError:
                                 continue
@@ -153,7 +178,7 @@ class WebDAVClient:
             return rel_dir if rel_dir else ""
         prefix = dir_href + "/"
         if raw.startswith(prefix):
-            name = unquote(raw[len(prefix):])
+            name = unquote(raw[len(prefix) :])
             if rel_dir:
                 return rel_dir + "/" + name
             return name
@@ -201,8 +226,7 @@ class WebDAVClient:
         if not remote_rel:
             return self._base
         encoded = "/".join(
-            requests.utils.quote(segment, safe="")
-            for segment in remote_rel.split("/")
+            requests.utils.quote(segment, safe="") for segment in remote_rel.split("/")
         )
         return f"{self._base}/{encoded}"
 
@@ -301,7 +325,7 @@ def sync_folder(
                 del new_state[rel]
                 result.deleted.append(rel)
                 if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Deleted {rel}")
+                    progress_callback(f"[{idx}/{total}] Deleted {_fmt_rel(rel)}")
             continue
 
         if local_file and not remote_info:
@@ -310,7 +334,7 @@ def sync_folder(
                 local_file.unlink(missing_ok=True)
                 result.deleted.append(rel)
                 if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Deleted {rel}")
+                    progress_callback(f"[{idx}/{total}] Deleted {_fmt_rel(rel)}")
                 continue
 
             parent_rel = "/".join(rel.split("/")[:-1])
@@ -320,7 +344,7 @@ def sync_folder(
                 new_state[rel] = local_mtime
                 result.uploaded.append(rel)
                 if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Uploaded {rel}")
+                    progress_callback(f"[{idx}/{total}] Uploaded {_fmt_rel(rel)}")
             else:
                 result.errors.append(f"Upload failed: {rel}")
 
@@ -330,7 +354,7 @@ def sync_folder(
                 client.delete(rel)
                 result.deleted.append(rel)
                 if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Deleted remote {rel}")
+                    progress_callback(f"[{idx}/{total}] Deleted remote {_fmt_rel(rel)}")
                 continue
 
             local_path = local_root / rel
@@ -340,7 +364,7 @@ def sync_folder(
                 new_state[rel] = remote_mtime
                 result.downloaded.append(rel)
                 if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Downloaded {rel}")
+                    progress_callback(f"[{idx}/{total}] Downloaded {_fmt_rel(rel)}")
             else:
                 result.errors.append(f"Download failed: {rel}")
 
@@ -353,7 +377,7 @@ def sync_folder(
                     new_state[rel] = local_mtime
                     result.uploaded.append(rel)
                     if progress_callback:
-                        progress_callback(f"[{idx}/{total}] Uploaded {rel}")
+                        progress_callback(f"[{idx}/{total}] Uploaded {_fmt_rel(rel)}")
                 else:
                     result.errors.append(f"Upload failed: {rel}")
 
@@ -363,7 +387,7 @@ def sync_folder(
                     new_state[rel] = remote_mtime
                     result.downloaded.append(rel)
                     if progress_callback:
-                        progress_callback(f"[{idx}/{total}] Downloaded {rel}")
+                        progress_callback(f"[{idx}/{total}] Downloaded {_fmt_rel(rel)}")
                 else:
                     result.errors.append(f"Download failed: {rel}")
 
@@ -373,7 +397,9 @@ def sync_folder(
                         new_state[rel] = local_mtime
                         result.uploaded.append(rel)
                         if progress_callback:
-                            progress_callback(f"[{idx}/{total}] Uploaded {rel} (conflict)")
+                            progress_callback(
+                                f"[{idx}/{total}] Uploaded {_fmt_rel(rel)} (conflict)"
+                            )
                     else:
                         result.errors.append(f"Upload failed (conflict): {rel}")
                 elif remote_mtime > local_mtime:
@@ -382,7 +408,9 @@ def sync_folder(
                         new_state[rel] = remote_mtime
                         result.downloaded.append(rel)
                         if progress_callback:
-                            progress_callback(f"[{idx}/{total}] Downloaded {rel} (conflict)")
+                            progress_callback(
+                                f"[{idx}/{total}] Downloaded {_fmt_rel(rel)} (conflict)"
+                            )
                     else:
                         result.errors.append(f"Download failed (conflict): {rel}")
                 else:
@@ -414,7 +442,9 @@ class SyncThread(QThread):
     progress = Signal(str)
     finished = Signal(object)
 
-    def __init__(self, local_root: Path, url: str, username: str, password: str) -> None:
+    def __init__(
+        self, local_root: Path, url: str, username: str, password: str
+    ) -> None:
         super().__init__()
         self._local_root = local_root
         self._url = url
