@@ -102,8 +102,7 @@ class WebDAVClient:
         if not url.endswith("/"):
             url += "/"
         resp = self._session.request(
-            "PROPFIND",
-            url,
+            "PROPFIND", url,
             data=_PROP_FIND_BODY,
             headers={"Depth": "1"},
             timeout=self._timeout,
@@ -281,6 +280,8 @@ def _parse_http_datetime(text: str) -> datetime | None:
         "%a, %d %b %Y %H:%M:%S GMT",
         "%Y-%m-%dT%H:%M:%S%z",
         "%Y-%m-%dT%H:%M:%SZ",
+        "%Y-%m-%dT%H:%M:%S.%f%z",
+        "%Y-%m-%dT%H:%M:%S.%fZ",
     ):
         try:
             dt = datetime.strptime(text.strip(), fmt)
@@ -293,10 +294,16 @@ def _parse_http_datetime(text: str) -> datetime | None:
 
 
 def _mtime_ns_from_datetime(dt: datetime | None) -> int:
-    """Convert a datetime to integer nanoseconds since epoch."""
+    """Convert a datetime to integer nanoseconds since epoch.
+
+    Uses pure integer arithmetic (timedelta fields) to avoid the
+    float-precision loss that ``int(dt.timestamp() * 1e9)`` would
+    suffer at current epoch values (~1.7e18 ns > 2^53).
+    """
     if dt is None:
         return 0
-    return int(dt.timestamp() * 1_000_000_000)
+    delta = dt - datetime(1970, 1, 1, tzinfo=timezone.utc)
+    return (delta.days * 86_400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1_000
 
 
 def _to_sec_ns(ns: int) -> int:
