@@ -331,11 +331,15 @@ class MainWindow(QMainWindow):
         lt_layout.addStretch()
 
         self._side_folder_btn = QToolButton()
-        self._side_folder_btn.setText("...")
+        self._side_folder_btn.setIcon(
+            self._make_colored_icon("folder_switch", icon_color)
+        )
         self._side_folder_btn.setToolTip(self.tr("Switch folder"))
         self._side_folder_btn.setAutoRaise(True)
+        self._side_folder_btn.setIconSize(QSize(18, 18))
         self._side_folder_btn.setFixedSize(28, 26)
         self._side_folder_btn.clicked.connect(self._on_open_folder)
+        self._sidebar_buttons.append((self._side_folder_btn, "folder_switch"))
         lt_layout.addWidget(self._side_folder_btn)
 
         # --- File tree panel ---
