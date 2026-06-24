@@ -272,6 +272,13 @@ class WebDAVClient:
 
 _EXCLUDE_DIRS = {".cutemd", ".git", ".svn", "_dav"}
 
+import logging
+
+_LOG = logging.getLogger("cutemd.sync")
+if not _LOG.handlers:
+    _LOG.setLevel(logging.DEBUG)
+    _LOG.propagate = False
+
 
 def _parse_http_datetime(text: str) -> datetime | None:
     """Parse a WebDAV Last-Modified string into an aware datetime, or None."""
