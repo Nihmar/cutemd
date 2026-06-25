@@ -365,13 +365,18 @@ class LinkPreviewPopup(QFrame):
             with zipfile.ZipFile(path) as zf:
                 text_parts: list[str] = []
                 for name in sorted(zf.namelist()):
-                    if name.lower().endswith((".xhtml", ".html", ".htm")):
-                        content = zf.read(name).decode("utf-8", errors="replace")
-                        stripper = _HTMLStripper()
-                        stripper.feed(content)
-                        t = stripper.get_text().strip()
-                        if t:
-                            text_parts.append(t)
+                    ext = Path(name).suffix.lower()
+                    if ext not in (".xhtml", ".html", ".htm", ".xml"):
+                        continue
+                    content = zf.read(name).decode("utf-8", errors="replace")
+                    # For .xml files, skip metadata files (OPF/NCX/container)
+                    if ext == ".xml" and "<html" not in content.lower()[:500]:
+                        continue
+                    stripper = _HTMLStripper()
+                    stripper.feed(content)
+                    t = stripper.get_text().strip()
+                    if t:
+                        text_parts.append(t)
                 text = "\n\n---\n\n".join(text_parts[:10])
         except Exception:
             text = f"[Cannot read: {path.name}]"

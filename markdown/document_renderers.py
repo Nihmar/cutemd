@@ -184,9 +184,13 @@ def epub_to_html(path: Path, css: str) -> str:
     try:
         with zipfile.ZipFile(path) as zf:
             for name in sorted(zf.namelist()):
-                if not name.lower().endswith((".xhtml", ".html", ".htm")):
+                ext = Path(name).suffix.lower()
+                if ext not in (".xhtml", ".html", ".htm", ".xml"):
                     continue
                 content = zf.read(name).decode("utf-8", errors="replace")
+                # For .xml files, skip metadata files (OPF/NCX/container)
+                if ext == ".xml" and "<html" not in content.lower()[:500]:
+                    continue
                 text = _strip_html(content)
                 if not text:
                     continue

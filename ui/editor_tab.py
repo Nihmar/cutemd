@@ -601,7 +601,9 @@ class EditorTab(QWidget):
             elif ext == ".cbz":
                 html = cbz_to_html(path, self._preview_css)
             elif ext == ".epub":
+                _LOG.debug("_load_document: rendering epub via epub_to_html")
                 html = epub_to_html(path, self._preview_css)
+                _LOG.debug("_load_document: epub html length=%d", len(html))
             else:
                 self.preview.setPlainText(self.tr("[Unsupported document format]"))
                 self._preview_stack.setCurrentIndex(0)
