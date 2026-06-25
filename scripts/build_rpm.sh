@@ -18,6 +18,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST_DIR="$PROJECT_DIR/dist"
 
 VERSION=$(grep -oP '__version__\s*=\s*"\K[^"]+' "$PROJECT_DIR/main.py")
+DATE=$(date '+%a %b %d %Y')
 echo "==> Version: $VERSION"
 
 echo "==> Cleaning previous builds …"
@@ -40,12 +41,14 @@ done
 shopt -u dotglob
 
 echo "==> Preparing spec file …"
-sed "s/__VERSION__/$VERSION/g" "$SCRIPT_DIR/cutemd.spec" > "$RPM_TOPDIR/SPECS/cutemd.spec"
+sed "s/__VERSION__/$VERSION/g; s/__DATE__/$DATE/g" "$SCRIPT_DIR/cutemd.spec" > "$RPM_TOPDIR/SPECS/cutemd.spec"
 
 echo "==> Building RPM with rpmbuild …"
 # rpmbuild will install uv, sync deps, and build PyInstaller inside %build
+# --nodeps: we're on Ubuntu where BuildRequires (python3) isn't tracked via RPM
 rpmbuild -bb \
     --define "_topdir $RPM_TOPDIR" \
+    --nodeps \
     "$RPM_TOPDIR/SPECS/cutemd.spec"
 
 echo "==> Collecting package …"

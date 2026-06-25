@@ -1,5 +1,6 @@
 %define _disable_source_fetch 1
 %define _topdir /tmp/rpmbuild
+%global debug_package %{nil}
 
 Name: cutemd
 Version: __VERSION__
@@ -81,5 +82,5 @@ fi
 /usr/share/icons/hicolor/scalable/apps/cutemd.svg
 
 %changelog
-* Thu Jun 2026 - __VERSION__
+* __DATE__ - __VERSION__
 - Initial RPM release
