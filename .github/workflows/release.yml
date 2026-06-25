@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --dev
+      - name: Build AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: bash scripts/build_appimage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cutemd-linux
+          path: dist/cutemd-x86_64.AppImage
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --dev
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress
+      - name: Build .exe + installer
+        shell: bash
+        run: bash scripts/build_windows.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cutemd-windows
+          path: |
+            dist/cutemd/cutemd.exe
+            dist/CuteMD_Setup.exe
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            cutemd-linux/cutemd-x86_64.AppImage
+            cutemd-windows/cutemd.exe
+            cutemd-windows/CuteMD_Setup.exe
