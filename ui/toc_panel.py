@@ -5,7 +5,9 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QListWidget, QListWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QListWidgetItem, QVBoxLayout, QWidget
+
+from ui.widgets import CuteListWidget
 
 _RE_HEADING = re.compile(r"^(#{1,6})\s+(.+)")
 
@@ -24,7 +26,7 @@ class TocPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self._list = QListWidget()
+        self._list = CuteListWidget()
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.itemClicked.connect(self._on_item_clicked)
         layout.addWidget(self._list)

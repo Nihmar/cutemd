@@ -31,8 +31,8 @@ class EditorToolbar(QWidget):
         self._buttons: list[tuple[QToolButton, str]] = []
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 3, 6, 3)
-        layout.setSpacing(1)
+        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setSpacing(4)
 
         # --- Heading button ---
         self._heading_btn = QToolButton()
@@ -40,7 +40,7 @@ class EditorToolbar(QWidget):
         self._heading_btn.setToolTip(self.tr("Heading level"))
         self._heading_btn.setAutoRaise(True)
         self._heading_btn.setIconSize(QSize(18, 18))
-        self._heading_btn.setFixedSize(28, 26)
+        self._heading_btn.setFixedSize(30, 28)
         self._heading_btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         heading_menu = QMenu(self._heading_btn)
         for prefix, label in HEADING_PREFIXES:
@@ -61,7 +61,7 @@ class EditorToolbar(QWidget):
             b.setToolTip(self.tr(_tip_key))
             b.setAutoRaise(True)
             b.setIconSize(QSize(18, 18))
-            b.setFixedSize(28, 26)
+            b.setFixedSize(30, 28)
             b.clicked.connect(lambda checked=False, s=syntax: self.format_requested.emit(s))
             layout.addWidget(b)
             self._buttons.append((b, icon_name))
@@ -80,7 +80,7 @@ class EditorToolbar(QWidget):
         img_btn.setToolTip(self.tr("Insert image"))
         img_btn.setAutoRaise(True)
         img_btn.setIconSize(QSize(18, 18))
-        img_btn.setFixedSize(28, 26)
+        img_btn.setFixedSize(30, 28)
         img_btn.clicked.connect(self.image_requested)
         layout.addWidget(img_btn)
         self._buttons.append((img_btn, "image"))

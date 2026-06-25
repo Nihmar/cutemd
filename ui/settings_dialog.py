@@ -17,7 +17,6 @@ from PySide6.QtWidgets import (
     QKeySequenceEdit,
     QLabel,
     QLineEdit,
-    QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPushButton,
@@ -33,7 +32,7 @@ from ui.markdown_completer import DEFAULT_SMART_EDITING
 from ui.shortcut_manager import DEFAULT_SHORTCUTS
 from ui.themes import ALL_THEMES, get_theme
 from ui.translations import LANGUAGES
-from ui.webdav_sync import WebDAVClient
+from ui.widgets import CuteListWidget
 
 _FONT_FAMILIES: list[str] | None = None
 
@@ -51,8 +50,8 @@ class _FontPicker(QWidget):
         self._edit.setClearButtonEnabled(True)
         lay.addWidget(self._edit)
 
-        self._list = QListWidget()
-        self._list.setFrameShape(QListWidget.Shape.NoFrame)
+        self._list = CuteListWidget()
+        self._list.setFrameShape(CuteListWidget.Shape.NoFrame)
         self._list.setFixedHeight(self._LIST_HEIGHT)
         lay.addWidget(self._list)
 
@@ -155,9 +154,8 @@ class SettingsDialog(QDialog):
         main_layout = QHBoxLayout(self)
 
         # --- Left panel: section list ---
-        self._section_list = QListWidget()
+        self._section_list = CuteListWidget()
         self._section_list.setObjectName("sectionList")
-        self._section_list.setSpacing(6)
         self._section_list.setFixedWidth(140)
         sections = [
             self.tr("Language"),

@@ -6,19 +6,20 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QListWidgetItem,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
+
+from ui.widgets import CuteListWidget
 
 _CHUNK_SIZE = 20
 _CHUNK_INTERVAL = 10  # ms
@@ -39,13 +40,14 @@ class SearchPanel(QWidget):
         self._flags: int = 0
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 6, 4, 4)
-        layout.setSpacing(4)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
 
         # --- Search input ---
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText(self.tr("Search files\u2026"))
         self._search_input.textChanged.connect(self._on_search_text_changed)
+        self._search_input.installEventFilter(self)
 
         # --- Replace input ---
         self._replace_input = QLineEdit()
@@ -70,8 +72,9 @@ class SearchPanel(QWidget):
         self._count_label = QLabel()
 
         # --- Results ---
-        self._search_results = QListWidget()
+        self._search_results = CuteListWidget()
         self._search_results.itemDoubleClicked.connect(self._on_search_result_clicked)
+        self._search_results.installEventFilter(self)
 
         layout.addWidget(self._search_input)
         layout.addWidget(self._replace_input)
@@ -154,6 +157,26 @@ class SearchPanel(QWidget):
         location = item.data(Qt.ItemDataRole.UserRole)
         if location:
             self.file_activated.emit(location[0], location[1])
+
+    def eventFilter(self, obj: object, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.KeyPress:
+            if obj is self._search_results:
+                if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                    item = self._search_results.currentItem()
+                    if item:
+                        self._on_search_result_clicked(item)
+                    return True
+                if event.key() == Qt.Key.Key_Escape:
+                    self._search_input.setFocus()
+                    self._search_input.selectAll()
+                    return True
+            elif obj is self._search_input:
+                if event.key() == Qt.Key.Key_Down:
+                    self._search_results.setFocus()
+                    if self._search_results.count() > 0:
+                        self._search_results.setCurrentRow(0)
+                    return True
+        return super().eventFilter(obj, event)
 
     # ------------------------------------------------------------------
     # Replace

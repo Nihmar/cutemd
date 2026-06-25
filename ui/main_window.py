@@ -355,11 +355,11 @@ class MainWindow(QMainWindow):
         # --- Left vertical toolbar (ALWAYS visible, separate child in splitter) ---
         self._left_tb = QWidget()
         self._left_tb.setObjectName("leftToolbar")
-        self._left_tb.setFixedWidth(32)
-        self._left_tb.setMinimumWidth(32)
+        self._left_tb.setFixedWidth(42)
+        self._left_tb.setMinimumWidth(42)
         lt_layout = QVBoxLayout(self._left_tb)
-        lt_layout.setContentsMargins(0, 4, 0, 4)
-        lt_layout.setSpacing(2)
+        lt_layout.setContentsMargins(3, 8, 3, 8)
+        lt_layout.setSpacing(6)
 
         def _side_btn(
             name: str, tip: str, checkable: bool = True, slot=None
@@ -369,7 +369,7 @@ class MainWindow(QMainWindow):
             b.setToolTip(tip)
             b.setAutoRaise(True)
             b.setIconSize(QSize(18, 18))
-            b.setFixedSize(28, 26)
+            b.setFixedSize(36, 30)
             b.setCheckable(checkable)
             if slot:
                 b.toggled.connect(slot)
@@ -400,7 +400,7 @@ class MainWindow(QMainWindow):
         self._side_folder_btn.setToolTip(self.tr("Switch folder"))
         self._side_folder_btn.setAutoRaise(True)
         self._side_folder_btn.setIconSize(QSize(18, 18))
-        self._side_folder_btn.setFixedSize(28, 26)
+        self._side_folder_btn.setFixedSize(36, 30)
         self._side_folder_btn.clicked.connect(self._on_open_folder)
         self._sidebar_buttons.append((self._side_folder_btn, "folder_switch"))
         lt_layout.addWidget(self._side_folder_btn)
@@ -545,6 +545,9 @@ class MainWindow(QMainWindow):
             self._side_search_btn.blockSignals(True)
             self._side_search_btn.setChecked(False)
             self._side_search_btn.blockSignals(False)
+            self._side_toc_btn.blockSignals(True)
+            self._side_toc_btn.setChecked(False)
+            self._side_toc_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(0)
             self._show_left_panel()
         else:
@@ -555,6 +558,9 @@ class MainWindow(QMainWindow):
             self._side_tree_btn.blockSignals(True)
             self._side_tree_btn.setChecked(False)
             self._side_tree_btn.blockSignals(False)
+            self._side_toc_btn.blockSignals(True)
+            self._side_toc_btn.setChecked(False)
+            self._side_toc_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(1)
             self._show_left_panel()
         else:
@@ -761,16 +767,19 @@ class MainWindow(QMainWindow):
         else:
             self._side_search_btn.blockSignals(True)
             self._side_tree_btn.blockSignals(True)
+            self._side_toc_btn.blockSignals(True)
             self._side_search_btn.setChecked(True)
             self._side_tree_btn.setChecked(False)
+            self._side_toc_btn.setChecked(False)
             self._side_search_btn.blockSignals(False)
             self._side_tree_btn.blockSignals(False)
+            self._side_toc_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(1)
             self._show_left_panel()
             self._search_panel._search_input.setFocus()
             self._search_panel._search_input.selectAll()
 
-    def _on_replace_in_files(self) -> None:
+    def _on_replace_in_files(self) -> None:  # Apre/chiude replacement
         if self._folder_path is None:
             return
         if self._left_stack.currentIndex() == 1 and not self._left_stack.isHidden():
@@ -779,10 +788,13 @@ class MainWindow(QMainWindow):
         else:
             self._side_search_btn.blockSignals(True)
             self._side_tree_btn.blockSignals(True)
+            self._side_toc_btn.blockSignals(True)
             self._side_search_btn.setChecked(True)
             self._side_tree_btn.setChecked(False)
+            self._side_toc_btn.setChecked(False)
             self._side_search_btn.blockSignals(False)
             self._side_tree_btn.blockSignals(False)
+            self._side_toc_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(1)
             self._show_left_panel()
             self._search_panel._replace_input.setFocus()
@@ -1249,15 +1261,19 @@ class MainWindow(QMainWindow):
         if visible:
             self._side_tree_btn.blockSignals(True)
             self._side_search_btn.blockSignals(True)
+            self._side_toc_btn.blockSignals(True)
             self._side_tree_btn.setChecked(True)
             self._side_search_btn.setChecked(False)
+            self._side_toc_btn.setChecked(False)
             self._side_tree_btn.blockSignals(False)
             self._side_search_btn.blockSignals(False)
+            self._side_toc_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(0)
             self._show_left_panel()
         else:
             self._side_tree_btn.setChecked(False)
             self._side_search_btn.setChecked(False)
+            self._side_toc_btn.setChecked(False)
             self._hide_left_panel()
 
     def _on_toggle_statusbar(self, visible: bool) -> None:
@@ -1431,10 +1447,13 @@ class MainWindow(QMainWindow):
         if not folder_mode:
             self._side_tree_btn.blockSignals(True)
             self._side_search_btn.blockSignals(True)
+            self._side_toc_btn.blockSignals(True)
             self._side_tree_btn.setChecked(False)
             self._side_search_btn.setChecked(False)
+            self._side_toc_btn.setChecked(False)
             self._side_tree_btn.blockSignals(False)
             self._side_search_btn.blockSignals(False)
+            self._side_toc_btn.blockSignals(False)
             self._left_stack.hide()
             self._left_tb.hide()
             self.act_toggle_tree.setChecked(False)

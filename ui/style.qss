@@ -62,7 +62,7 @@ QTreeView {
     padding: 4px 0;
 }
 QTreeView::item {
-    padding: 3px 6px;
+    padding: 5px 8px;
     border-radius: 3px;
 }
 QTreeView::item:hover {
@@ -70,6 +70,21 @@ QTreeView::item:hover {
     color: ${HIGHLIGHTED_TEXT};
 }
 QTreeView::item:selected {
+    background: ${HIGHLIGHT};
+    color: ${HIGHLIGHTED_TEXT};
+}
+
+/* === List widgets ================================================ */
+
+QListWidget {
+    outline: none;
+}
+QListWidget::item {
+    min-height: 24px;
+    padding: 0 6px;
+    border-radius: 3px;
+}
+QListWidget::item:hover {
     background: ${HIGHLIGHT};
     color: ${HIGHLIGHTED_TEXT};
 }
@@ -96,6 +111,13 @@ QTreeView::item:selected {
     color: ${HIGHLIGHTED_TEXT};
 }
 
+/* === Input fields ================================================ */
+
+QLineEdit {
+    padding: 5px 8px;
+    min-height: 22px;
+}
+
 /* === Editor ====================================================== */
 
 QPlainTextEdit {
@@ -109,16 +131,18 @@ QPlainTextEdit {
 #editorToolbar {
     background: ${WINDOW};
     border-bottom: 1px solid ${MIDLIGHT};
+    padding: 2px 0;
 }
 #leftToolbar {
     background: ${WINDOW};
     border-right: 1px solid ${MIDLIGHT};
+    padding: 6px 0;
 }
 QToolButton {
     background: transparent;
     border: none;
     border-radius: 4px;
-    padding: 2px;
+    padding: 5px;
     color: ${TEXT};
 }
 QToolButton:hover {
@@ -134,7 +158,7 @@ QToolButton:checked {
 }
 #toolbarSep {
     background: ${MIDLIGHT};
-    margin: 4px 2px;
+    margin: 4px 4px;
     min-width: 1px;
 }
 

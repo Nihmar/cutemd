@@ -8,12 +8,13 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QLabel,
-    QListWidget,
     QListWidgetItem,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
+
+from ui.widgets import CuteListWidget
 
 
 class WelcomeDialog(QDialog):
@@ -59,14 +60,14 @@ class WelcomeDialog(QDialog):
             recent_label = QLabel(self.tr("Recent folders:"))
             layout.addWidget(recent_label)
 
-            self._recent_list = QListWidget()
-            self._recent_list.setMaximumHeight(120)
-            for rf in recent_folders:
-                item = QListWidgetItem(rf)
-                item.setData(Qt.ItemDataRole.UserRole, rf)
-                self._recent_list.addItem(item)
-            self._recent_list.itemDoubleClicked.connect(self._on_recent_selected)
-            layout.addWidget(self._recent_list)
+        self._recent_list = CuteListWidget()
+        self._recent_list.setMaximumHeight(120)
+        for rf in recent_folders:
+            item = QListWidgetItem(rf)
+            item.setData(Qt.ItemDataRole.UserRole, rf)
+            self._recent_list.addItem(item)
+        self._recent_list.itemDoubleClicked.connect(self._on_recent_selected)
+        layout.addWidget(self._recent_list)
 
         layout.addStretch()
 
