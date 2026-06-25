@@ -249,6 +249,7 @@ class EditorTab(QWidget):
 
         self._hover_link_key: tuple[int, int, int] | None = None
         self._hovered_link_target: str | None = None
+        self._broken_link_selections: list[QTextEdit.ExtraSelection] = []
 
         # --- Link preview popup ---
         self._link_preview_popup = LinkPreviewPopup(self)
@@ -540,6 +541,8 @@ class EditorTab(QWidget):
             self._highlighter.setDocument(None)
             self._preview_stack.setCurrentIndex(0)
 
+        self._refresh_link_highlights()
+
     def _load_image(self, path: Path) -> None:
         self.editor.setPlainText(self.tr("Image preview \u2014 {}").format(path.name))
         self.editor.setReadOnly(True)
@@ -659,6 +662,7 @@ class EditorTab(QWidget):
         if self._current_line_sel is not None:
             extra.append(self._current_line_sel)
         extra.extend(self._find_bar.selections)
+        extra.extend(self._broken_link_selections)
         self.editor.setExtraSelections(extra)
 
     def _emit_status(self) -> None:
@@ -696,6 +700,7 @@ class EditorTab(QWidget):
             self._last_rendered_hash = 0
         self._attachments_dir = d
         self.preview.set_attachments_dir(d)
+        self._refresh_link_highlights()
 
     # ------------------------------------------------------------------
     # Preview rendering
@@ -780,6 +785,7 @@ class EditorTab(QWidget):
         self._spinner_timer.start(100)
         _LOG.debug("_update_preview: rendering %d bytes", len(text))
         self._preview_worker.render_requested.emit(params)
+        self._refresh_link_highlights()
 
     def _on_preview_ready(self, html: str) -> None:
         self._preview_busy = False
@@ -1088,33 +1094,59 @@ class EditorTab(QWidget):
 
         self._link_preview_popup.show_for_path(path, global_pos, editor_font)
 
-    def _resolve_link_target(self, target: str) -> Path | None:
-        """Resolve a link/wikilink target to an absolute Path, or None."""
+    def _resolve_link_target(self, target: str, quick: bool = False) -> Path | None:
+        """Resolve a link/wikilink target to an absolute Path, or None.
+        If *quick* is True, skip the full rglob search (used for link
+        highlighting — the click handler still does the full search)."""
         _LOG.debug("_resolve_link_target: %s", target)
         target_path = Path(target)
         if target_path.is_absolute():
             exists = target_path.exists()
             return target_path if exists else None
 
-        # Resolve relative to the source file's directory, if known.
         base = self._file_path.parent if self._file_path else Path.cwd()
+        vault_root = (
+            self._attachments_dir.parent.resolve()
+            if self._attachments_dir is not None
+            else None
+        )
 
+        # 1. Same directory as the source file.
         candidates = [base / target_path]
         if target_path.suffix.lower() not in (".md", ".markdown"):
             candidates.append(base / (target + ".md"))
             candidates.append(base / (target + ".markdown"))
-
         for p in candidates:
             if p.is_file():
                 return p.resolve()
 
-        # Try the configured images directory.
+        # 2. Attachments directory (by filename).
         if self._attachments_dir is not None:
             candidate = self._attachments_dir / target_path.name
             if candidate.is_file():
                 return candidate.resolve()
 
-        # Fallback: try common image/PDF extensions (wikilinks often omit them).
+        # 3. Proximity search: walk up the directory tree (max 5 levels).
+        if vault_root is not None:
+            check_dir = base.resolve()
+            for _ in range(5):
+                if check_dir == vault_root or check_dir.parent == check_dir:
+                    break
+                check_dir = check_dir.parent
+                pc = check_dir / target_path
+                if pc.is_file():
+                    return pc.resolve()
+                if target_path.suffix.lower() not in (".md", ".markdown"):
+                    for ext in (".md", ".markdown"):
+                        p2 = check_dir / (target + ext)
+                        if p2.is_file():
+                            return p2.resolve()
+                    for ext in self._IMG_EXTS | self._PDF_EXTS:
+                        p2 = check_dir / (target + ext)
+                        if p2.is_file():
+                            return p2.resolve()
+
+        # 4. Extension fallback in the base + attachments dir.
         if target_path.suffix.lower() not in self._IMG_EXTS | self._PDF_EXTS:
             for ext in self._IMG_EXTS | self._PDF_EXTS:
                 p = base / (target + ext)
@@ -1125,18 +1157,19 @@ class EditorTab(QWidget):
                     if p2.is_file():
                         return p2.resolve()
 
-        # Fallback: full recursive search of the vault root.
-        # If attachments_dir is known, its parent is the vault root.
-        vault_root = self._attachments_dir.parent if self._attachments_dir is not None else base
+        # 5. Full recursive search of the vault root (skipped for quick checks).
+        if quick:
+            return None
+
+        search_root = vault_root if vault_root is not None else base
         target_name = target_path.name.lower()
         try:
-            for p in vault_root.rglob("*"):
+            for p in search_root.rglob("*"):
                 if p.is_file() and p.name.lower() == target_name:
-                    # Skip hidden directories
                     try:
                         if any(
                             part.startswith(".")
-                            for part in p.relative_to(vault_root).parts
+                            for part in p.relative_to(search_root).parts
                         ):
                             continue
                     except ValueError:
@@ -1146,6 +1179,46 @@ class EditorTab(QWidget):
             pass
 
         return None
+
+    def _refresh_link_highlights(self) -> None:
+        """Mark unresolved links in red using extra selections.
+        Skips large files (>2000 lines) for performance."""
+        editor = self.editor
+        text = editor.toPlainText()
+        lines = text.count("\n") + 1
+        if lines > 2000:
+            self._broken_link_selections = []
+            self._apply_all_selections()
+            return
+
+        fmt = QTextCharFormat()
+        fmt.setUnderlineColor(QColor("#e06c75"))
+        fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
+
+        cursor = editor.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+
+        broken: list[QTextEdit.ExtraSelection] = []
+
+        for pattern, target_group in ((self._LINK_RE, 2), (self._WIKILINK_RE, 1)):
+            for m in pattern.finditer(text):
+                target = m.group(target_group)
+                # Skip URLs, email links, etc.
+                if target.startswith(("http://", "https://", "#", "mailto:")):
+                    continue
+                # Skip if the link resolves correctly.
+                if self._resolve_link_target(target, quick=True) is not None:
+                    continue
+
+                sel = QTextEdit.ExtraSelection()
+                sel.cursor = editor.textCursor()
+                sel.cursor.setPosition(m.start())
+                sel.cursor.setPosition(m.end(), QTextCursor.MoveMode.KeepAnchor)
+                sel.format = fmt
+                broken.append(sel)
+
+        self._broken_link_selections = broken
+        self._apply_all_selections()
 
     # ------------------------------------------------------------------
     # Find bar
