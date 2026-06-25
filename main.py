@@ -68,6 +68,8 @@ def main() -> None:
         _LOG.debug("Window positioned on screen: %s", screen.name())
 
     window.show()
+    window.raise_()
+    window.activateWindow()
     _LOG.debug("Window shown, entering event loop")
 
     sys.exit(app.exec())
