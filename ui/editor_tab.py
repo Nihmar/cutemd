@@ -1296,11 +1296,13 @@ class EditorTab(QWidget):
         if vault_root is not None:
             try:
                 path.resolve().relative_to(vault_root)
+                _LOG.debug("_handle_file_drop: in-vault file — linking in-place %s", path.name)
                 return self._insert_file_link(path)
             except ValueError:
                 pass
 
         # Otherwise copy to the attachments directory.
+        _LOG.debug("_handle_file_drop: copying to attachments")
         dest_dir = self._attachments_dir
         if dest_dir is None:
             base = self._file_path.parent if self._file_path else Path.cwd()
@@ -1326,7 +1328,9 @@ class EditorTab(QWidget):
         when possible. Images get ``!`` prefix."""
         if self._file_path and self._file_path.parent:
             try:
-                rel = dest.resolve().relative_to(self._file_path.parent.resolve())
+                rel = dest.resolve().relative_to(
+                    self._file_path.parent.resolve(), walk_up=True
+                )
                 link = rel.as_posix()
             except ValueError:
                 link = dest.as_posix()
@@ -1339,6 +1343,7 @@ class EditorTab(QWidget):
         else:
             syntax = f"![{dest.stem}]({link})" if is_image else f"[{dest.stem}]({link})"
 
+        _LOG.debug("_insert_file_link: %s style=%s link=%s", dest.name, self._link_style, link)
         cursor = self.editor.textCursor()
         cursor.insertText(syntax)
         self.editor.setFocus()
