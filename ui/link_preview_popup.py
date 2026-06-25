@@ -1,5 +1,8 @@
 """Hover popup that previews the target of a Markdown/wikilink."""
 
+import csv
+import zipfile
+from html.parser import HTMLParser
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer
@@ -17,6 +20,20 @@ from PySide6.QtWidgets import (
 from ui.syntax_highlighter import MarkdownHighlighter
 
 
+class _HTMLStripper(HTMLParser):
+    """Strip HTML tags, preserving only text content."""
+
+    def __init__(self):
+        super().__init__()
+        self._parts: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self._parts.append(data)
+
+    def get_text(self) -> str:
+        return " ".join(self._parts)
+
+
 class LinkPreviewPopup(QFrame):
     """Popup window that shows a live preview of a linked file.
 
@@ -28,6 +45,10 @@ class LinkPreviewPopup(QFrame):
         {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"}
     )
     _PDF_EXTS = frozenset({".pdf"})
+    _CSV_EXTS = frozenset({".csv", ".tsv"})
+    _CBZ_EXTS = frozenset({".cbz"})
+    _EPUB_EXTS = frozenset({".epub"})
+    _XLSX_EXTS = frozenset({".xlsx"})
 
     _MAX_W = 520
     _MAX_H = 380
@@ -115,8 +136,16 @@ class LinkPreviewPopup(QFrame):
 
         if ext in self._IMG_EXTS:
             self._show_image(path)
+        elif ext in self._CBZ_EXTS:
+            self._show_cbz(path)
         elif ext in self._PDF_EXTS:
             self._show_pdf(path)
+        elif ext in self._CSV_EXTS:
+            self._show_csv(path)
+        elif ext in self._XLSX_EXTS:
+            self._show_xlsx(path)
+        elif ext in self._EPUB_EXTS:
+            self._show_epub(path)
         else:
             self._show_text(path, editor_font)
 
@@ -208,6 +237,121 @@ class LinkPreviewPopup(QFrame):
         img = doc.render(0, QSize(w, h))
         self._image_label.setPixmap(QPixmap.fromImage(img))
         self._image_label.show()
+
+    def _show_csv(self, path: Path) -> None:
+        self._image_label.hide()
+        self._editor.show()
+        if self._highlighter is not None:
+            self._highlighter.setDocument(None)
+
+        try:
+            delimiter = "\t" if path.suffix.lower() == ".tsv" else ","
+            with open(path, encoding="utf-8", errors="replace") as f:
+                reader = csv.reader(f, delimiter=delimiter)
+                rows = list(reader)[:100]
+        except Exception:
+            self._editor.setPlainText(f"[Cannot read: {path.name}]")
+            return
+
+        if not rows:
+            self._editor.setPlainText("")
+            return
+
+        col_widths = [0] * max(len(r) for r in rows)
+        for row in rows:
+            for i, cell in enumerate(row):
+                if i < len(col_widths):
+                    col_widths[i] = max(col_widths[i], len(cell))
+
+        lines = [" \u2502 ".join(c.ljust(col_widths[i]) for i, c in enumerate(row)) for row in rows]
+        self._editor.setPlainText("\n".join(lines))
+        mono = QFont("Consolas", 9) if QFont("Consolas").exactMatch() else QFont("monospace", 9)
+        self._editor.setFont(mono)
+
+    def _show_cbz(self, path: Path) -> None:
+        self._editor.hide()
+        if self._highlighter is not None:
+            self._highlighter.setDocument(None)
+
+        try:
+            with zipfile.ZipFile(path) as zf:
+                for name in sorted(zf.namelist()):
+                    ext = Path(name).suffix.lower()
+                    if ext in self._IMG_EXTS:
+                        data = zf.read(name)
+                        pixmap = QPixmap()
+                        pixmap.loadFromData(data)
+                        if not pixmap.isNull():
+                            scaled = pixmap.scaled(
+                                self._MAX_W - 10,
+                                self._MAX_H - 30,
+                                Qt.AspectRatioMode.KeepAspectRatio,
+                                Qt.TransformationMode.SmoothTransformation,
+                            )
+                            self._image_label.setPixmap(scaled)
+                            self._image_label.show()
+                            return
+        except Exception:
+            pass
+
+        self._image_label.setText(f"[Cannot display: {path.name}]")
+        self._image_label.show()
+
+    def _show_epub(self, path: Path) -> None:
+        self._image_label.hide()
+        self._editor.show()
+        if self._highlighter is not None:
+            self._highlighter.setDocument(None)
+
+        try:
+            with zipfile.ZipFile(path) as zf:
+                text_parts: list[str] = []
+                for name in sorted(zf.namelist()):
+                    if name.lower().endswith((".xhtml", ".html", ".htm")):
+                        content = zf.read(name).decode("utf-8", errors="replace")
+                        stripper = _HTMLStripper()
+                        stripper.feed(content)
+                        t = stripper.get_text().strip()
+                        if t:
+                            text_parts.append(t)
+                text = "\n\n---\n\n".join(text_parts[:10])
+        except Exception:
+            text = f"[Cannot read: {path.name}]"
+
+        self._editor.setPlainText(text[:10000] if text else "[Empty EPUB]")
+
+    def _show_xlsx(self, path: Path) -> None:
+        self._image_label.hide()
+        self._editor.show()
+        if self._highlighter is not None:
+            self._highlighter.setDocument(None)
+
+        try:
+            import openpyxl
+
+            wb = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+            lines: list[str] = []
+            for sheet_name in wb.sheetnames[:3]:
+                ws = wb[sheet_name]
+                lines.append(f"=== {sheet_name} ===")
+                row_count = 0
+                for row in ws.iter_rows(values_only=True, max_row=50):
+                    line = " \u2502 ".join(str(c) if c is not None else "" for c in row)
+                    lines.append(line)
+                    row_count += 1
+                if row_count == 50:
+                    lines.append("... (truncated)")
+                lines.append("")
+            wb.close()
+            text = "\n".join(lines)
+        except ImportError:
+            text = f"[Package 'openpyxl' required for .xlsx preview]"
+        except Exception:
+            text = f"[Cannot read: {path.name}]"
+
+        self._editor.setPlainText(text[:10000] if text else "[Empty spreadsheet]")
+        mono = QFont("Consolas", 9) if QFont("Consolas").exactMatch() else QFont("monospace", 9)
+        self._editor.setFont(mono)
 
     # ------------------------------------------------------------------
     # Delayed hide
