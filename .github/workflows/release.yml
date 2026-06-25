@@ -48,8 +48,36 @@ jobs:
             dist/cutemd/cutemd.exe
             dist/CuteMD_Setup.exe
 
+  build-deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8
+      - run: uv sync --dev
+      - name: Build .deb
+        run: bash scripts/build_deb.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cutemd-deb
+          path: dist/cutemd_*.deb
+
+  build-rpm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8
+      - run: uv sync --dev
+      - name: Install rpm-build
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq rpm
+      - name: Build .rpm
+        run: bash scripts/build_rpm.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cutemd-rpm
+          path: dist/cutemd-*.rpm
+
   release:
-    needs: [build-linux, build-windows]
+    needs: [build-linux, build-windows, build-deb, build-rpm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v7
@@ -60,3 +88,5 @@ jobs:
             cutemd-linux/cutemd-x86_64.AppImage
             cutemd-windows/cutemd.exe
             cutemd-windows/CuteMD_Setup.exe
+            cutemd-deb/cutemd_*.deb
+            cutemd-rpm/cutemd-*.rpm
