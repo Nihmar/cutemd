@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote
 
 import requests
 
@@ -152,21 +152,25 @@ class WebDAVClient:
 
             raw_entries.append((raw, entry))
             if dir_href is None and entry["is_dir"]:
-                # Compare decoded paths against the request URL to
-                # reliably identify the current directory, since
-                # WebDAV servers do not guarantee response ordering.
-                href_path = unquote(urlparse(href.text).path).rstrip("/")
-                req_path = unquote(urlparse(url).path).rstrip("/")
-                if href_path == req_path:
+                # Identify the response entry that represents the
+                # directory we requested.  For the root call the first
+                # is_dir entry is always the root.  For recursive calls
+                # we match on the last path segment because reverse
+                # proxies may rewrite the URL prefix.
+                if not rel_dir:
                     dir_href = raw
+                else:
+                    href_last = unquote(raw.rstrip("/")).rstrip("/").rsplit("/", 1)[-1]
+                    rel_last = unquote(rel_dir.rstrip("/")).rstrip("/").rsplit("/", 1)[-1]
+                    if href_last == rel_last:
+                        dir_href = raw
 
         if not raw_entries:
             return
 
         if dir_href is None:
-            # The request URL didn't appear in any response entry.
-            # This should never happen with a well-behaved server;
-            # bail out rather than guessing the wrong directory.
+            # Couldn't identify the current directory entry — bail out
+            # rather than guessing the wrong directory.
             return
 
         for raw, entry in raw_entries:
@@ -293,19 +297,6 @@ _IS_DEBUG = not getattr(sys, "frozen", False)
 _LOG = logging.getLogger("cutemd.sync")
 _LOG.setLevel(logging.DEBUG if _IS_DEBUG else logging.WARNING)
 _LOG.propagate = False
-
-if _IS_DEBUG:
-    try:
-        _debug_handler = logging.FileHandler(
-            "cutemd_sync_debug.log", mode="a", encoding="utf-8"
-        )
-        _debug_handler.setLevel(logging.DEBUG)
-        _debug_handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-        )
-        _LOG.addHandler(_debug_handler)
-    except OSError:
-        pass  # CWD not writable — debug logs are lost
 
 
 def _parse_http_datetime(text: str) -> datetime | None:
@@ -733,11 +724,33 @@ class SyncThread(QThread):
         self._password = password
 
     def run(self) -> None:
-        result = sync_folder(
-            self._local_root,
-            self._url,
-            self._username,
-            self._password,
-            progress_callback=lambda msg: self.progress.emit(msg),
-        )
+        handler = None
+        if _IS_DEBUG:
+            try:
+                log_dir = self._local_root / ".cutemd"
+                log_dir.mkdir(parents=True, exist_ok=True)
+                handler = logging.FileHandler(
+                    log_dir / "sync_debug.log", mode="a", encoding="utf-8"
+                )
+                handler.setLevel(logging.DEBUG)
+                handler.setFormatter(
+                    logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+                )
+                _LOG.addHandler(handler)
+            except OSError:
+                handler = None
+
+        try:
+            result = sync_folder(
+                self._local_root,
+                self._url,
+                self._username,
+                self._password,
+                progress_callback=lambda msg: self.progress.emit(msg),
+            )
+        finally:
+            if handler:
+                _LOG.removeHandler(handler)
+                handler.close()
+
         self.finished.emit(result)

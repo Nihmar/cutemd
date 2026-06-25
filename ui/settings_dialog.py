@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QSettings, QThread, Qt, Signal
 from PySide6.QtGui import QFontDatabase, QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -32,6 +32,7 @@ from ui.markdown_completer import DEFAULT_SMART_EDITING
 from ui.shortcut_manager import DEFAULT_SHORTCUTS
 from ui.themes import ALL_THEMES, get_theme
 from ui.translations import LANGUAGES
+from ui.webdav_sync import WebDAVClient
 from ui.widgets import CuteListWidget
 
 _FONT_FAMILIES: list[str] | None = None
@@ -112,6 +113,24 @@ class _FontPicker(QWidget):
         return "System"
 
 
+class _WebDAVTestWorker(QThread):
+    result = Signal(bool, str)
+
+    def __init__(self, url: str, user: str, pw: str):
+        super().__init__()
+        self._url = url
+        self._user = user
+        self._pw = pw
+
+    def run(self) -> None:
+        try:
+            client = WebDAVClient(self._url, self._user, self._pw)
+            ok, err = client.test_connection()
+        except Exception as e:
+            ok, err = False, str(e)
+        self.result.emit(ok, err)
+
+
 class SettingsDialog(QDialog):
     """A dialog for adjusting application settings.
 
@@ -141,6 +160,7 @@ class SettingsDialog(QDialog):
         current_auto_sync_interval: int = 300,
         current_sync_on_save: bool = False,
         current_session_restore_enabled: bool = False,
+        current_show_hidden_files: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -246,6 +266,10 @@ class SettingsDialog(QDialog):
         self._cursor_width.setValue(current_cursor_width)
         self._cursor_width.setToolTip(self.tr("Cursor thickness in pixels"))
         editor_form.addRow(self.tr("Cursor width:"), self._cursor_width)
+
+        self._show_hidden_cb = QCheckBox(self.tr("Show hidden files and folders"))
+        self._show_hidden_cb.setChecked(current_show_hidden_files)
+        editor_form.addRow("", self._show_hidden_cb)
 
         self._link_style_combo = QComboBox()
         self._link_style_combo.addItem(self.tr("Markdown [text](url)"), "md")
@@ -447,6 +471,7 @@ class SettingsDialog(QDialog):
             test_btn = QPushButton(self.tr("Test Connection"))
             test_btn.clicked.connect(self._on_test_webdav)
             sync_form.addRow("", test_btn)
+            self._test_btn = test_btn
 
             sync_page_layout.addLayout(sync_form)
 
@@ -552,6 +577,8 @@ class SettingsDialog(QDialog):
         self._autosave_spin.setValue(5)
         # Session restore
         self._session_restore_cb.setChecked(False)
+        # Hidden files
+        self._show_hidden_cb.setChecked(False)
         # Images dir
         if self._images_dir_edit is not None:
             self._images_dir_edit.clear()
@@ -656,6 +683,9 @@ class SettingsDialog(QDialog):
     def selected_session_restore_enabled(self) -> bool:
         return self._session_restore_cb.isChecked()
 
+    def selected_show_hidden_files(self) -> bool:
+        return self._show_hidden_cb.isChecked()
+
     def selected_webdav_url(self) -> str:
         if self._webdav_url_edit is not None:
             return self._webdav_url_edit.text().strip()
@@ -732,8 +762,18 @@ class SettingsDialog(QDialog):
             )
             return
 
-        client = WebDAVClient(url, user, pw)
-        ok, err = client.test_connection()
+        self._test_btn.setEnabled(False)
+        self._test_btn.setText(self.tr("Testing\u2026"))
+
+        worker = _WebDAVTestWorker(url, user, pw)
+        worker.result.connect(self._on_test_result)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+        self._test_worker = worker
+
+    def _on_test_result(self, ok: bool, err: str) -> None:
+        self._test_btn.setEnabled(True)
+        self._test_btn.setText(self.tr("Test Connection"))
         if ok:
             QMessageBox.information(
                 self,

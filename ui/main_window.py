@@ -102,6 +102,7 @@ class MainWindow(QMainWindow):
         self._cursor_width = self._s.cursor_width()
         self._smart_editing = self._s.smart_editing()
         self._smart_editing["link_style"] = self._s.raw_value("link_style", "md")
+        self._show_hidden_files = self._s.show_hidden_files()
 
         # --- Autosave timer ---
         self._autosave_timer = QTimer(self)
@@ -411,6 +412,7 @@ class MainWindow(QMainWindow):
         self._tree_panel.file_open_new_tab.connect(self._on_tree_file_new_tab)
         self._tree_panel.file_renamed.connect(self._on_tree_file_renamed)
         self._tree_panel.file_deleted.connect(self._on_tree_file_deleted)
+        self._tree_panel.set_show_hidden_files(self._show_hidden_files)
 
         # --- Search panel ---
         self._search_panel = SearchPanel()
@@ -463,7 +465,7 @@ class MainWindow(QMainWindow):
         editor_pane = QWidget()
         editor_layout = QVBoxLayout(editor_pane)
         editor_layout.setContentsMargins(0, 0, 0, 0)
-        editor_layout.setSpacing(0)
+        editor_layout.setSpacing(2)
         editor_layout.addWidget(editor_toolbar)
         editor_layout.addWidget(self._tabs)
         editor_layout.addWidget(status_widget)
@@ -973,6 +975,7 @@ class MainWindow(QMainWindow):
             current_auto_sync_interval=self._s.auto_sync_interval(),
             current_sync_on_save=self._s.sync_on_save(),
             current_session_restore_enabled=self._s.session_restore_enabled(),
+            current_show_hidden_files=self._show_hidden_files,
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -1129,6 +1132,13 @@ class MainWindow(QMainWindow):
             self._s.set_preview_font_size(self._preview_font_size)
             self._s.set_line_number_mode(self._line_number_mode)
             self._s.set_cursor_width(self._cursor_width)
+
+        # --- Show hidden files (global) ---
+        new_shf = dlg.selected_show_hidden_files()
+        if new_shf != self._show_hidden_files:
+            self._show_hidden_files = new_shf
+            self._s.set_show_hidden_files(new_shf)
+            self._tree_panel.set_show_hidden_files(new_shf)
 
     def _update_auto_sync_timer(self) -> None:
         """Start or stop the auto-sync timer based on current settings."""

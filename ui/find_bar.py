@@ -18,8 +18,8 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
+    QPushButton,
     QTextEdit,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -36,8 +36,9 @@ class FindBar(QWidget):
         self._editor = editor
         self._selections: list[QTextEdit.ExtraSelection] = []
         self.setVisible(False)
-        self.setFixedHeight(62)
-        self.setMinimumHeight(62)
+        self.setObjectName("findBar")
+        self.setFixedHeight(80)
+        self.setMinimumHeight(80)
 
         # ── Row 1: find ───────────────────────────────────────────────
         self._input = QLineEdit()
@@ -48,42 +49,44 @@ class FindBar(QWidget):
         self._input.returnPressed.connect(self._find_next)
 
         self._count_label = QLabel()
+        self._count_label.setFixedHeight(24)
 
-        self._case_btn = QToolButton()
+        self._case_btn = QPushButton()
         self._case_btn.setText("Aa")
         self._case_btn.setCheckable(True)
         self._case_btn.setToolTip(self.tr("Match case"))
         self._case_btn.setFixedSize(28, 24)
         self._case_btn.toggled.connect(self._highlight_all)
 
-        prev_btn = QToolButton()
+        prev_btn = QPushButton()
         prev_btn.setText("\u25b2")
         prev_btn.setToolTip(self.tr("Previous match"))
         prev_btn.setFixedSize(28, 24)
         prev_btn.clicked.connect(self._find_prev)
 
-        next_btn = QToolButton()
+        next_btn = QPushButton()
         next_btn.setText("\u25bc")
         next_btn.setToolTip(self.tr("Next match"))
         next_btn.setFixedSize(28, 24)
         next_btn.clicked.connect(self._find_next)
 
-        close_btn = QToolButton()
+        close_btn = QPushButton()
         close_btn.setText("\u2715")
         close_btn.setToolTip(self.tr("Close find bar"))
         close_btn.setFixedSize(28, 24)
         close_btn.clicked.connect(self.close)
 
-        find_row = QHBoxLayout()
+        find_row_widget = QWidget()
+        find_row = QHBoxLayout(find_row_widget)
         find_row.setContentsMargins(0, 0, 0, 0)
-        find_row.setSpacing(4)
-        find_row.addWidget(self._input)
-        find_row.addWidget(self._count_label)
+        find_row.setSpacing(6)
+        find_row.addWidget(self._input, 0, Qt.AlignmentFlag.AlignVCenter)
+        find_row.addWidget(self._count_label, 0, Qt.AlignmentFlag.AlignVCenter)
         find_row.addStretch()
-        find_row.addWidget(self._case_btn)
-        find_row.addWidget(prev_btn)
-        find_row.addWidget(next_btn)
-        find_row.addWidget(close_btn)
+        find_row.addWidget(self._case_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        find_row.addWidget(prev_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        find_row.addWidget(next_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        find_row.addWidget(close_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # ── Row 2: replace ────────────────────────────────────────────
         self._replace_input = QLineEdit()
@@ -92,32 +95,33 @@ class FindBar(QWidget):
         self._replace_input.setFixedHeight(24)
         self._replace_input.returnPressed.connect(self._replace_one)
 
-        replace_btn = QToolButton()
+        replace_btn = QPushButton()
         replace_btn.setText(self.tr("Replace"))
         replace_btn.setToolTip(self.tr("Replace current match"))
         replace_btn.setFixedHeight(24)
         replace_btn.clicked.connect(self._replace_one)
 
-        replace_all_btn = QToolButton()
+        replace_all_btn = QPushButton()
         replace_all_btn.setText(self.tr("Replace All"))
         replace_all_btn.setToolTip(self.tr("Replace all matches"))
         replace_all_btn.setFixedHeight(24)
         replace_all_btn.clicked.connect(self._replace_all)
 
-        replace_row = QHBoxLayout()
+        replace_row_widget = QWidget()
+        replace_row = QHBoxLayout(replace_row_widget)
         replace_row.setContentsMargins(0, 0, 0, 0)
-        replace_row.setSpacing(4)
-        replace_row.addWidget(self._replace_input)
-        replace_row.addWidget(replace_btn)
-        replace_row.addWidget(replace_all_btn)
+        replace_row.setSpacing(6)
+        replace_row.addWidget(self._replace_input, 0, Qt.AlignmentFlag.AlignVCenter)
+        replace_row.addWidget(replace_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        replace_row.addWidget(replace_all_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         replace_row.addStretch()
 
         # ── Outer layout ──────────────────────────────────────────────
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(4, 4, 4, 4)
+        outer.setContentsMargins(8, 4, 8, 8)
         outer.setSpacing(4)
-        outer.addLayout(find_row)
-        outer.addLayout(replace_row)
+        outer.addWidget(find_row_widget)
+        outer.addWidget(replace_row_widget)
 
         # ── Tab navigation between find ↔ replace inputs ────────────
         self._input.installEventFilter(self)

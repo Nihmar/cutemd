@@ -62,7 +62,7 @@ QTreeView {
     padding: 4px 0;
 }
 QTreeView::item {
-    padding: 5px 8px;
+    padding: 3px 8px;
     border-radius: 3px;
 }
 QTreeView::item:hover {
@@ -196,6 +196,27 @@ QStatusBar {
 QStatusBar::item {
     border: none;
 }
+
+/* === Find bar ==================================================== */
+
+#findBar {
+    background: ${BASE};
+    border-bottom: 1px solid ${MIDLIGHT};
+}
+#findBar QPushButton {
+    border: 1px solid ${MIDLIGHT};
+    border-radius: 3px;
+    padding: 3px 6px;
+}
+#findBar QPushButton:hover {
+    background: ${HIGHLIGHT};
+    color: ${HIGHLIGHTED_TEXT};
+}
+#findBar QPushButton:checked {
+    background: ${HIGHLIGHT};
+    color: ${HIGHLIGHTED_TEXT};
+}
+
 #inlineStatusBar {
     background: ${WINDOW};
     border-top: 1px solid ${MIDLIGHT};

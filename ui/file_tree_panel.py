@@ -3,7 +3,7 @@
 import shutil
 from pathlib import Path
 
-from PySide6.QtCore import QDir, Qt, QUrl, Signal
+from PySide6.QtCore import QDir, QSize, QSortFilterProxyModel, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -32,17 +32,33 @@ class _FileTreeView(QTreeView):
         self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
 
+    def _source_model(self):
+        p = self.model()
+        return p.sourceModel() if isinstance(p, QSortFilterProxyModel) else p
+
+    def _file_path(self, index):
+        p = self.model()
+        if isinstance(p, QSortFilterProxyModel):
+            return p.sourceModel().filePath(p.mapToSource(index))
+        return p.filePath(index)
+
+    def _root_path(self):
+        p = self.model()
+        if isinstance(p, QSortFilterProxyModel):
+            return p.sourceModel().rootPath()
+        return p.rootPath()
+
     def keyPressEvent(self, event) -> None:
         if event.key() == Qt.Key.Key_F2:
             index = self.currentIndex()
             if index.isValid():
-                path = self.model().filePath(index)
+                path = self._file_path(index)
                 if path:
                     self.file_rename_requested.emit(path)
             return
         if event.key() == Qt.Key.Key_Delete:
             for index in self.selectionModel().selectedRows():
-                path = self.model().filePath(index)
+                path = self._file_path(index)
                 if path:
                     self.file_delete_requested.emit(path)
             return
@@ -60,7 +76,7 @@ class _FileTreeView(QTreeView):
             return
         index = self.indexAt(event.position().toPoint())
         if index.isValid():
-            path = self.model().filePath(index)
+            path = self._file_path(index)
             if path and Path(path).is_dir():
                 event.acceptProposedAction()
             else:
@@ -75,13 +91,13 @@ class _FileTreeView(QTreeView):
 
         index = self.indexAt(event.position().toPoint())
         if index.isValid():
-            path = self.model().filePath(index)
+            path = self._file_path(index)
             if path:
                 target_dir = str(Path(path) if Path(path).is_dir() else Path(path).parent)
             else:
-                target_dir = self.model().rootPath()
+                target_dir = self._root_path()
         else:
-            target_dir = self.model().rootPath()
+            target_dir = self._root_path()
 
         if not target_dir:
             event.ignore()
@@ -96,6 +112,31 @@ class _FileTreeView(QTreeView):
 
         self.files_dropped.emit(source_paths, target_dir)
         event.acceptProposedAction()
+
+
+class _DotFileFilterProxy(QSortFilterProxyModel):
+    """Hides files and folders whose name starts with '.' when disabled."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._show_hidden = False
+
+    def set_show_hidden(self, show: bool) -> None:
+        if self._show_hidden != show:
+            self._show_hidden = show
+            self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row: int, source_parent) -> bool:
+        if self._show_hidden:
+            return True
+        model = self.sourceModel()
+        if model is None:
+            return True
+        idx = model.index(source_row, 0, source_parent)
+        name = model.fileName(idx)
+        if name.startswith("."):
+            return False
+        return True
 
 
 class FileTreePanel(QWidget):
@@ -122,11 +163,15 @@ class FileTreePanel(QWidget):
             QDir.Filter.Files | QDir.Filter.AllDirs | QDir.Filter.NoDotAndDotDot
         )
 
+        self._proxy = _DotFileFilterProxy(self)
+        self._proxy.setSourceModel(self._model)
+
         self._tree = _FileTreeView()
-        self._tree.setModel(self._model)
+        self._tree.setModel(self._proxy)
         self._tree.setHeaderHidden(True)
         self._tree.setAnimated(True)
         self._tree.setIndentation(16)
+        self._tree.setIconSize(QSize(16, 16))
         self._tree.setSortingEnabled(True)
         self._tree.sortByColumn(0, Qt.SortOrder.AscendingOrder)
         self._tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -156,27 +201,31 @@ class FileTreePanel(QWidget):
         p = Path(path)
         if not p.is_dir():
             self._model.setRootPath("")
-            self._tree.setRootIndex(self._model.index(""))
+            self._tree.setRootIndex(self._proxy.mapFromSource(self._model.index("")))
             return
         root = str(p.resolve())
-        idx = self._model.setRootPath(root)
-        self._tree.setRootIndex(idx)
+        src_idx = self._model.setRootPath(root)
+        self._tree.setRootIndex(self._proxy.mapFromSource(src_idx))
 
     def select_file(self, path: str | Path) -> None:
         """Highlight *path* in the tree."""
         idx = self._model.index(str(Path(path).resolve()))
         if idx.isValid():
-            self._tree.setCurrentIndex(idx)
+            self._tree.setCurrentIndex(self._proxy.mapFromSource(idx))
 
     def root_path(self) -> str:
         """Return the current root path (or empty string if none)."""
         return self._model.rootPath()
 
+    def set_show_hidden_files(self, show: bool) -> None:
+        self._proxy.set_show_hidden(show)
+
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
     def _on_activated(self, index) -> None:
-        path = self._model.filePath(index)
+        src_idx = self._proxy.mapToSource(index)
+        path = self._model.filePath(src_idx)
         if path and Path(path).is_file():
             self.file_activated.emit(path)
 
@@ -185,7 +234,8 @@ class FileTreePanel(QWidget):
         if not index.isValid():
             return
 
-        path = self._model.filePath(index)
+        src_idx = self._proxy.mapToSource(index)
+        path = self._model.filePath(src_idx)
         if not path:
             return
 

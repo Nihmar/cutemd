@@ -189,6 +189,16 @@ class AppSettings(QObject):
         self._s.setValue("session_restore_tabs", tabs)
 
     # ------------------------------------------------------------------
+    # File tree
+    # ------------------------------------------------------------------
+    def show_hidden_files(self, default: bool = False) -> bool:
+        val = self._s.value("show_hidden_files", default)
+        return str(val).lower() == "true" if isinstance(val, str) else bool(val)
+
+    def set_show_hidden_files(self, value: bool) -> None:
+        self._s.setValue("show_hidden_files", value)
+
+    # ------------------------------------------------------------------
     # Raw access (for backward compat / complex values)
     # ------------------------------------------------------------------
     def raw_value(self, key: str, default: Any = None) -> Any:

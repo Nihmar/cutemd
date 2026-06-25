@@ -344,15 +344,16 @@ class EditorTab(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(splitter)
 
-        # --- Find bar ---
+        # --- Find bar (top) ---
         self._find_bar = FindBar(self.editor, self)
         self._find_bar.highlights_changed.connect(self._apply_all_selections)
         self._find_bar.closed.connect(
             lambda: (self._clear_highlights(), self.editor.setFocus())
         )
         layout.addWidget(self._find_bar)
+
+        layout.addWidget(splitter)
 
     # ------------------------------------------------------------------
     # Public API
