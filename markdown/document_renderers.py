@@ -17,27 +17,55 @@ def _wrap_html(body: str, css: str) -> str:
 # XLSX  ->  HTML <table>
 # ---------------------------------------------------------------------------
 
-def xlsx_to_html(path: Path, css: str) -> str:
-    """Convert the first sheet(s) of an XLSX workbook to an HTML table."""
+_XLSX_TABLE_CSS = """
+.xlsx-toc { margin: 0.5em 0; line-height: 1.8; }
+.xlsx-toc a { color: #61afef; text-decoration: none; margin-right: 1em; }
+.xlsx-table { border-collapse: collapse; width: 100%; margin: 0.5em 0; font-size: 11px; }
+.xlsx-table th, .xlsx-table td { border: 1px solid #777; padding: 3px 6px; text-align: left; white-space: nowrap; }
+.xlsx-table th { font-weight: bold; background: #3c3c3c; }
+.xlsx-table tr:nth-child(even) td { background: #2a2a2a; }
+"""
+
+def xlsx_to_html(path: Path, css: str, sheet_names: list[str] | None = None) -> str:
+    """Convert an XLSX workbook to HTML table(s).
+
+    Args:
+        path: Path to the .xlsx file.
+        css: Base CSS to include (appended with table-specific CSS).
+        sheet_names: If not None, render only these sheets in order.
+                     If None, render all sheets with a clickable TOC.
+    """
     import openpyxl
 
     wb = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
+    names = sheet_names if sheet_names is not None else wb.sheetnames
     parts: list[str] = []
 
-    for sheet_name in wb.sheetnames[:3]:
+    # TOC when rendering all sheets
+    if len(names) > 1 and sheet_names is None:
+        toc_items = "".join(
+            f'<a href="#sheet_{i}">{escape(n)}</a>'
+            for i, n in enumerate(names)
+        )
+        parts.append(f'<div class="xlsx-toc">{toc_items}</div>')
+
+    for idx, sheet_name in enumerate(names):
+        if sheet_name not in wb.sheetnames:
+            continue
         ws = wb[sheet_name]
-        parts.append(f'<h2>{escape(sheet_name)}</h2>')
+        parts.append(f'<a name="sheet_{idx}"><h2>{escape(sheet_name)}</h2></a>')
         rows: list[str] = []
         for i, row in enumerate(ws.iter_rows(values_only=True, max_row=200)):
-            cells = ''.join(
-                f'<{"th" if i == 0 else "td"}>{escape(str(c)) if c is not None else ""}</{"th" if i == 0 else "td"}>'
+            tag = "th" if i == 0 else "td"
+            cells = "".join(
+                f"<{tag}>{escape(str(c)) if c is not None else ''}</{tag}>"
                 for c in row
             )
-            rows.append(f'<tr>{cells}</tr>')
-        parts.append('<table>' + '\n'.join(rows) + '</table>')
+            rows.append(f"<tr>{cells}</tr>")
+        parts.append(f'<table class="xlsx-table">{"".join(rows)}</table>')
 
     wb.close()
-    return _wrap_html('\n'.join(parts), css)
+    return _wrap_html("\n".join(parts), css + _XLSX_TABLE_CSS)
 
 
 # ---------------------------------------------------------------------------

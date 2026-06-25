@@ -4,7 +4,7 @@ import csv
 import zipfile
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QPoint, QSize, Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap, QTextOption
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import (
@@ -18,6 +18,9 @@ from PySide6.QtWidgets import (
 )
 
 from markdown.document_renderers import epub_to_html
+from core.logging import setup_logging
+
+_LOG = setup_logging("cutemd.link_preview_popup")
 from ui.syntax_highlighter import MarkdownHighlighter
 
 
@@ -43,9 +46,8 @@ class LinkPreviewPopup(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowFlags(
-            Qt.WindowType.Tool
+            Qt.WindowType.Popup
             | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
@@ -122,6 +124,14 @@ class LinkPreviewPopup(QFrame):
         self._path = path
         self._hide_timer.stop()
         self._mouse_over = True
+
+        # Force-hide if visible so the WM accepts the new position
+        # (Wayland/GNOME ignores move() on visible windows).
+        was_visible = self.isVisible()
+        if was_visible:
+            self.hide()
+
+        self._cbz_images = []
 
         ext = path.suffix.lower()
 
@@ -308,7 +318,8 @@ class LinkPreviewPopup(QFrame):
             return
 
         total = len(self._cbz_images)
-        self._header.setText(f"{self._path.name}  [{index + 1} / {total}]")
+        self._header.setText(f"\u25c0  {self._path.name}  [{index + 1}/{total}]  \u25b6")
+        self._image_label.setCursor(Qt.CursorShape.PointingHandCursor)
         scaled = pixmap.scaled(
             self._MAX_W - 10,
             self._MAX_H - 30,
@@ -333,10 +344,10 @@ class LinkPreviewPopup(QFrame):
     def wheelEvent(self, event) -> None:
         """Navigate CBZ pages with the mouse wheel."""
         if self._cbz_images:
-            if event.angleDelta().y() < 0:  # scroll down
+            if event.angleDelta().y() < 0:
                 self._cbz_index = (self._cbz_index + 1) % len(self._cbz_images)
                 self._show_cbz_page(self._cbz_index)
-            elif event.angleDelta().y() > 0:  # scroll up
+            elif event.angleDelta().y() > 0:
                 self._cbz_index = (self._cbz_index - 1) % len(self._cbz_images)
                 self._show_cbz_page(self._cbz_index)
             event.accept()
@@ -352,6 +363,7 @@ class LinkPreviewPopup(QFrame):
             elif event.key() == Qt.Key.Key_Left:
                 self._cbz_index = (self._cbz_index - 1) % len(self._cbz_images)
                 self._show_cbz_page(self._cbz_index)
+            return
         super().keyPressEvent(event)
 
     def _show_epub(self, path: Path) -> None:
@@ -419,7 +431,11 @@ class LinkPreviewPopup(QFrame):
             self.move(pos)
             return
 
-        screen: QScreen | None = app.screenAt(pos)
+        sz = self.size()
+        x = pos.x()
+        y = pos.y()
+
+        screen: QScreen | None = app.screenAt(QPoint(x, y))
         if screen is None:
             screen = app.primaryScreen()
         if screen is None:
@@ -427,18 +443,21 @@ class LinkPreviewPopup(QFrame):
             return
 
         geo = screen.availableGeometry()
-        sz = self.size()
-        x = pos.x()
-        y = pos.y()
 
         if x + sz.width() > geo.right():
             x = geo.right() - sz.width()
-        if y + sz.height() > geo.bottom():
-            y = max(geo.top(), pos.y() - sz.height() - 4)
         if x < geo.left():
             x = geo.left()
+        if y + sz.height() > geo.bottom():
+            y = geo.bottom() - sz.height()
+        if y < geo.top():
+            y = geo.top()
 
+        _LOG.debug("_move_within_screen: pos=%s final=(%d,%d) sz=%s geo=%s",
+                    pos, x, y, sz, (geo.x(), geo.y(), geo.width(), geo.height()))
         self.move(x, y)
+        _LOG.debug("_move_within_screen: actual pos=%s actual global=%s",
+                    self.pos(), self.mapToGlobal(QPoint(0, 0)))
 
     # ------------------------------------------------------------------
     def enterEvent(self, event) -> None:

@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.logging import setup_logging
 from markdown.document_renderers import (
     cbz_to_html,
     docx_to_html,
@@ -59,7 +60,6 @@ from ui.pdf_viewer import PdfViewer
 from ui.preview_browser import PreviewTextBrowser, get_image_size
 from ui.preview_worker import PreviewWorker
 from ui.syntax_highlighter import MarkdownHighlighter
-from core.logging import setup_logging
 
 _LARGE_FILE_THRESHOLD = 1_048_576  # 1 MB
 
@@ -258,6 +258,7 @@ class EditorTab(QWidget):
 
         self._hover_link_key: tuple[int, int, int] | None = None
         self._hovered_link_target: str | None = None
+        self._hover_cursor_pos: QPoint | None = None
         self._broken_link_selections: list[QTextEdit.ExtraSelection] = []
 
         # --- Link preview popup ---
@@ -477,7 +478,9 @@ class EditorTab(QWidget):
 
     def zoom_editor(self, delta: int) -> None:
         """Zoom the editor font by *delta* points (+1/-1)."""
-        new_size = max(self._ZOOM_MIN, min(self._ZOOM_MAX, self._editor_font_size + delta))
+        new_size = max(
+            self._ZOOM_MIN, min(self._ZOOM_MAX, self._editor_font_size + delta)
+        )
         if new_size == self._editor_font_size:
             return
         self._editor_font_size = new_size
@@ -485,7 +488,9 @@ class EditorTab(QWidget):
 
     def zoom_preview(self, delta: int) -> None:
         """Zoom the preview font by *delta* points (+1/-1)."""
-        new_size = max(self._ZOOM_MIN, min(self._ZOOM_MAX, self._preview_font_size + delta))
+        new_size = max(
+            self._ZOOM_MIN, min(self._ZOOM_MAX, self._preview_font_size + delta)
+        )
         if new_size == self._preview_font_size:
             return
         self._preview_font_size = new_size
@@ -506,7 +511,12 @@ class EditorTab(QWidget):
         _LOG.debug("load_file: %s", path)
         self._last_rendered_hash = 0
         ext = path.suffix.lower()
-        _LOG.debug("load_file: ext=%s _DOC_EXTS=%s hit=%s", ext, self._DOC_EXTS, ext in self._DOC_EXTS)
+        _LOG.debug(
+            "load_file: ext=%s _DOC_EXTS=%s hit=%s",
+            ext,
+            self._DOC_EXTS,
+            ext in self._DOC_EXTS,
+        )
         if ext in self._IMG_EXTS:
             self._file_path = path
             self._load_image(path)
@@ -580,7 +590,13 @@ class EditorTab(QWidget):
     def _load_document(self, path: Path) -> None:
         """Render a DOCX / XLSX / PPTX / CBZ / EPUB file as HTML in the preview pane."""
         ext = path.suffix.lower()
-        name_map = {".docx": "Word", ".xlsx": "Excel", ".pptx": "PowerPoint", ".cbz": "CBZ", ".epub": "EPUB"}
+        name_map = {
+            ".docx": "Word",
+            ".xlsx": "Excel",
+            ".pptx": "PowerPoint",
+            ".cbz": "CBZ",
+            ".epub": "EPUB",
+        }
         label = name_map.get(ext, "Document")
         _LOG.debug("_load_document: %s (%s) label=%s", path.name, ext, label)
 
@@ -728,9 +744,7 @@ class EditorTab(QWidget):
                 len(self.editor.toPlainText().split())
             )
         else:
-            words = self.tr("{} words").format(
-                len(self.editor.toPlainText().split())
-            )
+            words = self.tr("{} words").format(len(self.editor.toPlainText().split()))
         self.status_changed.emit(f"{line}:{col}", words)
 
     def _on_text_changed(self) -> None:
@@ -973,6 +987,7 @@ class EditorTab(QWidget):
             self._do_preview_scrolled()
         except Exception:
             import traceback
+
             traceback.print_exc()
             self._syncing_scroll = 0
 
@@ -1094,6 +1109,9 @@ class EditorTab(QWidget):
             # Only restart the timer when the hovered link target changes.
             if target != self._hovered_link_target:
                 self._hovered_link_target = target
+                from PySide6.QtGui import QCursor
+
+                self._hover_cursor_pos = QCursor.pos()
                 self._link_preview_show_timer.start()
         else:
             if self._hover_link_key is not None:
@@ -1103,6 +1121,7 @@ class EditorTab(QWidget):
             # --- Hide popup when leaving link ---
             if self._hovered_link_target is not None:
                 self._hovered_link_target = None
+                self._hover_cursor_pos = None
                 self._link_preview_show_timer.stop()
                 self._link_preview_popup.hide_popup()
 
@@ -1146,11 +1165,30 @@ class EditorTab(QWidget):
         if path is None:
             return
 
-        # Compute screen position: below the mouse cursor with a small offset.
-        from PySide6.QtGui import QCursor
-
-        global_cursor = QCursor.pos()
-        global_pos = QPoint(global_cursor.x() + 10, global_cursor.y() + 18)
+        # Compute screen position: above the cursor (tooltip-style).
+        gap = 6
+        popup_h = 380  # LinkPreviewPopup._MAX_H
+        if self._hover_cursor_pos is not None:
+            cx, cy = self._hover_cursor_pos.x(), self._hover_cursor_pos.y()
+            y = cy - popup_h - gap
+            # If no room above, place below the cursor.
+            if y < 0:
+                y = cy + gap
+            global_pos = QPoint(cx, y)
+        else:
+            from PySide6.QtGui import QCursor
+            c = QCursor.pos()
+            y = c.y() - popup_h - gap
+            if y < 0:
+                y = c.y() + gap
+            global_pos = QPoint(c.x(), y)
+        _LOG.debug(
+            "popup target=%s pos=%s cursor=%s viewport.tl=%s",
+            target,
+            global_pos,
+            self._hover_cursor_pos,
+            self.editor.viewport().mapToGlobal(QPoint(0, 0)),
+        )
 
         # Gather the editor font for the preview editor.
         editor_font = self.editor.font()
@@ -1354,7 +1392,10 @@ class EditorTab(QWidget):
                     return True
                 return False
             elif event.type() == QEvent.Type.Drop:
-                _LOG.debug("eventFilter: Drop urls=%s", [url.toString() for url in event.mimeData().urls()])
+                _LOG.debug(
+                    "eventFilter: Drop urls=%s",
+                    [url.toString() for url in event.mimeData().urls()],
+                )
                 if self._drag_active and self._on_drop(event):  # type: ignore[arg-type]
                     return True
                 self._drag_active = False
@@ -1424,16 +1465,16 @@ class EditorTab(QWidget):
         Link style (md vs wikilink) respects the user setting."""
         # Determine the vault root (parent of attachments dir).
         vault_root = (
-            self._attachments_dir.parent.resolve()
-            if self._attachments_dir
-            else None
+            self._attachments_dir.parent.resolve() if self._attachments_dir else None
         )
 
         # If the file is already inside the vault, link it in-place.
         if vault_root is not None:
             try:
                 path.resolve().relative_to(vault_root)
-                _LOG.debug("_handle_file_drop: in-vault file — linking in-place %s", path.name)
+                _LOG.debug(
+                    "_handle_file_drop: in-vault file — linking in-place %s", path.name
+                )
                 return self._insert_file_link(path)
             except ValueError:
                 pass
@@ -1453,6 +1494,7 @@ class EditorTab(QWidget):
                 dest = dest_dir / f"{stem}_{n}{ext}"
                 n += 1
         import shutil
+
         try:
             if dest.resolve() != path.resolve():
                 shutil.copy2(str(path), str(dest))
@@ -1494,7 +1536,9 @@ class EditorTab(QWidget):
         else:
             syntax = f"![{dest.stem}]({link})" if is_image else f"[{dest.stem}]({link})"
 
-        _LOG.debug("_insert_file_link: %s style=%s link=%s", dest.name, self._link_style, link)
+        _LOG.debug(
+            "_insert_file_link: %s style=%s link=%s", dest.name, self._link_style, link
+        )
         cursor = self.editor.textCursor()
         cursor.insertText(syntax)
         self.editor.setFocus()
