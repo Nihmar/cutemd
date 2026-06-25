@@ -2,6 +2,7 @@
 
 import re
 import sys
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +70,21 @@ else:
     _ROOT = Path(__file__).resolve().parent.parent
 _CSS_PATH = _ROOT / "ui" / "preview_styles.css"
 _ICONS_DIR = _ROOT / "ui" / "icons"
+
+_IS_DEBUG = not getattr(sys, "frozen", False)
+
+_LOG = logging.getLogger("cutemd.main_window")
+_LOG.setLevel(logging.DEBUG if _IS_DEBUG else logging.WARNING)
+_LOG.propagate = False
+
+if _IS_DEBUG:
+    try:
+        _dh = logging.FileHandler("cutemd_main_window_debug.log", mode="a", encoding="utf-8")
+        _dh.setLevel(logging.DEBUG)
+        _dh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+        _LOG.addHandler(_dh)
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +208,34 @@ class MainWindow(QMainWindow):
 
         # Restore last folder (or prompt on first run)
         QTimer.singleShot(0, self._restore_last_folder)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not getattr(self, "_panel_restored", False):
+            self._panel_restored = True
+            self._reset_save_timer()
+
+    def _reset_save_timer(self) -> None:
+        """Ignore splitterMoved for 500ms after programmatic setSizes."""
+        self._save_allowed = False
+        if hasattr(self, "_save_timer"):
+            self._save_timer.stop()
+        self._save_timer = QTimer(self)
+        self._save_timer.setSingleShot(True)
+        self._save_timer.timeout.connect(self._allow_save)
+        self._save_timer.start(500)
+
+    def _allow_save(self) -> None:
+        self._save_allowed = True
+
+    def _on_splitter_moved(self, pos: int, index: int) -> None:
+        if not getattr(self, "_save_allowed", True):
+            return
+        left = self._splitter.sizes()[0]
+        if left <= 0:
+            return
+        _LOG.debug("splitterMoved save: left=%d", left)
+        self._s.set_left_panel_width(left)
 
     # ------------------------------------------------------------------
     # Actions
@@ -475,6 +519,7 @@ class MainWindow(QMainWindow):
         self._splitter.addWidget(self._left_stack)
         self._splitter.addWidget(editor_pane)
         self._splitter.setSizes([220, 948])
+        self._splitter.splitterMoved.connect(self._on_splitter_moved)
 
         # Main layout: toolbar | splitter  (no splitter handle between them)
         outer = QWidget()
@@ -502,7 +547,13 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def _show_left_panel(self) -> None:
         self._left_stack.show()
-        self._animate_splitter_to(220)
+        total = self._splitter.width()
+        left = self._s.left_panel_width()
+        _LOG.debug("_show_left_panel: total=%d saved_left=%d", total, left)
+        if total > 0:
+            self._animate_splitter_to(left)
+        else:
+            self._animate_splitter_to(220)
 
     def _hide_left_panel(self) -> None:
         self._animate_splitter_to(0, on_finish=lambda: self._left_stack.hide())
@@ -510,8 +561,8 @@ class MainWindow(QMainWindow):
     def _animate_splitter_to(self, left_width: int, on_finish=None) -> None:
         """Animate the main splitter's left panel width."""
         total = self._splitter.width()
+        _LOG.debug("_animate_splitter_to: left=%d total=%d", left_width, total)
         if total <= 0:
-            self._splitter.setSizes([left_width, max(total - left_width, 0)])
             if on_finish:
                 on_finish()
             return
@@ -536,11 +587,21 @@ class MainWindow(QMainWindow):
 
         def _done() -> None:
             self._splitter.setUpdatesEnabled(True)
+            self._reset_save_timer()
             if on_finish:
                 on_finish()
 
         self._tree_anim.finished.connect(_done)
         self._tree_anim.start()
+
+    def _restore_panel_width(self) -> None:
+        left = self._s.left_panel_width()
+        total = self._splitter.width()
+        _LOG.debug("_restore_panel_width: left=%d total=%d", left, total)
+        if total > 0 and left >= 0:
+            left = max(0, min(left, total))
+            self._splitter.setSizes([left, total - left])
+        self._reset_save_timer()
 
     def _on_side_tree_toggled(self, checked: bool) -> None:
         if checked:
@@ -1478,8 +1539,8 @@ class MainWindow(QMainWindow):
             self._left_tb.show()
             self._left_stack.setCurrentIndex(0)
             self._left_stack.show()
-            self._splitter.setSizes([220, max(self._splitter.width() - 220, 200)])
             self.act_toggle_tree.setChecked(True)
+            QTimer.singleShot(0, self._restore_panel_width)
             self._side_folder_btn.setText(self._folder_path.name)
         self._update_window_title()
 
@@ -1817,6 +1878,13 @@ class MainWindow(QMainWindow):
         if self._s.session_restore_enabled():
             self._save_session()
         self._s.set_window_geometry(self.saveGeometry())
+        left = self._splitter.sizes()[0]
+        _LOG.info("closeEvent: splitter sizes=%s saving left=%d", self._splitter.sizes(), left)
+        if left > 0:
+            self._s.set_left_panel_width(left)
+            self._s._s.sync()
+        else:
+            _LOG.warning("closeEvent: left=%d, NOT saving (panel hidden?)", left)
         event.accept()
 
     def sizeHint(self) -> QSize:

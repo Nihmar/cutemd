@@ -183,16 +183,16 @@ class SettingsDialog(QDialog):
             self.tr("Editor"),
             self.tr("Preview Font"),
             self.tr("Storage"),
+            self.tr("Shortcuts"),
+            self.tr("Sync"),
         ]
-        self._shortcuts_idx = -1
-        self._sync_idx = -1
-        if folder_settings is not None:
-            sections.append(self.tr("Shortcuts"))
-            self._shortcuts_idx = len(sections) - 1
-            sections.append(self.tr("Sync"))
-            self._sync_idx = len(sections) - 1
-        for name in sections:
-            self._section_list.addItem(name)
+        self._shortcuts_idx = 5
+        self._sync_idx = 6
+        for i, name in enumerate(sections):
+            item = QListWidgetItem(name)
+            if folder_settings is None and i in (self._shortcuts_idx, self._sync_idx):
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+            self._section_list.addItem(item)
         main_layout.addWidget(self._section_list)
 
         # --- Right panel ---
@@ -394,7 +394,7 @@ class SettingsDialog(QDialog):
         storage_page_layout.addStretch()
         self._stack.addWidget(storage_page)
 
-        # Page 5: Shortcuts (only when folder is open)
+        # Page 5: Shortcuts (always present, disabled when no folder)
         if folder_settings is not None:
             current_shortcuts = folder_settings.load_shortcuts()
             shortcuts_page = self._build_page(self.tr("Shortcuts"))
@@ -442,6 +442,11 @@ class SettingsDialog(QDialog):
             shortcuts_page_layout.addWidget(self._shortcuts_table)
             shortcuts_page_layout.addStretch()
             self._stack.addWidget(shortcuts_page)
+        else:
+            page = self._build_page(self.tr("Shortcuts"))
+            page.layout().addWidget(QLabel(self.tr("Open a folder to customize shortcuts.")))
+            page.layout().addStretch()
+            self._stack.addWidget(page)
 
         # Page N: Sync (only when folder is open)
         self._webdav_url_edit: QLineEdit | None = None
@@ -503,6 +508,11 @@ class SettingsDialog(QDialog):
             sync_page_layout.addWidget(auto_group)
             sync_page_layout.addStretch()
             self._stack.addWidget(sync_page)
+        else:
+            page = self._build_page(self.tr("Sync"))
+            page.layout().addWidget(QLabel(self.tr("Open a folder to configure WebDAV sync.")))
+            page.layout().addStretch()
+            self._stack.addWidget(page)
 
         right.addWidget(self._stack)
 

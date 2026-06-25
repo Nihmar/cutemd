@@ -138,6 +138,15 @@ class AppSettings(QObject):
         self._s.setValue("window_geometry", geometry)
 
     # ------------------------------------------------------------------
+    # Splitter
+    # ------------------------------------------------------------------
+    def left_panel_width(self, default: int = 220) -> int:
+        return int(self._s.value("left_panel_width", default))
+
+    def set_left_panel_width(self, width: int) -> None:
+        self._s.setValue("left_panel_width", width)
+
+    # ------------------------------------------------------------------
     # Autosave
     # ------------------------------------------------------------------
     def autosave_interval(self, default: int = 5) -> int:
