@@ -531,11 +531,11 @@ class EditorTab(QWidget):
             )
             return
 
-        self.editor.setPlainText(text)
+        self._saved_text = text
         self._file_path = path
         self._file_encoding = encoding
         _LOG.debug("load_file: size=%d encoding=%s", len(text), encoding)
-        self._saved_text = text
+        self.editor.setPlainText(text)
         self._dirty = False
         self._is_binary_preview = False
         self.editor.setReadOnly(False)

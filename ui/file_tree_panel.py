@@ -161,12 +161,14 @@ class FileTreePanel(QWidget):
 
     Emits:
         file_activated(str) --- absolute path of the file the user clicked.
+        file_double_activated(str) --- absolute path of the file the user double-clicked.
         file_open_new_tab(str) --- open file in a new tab unconditionally.
         file_renamed(str, str) --- (old_path, new_path) after a rename.
         file_deleted(str) --- path of a deleted file.
     """
 
     file_activated = Signal(str)
+    file_double_activated = Signal(str)
     file_open_new_tab = Signal(str)
     file_renamed = Signal(str, str)
     file_deleted = Signal(str)
@@ -198,6 +200,7 @@ class FileTreePanel(QWidget):
             self._tree.hideColumn(col)
 
         self._tree.clicked.connect(self._on_activated)
+        self._tree.doubleClicked.connect(self._on_double_activated)
         self._tree.customContextMenuRequested.connect(self._on_context_menu)
         self._tree.file_rename_requested.connect(self._rename_item)
         self._tree.file_delete_requested.connect(self._delete_item)
@@ -247,6 +250,13 @@ class FileTreePanel(QWidget):
         _LOG.debug("_on_activated: %s", path)
         if path and Path(path).is_file():
             self.file_activated.emit(path)
+
+    def _on_double_activated(self, index) -> None:
+        src_idx = self._proxy.mapToSource(index)
+        path = self._model.filePath(src_idx)
+        _LOG.debug("_on_double_activated: %s", path)
+        if path and Path(path).is_file():
+            self.file_double_activated.emit(path)
 
     def _on_context_menu(self, point) -> None:
         _LOG.debug("_on_context_menu")

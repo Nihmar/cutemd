@@ -457,6 +457,7 @@ class MainWindow(QMainWindow):
         # --- File tree panel ---
         self._tree_panel = FileTreePanel()
         self._tree_panel.file_activated.connect(self._on_tree_file_activated)
+        self._tree_panel.file_double_activated.connect(self._on_tree_file_double_activated)
         self._tree_panel.file_open_new_tab.connect(self._on_tree_file_new_tab)
         self._tree_panel.file_renamed.connect(self._on_tree_file_renamed)
         self._tree_panel.file_deleted.connect(self._on_tree_file_deleted)
@@ -544,6 +545,7 @@ class MainWindow(QMainWindow):
         self._side_tree_btn.blockSignals(False)
         self._left_stack.setCurrentIndex(0)
 
+        self._preview_tab: EditorTab | None = None
         _LOG.debug("_setup_central: done")
         self._add_tab()
 
@@ -729,8 +731,15 @@ class MainWindow(QMainWindow):
     def _refresh_tab_title(self, tab: EditorTab) -> None:
         for i in range(self._tabs.count()):
             if self._tabs.widget(i) is tab:
-                self._tabs.setTabText(i, tab.display_name())
+                name = tab.display_name()
+                self._tabs.setTabText(i, name)
                 self._tabs.setTabToolTip(i, tab.tooltip())
+                if tab is self._preview_tab:
+                    color = QColor(self.palette().color(self.palette().ColorRole.Text))
+                    color.setAlpha(140)
+                    self._tabs.tabBar().setTabTextColor(i, color)
+                else:
+                    self._tabs.tabBar().setTabTextColor(i, QColor())
                 break
 
     def _connect_edit_actions(self, tab: EditorTab) -> None:
@@ -762,9 +771,11 @@ class MainWindow(QMainWindow):
         if self._side_toc_btn.isChecked():
             self._rebuild_toc()
 
-    def _on_tab_modified(self, _modified: bool) -> None:
+    def _on_tab_modified(self, modified: bool) -> None:
         tab = self.sender()
         if isinstance(tab, EditorTab):
+            if tab is self._preview_tab and modified:
+                self._preview_tab = None
             self._refresh_tab_title(tab)
         self._update_window_title()
 
@@ -780,6 +791,8 @@ class MainWindow(QMainWindow):
         tab = self._tabs.widget(index)
         if isinstance(tab, EditorTab) and not tab.maybe_save():
             return
+        if tab is self._preview_tab:
+            self._preview_tab = None
         self._tabs.removeTab(index)
         if self._tabs.count() == 0:
             self._add_tab()
@@ -1665,23 +1678,66 @@ class MainWindow(QMainWindow):
         self._update_menu_state()
 
     def _on_tree_file_activated(self, path: str) -> None:
+        """Single-click on tree: open in a preview tab."""
         _LOG.debug("_on_tree_file_activated: %s", path)
         p = Path(path)
+
+        # Already open in some tab → focus it; if it's the preview tab, promote it.
         idx = self._find_tab_for_file(p)
         if idx >= 0:
+            tab = self._tabs.widget(idx)
+            if tab is self._preview_tab:
+                self._preview_tab = None
+                self._refresh_tab_title(tab)
             self._tabs.setCurrentIndex(idx)
+            self._tree_panel.select_file(p)
             return
 
+        # Reuse existing preview tab (if unmodified), or create a new preview tab
+        if self._preview_tab is not None and not self._preview_tab.is_modified:
+            tab = self._preview_tab
+            self._preview_tab = None  # prevent premature promotion during load_file
+            tab.load_file(p)
+            self._preview_tab = tab
+            self._tabs.setCurrentIndex(self._tabs.indexOf(tab))
+            self._refresh_tab_title(tab)
+            self._update_window_title()
+            self._tree_panel.select_file(p)
+            return
+
+        tab = self._add_tab()
+        tab.load_file(p)
+        self._preview_tab = tab
+        self._refresh_tab_title(tab)
+        self._update_window_title()
+        self._tree_panel.select_file(p)
+
+    def _on_tree_file_double_activated(self, path: str) -> None:
+        """Double-click on tree: open as a persistent tab (not preview)."""
+        _LOG.debug("_on_tree_file_double_activated: %s", path)
+        p = Path(path)
+
+        idx = self._find_tab_for_file(p)
+        if idx >= 0:
+            tab = self._tabs.widget(idx)
+            if tab is self._preview_tab:
+                self._preview_tab = None
+                self._refresh_tab_title(tab)
+            self._tabs.setCurrentIndex(idx)
+            self._tree_panel.select_file(p)
+            return
+
+        # If the current tab is the preview tab → promote and reuse it
         tab = self._current_tab()
-        # Reuse current tab if it is unmodified (empty or saved file)
-        if tab is not None and not tab.is_modified:
+        if tab is self._preview_tab:
+            self._preview_tab = None
             tab.load_file(p)
             self._refresh_tab_title(tab)
             self._update_window_title()
             self._tree_panel.select_file(p)
             return
 
-        # Current tab is modified — open in a new tab
+        # Otherwise open in a new persistent tab
         tab = self._add_tab()
         tab.load_file(p)
         self._refresh_tab_title(tab)
