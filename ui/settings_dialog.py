@@ -39,8 +39,6 @@ _FONT_FAMILIES: list[str] | None = None
 
 
 class _FontPicker(QWidget):
-    """Search field + scrollable filtered list for font selection."""
-
     _LIST_HEIGHT = 150
 
     def __init__(self, parent=None) -> None:
@@ -54,8 +52,14 @@ class _FontPicker(QWidget):
         lay.addWidget(self._edit)
 
         self._list = QListWidget()
+        self._list.setFrameShape(QListWidget.Shape.NoFrame)
         self._list.setFixedHeight(self._LIST_HEIGHT)
         lay.addWidget(self._list)
+
+        # Fissa l'altezza del widget contenitore, non solo della lista
+        edit_h = self._edit.sizeHint().height()
+        total_h = edit_h + lay.spacing() + self._LIST_HEIGHT
+        self.setMaximumHeight(total_h)
 
         self._edit.textChanged.connect(self._apply_filter)
 
@@ -152,6 +156,8 @@ class SettingsDialog(QDialog):
 
         # --- Left panel: section list ---
         self._section_list = QListWidget()
+        self._section_list.setObjectName("sectionList")
+        self._section_list.setSpacing(6)
         self._section_list.setFixedWidth(140)
         sections = [
             self.tr("Language"),
@@ -202,7 +208,7 @@ class SettingsDialog(QDialog):
         theme_form.addRow(self.tr("Theme:"), self._theme_combo)
         self._preview = QLabel()
         self._preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._preview.setMinimumHeight(40)
+        self._preview.setMinimumHeight(70)
         self._preview.setStyleSheet(
             "padding: 12px; border-radius: 6px; font-size: 13px;"
         )
@@ -216,6 +222,10 @@ class SettingsDialog(QDialog):
         editor_page = self._build_page(self.tr("Editor"))
         editor_page_layout = editor_page.layout()
         editor_form = QFormLayout()
+        editor_form.setLabelAlignment(Qt.AlignmentFlag.AlignTop)
+        editor_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
         self._editor_font_combo = _FontPicker()
         self._populate_font_picker(self._editor_font_combo, current_editor_font)
         editor_form.addRow(self.tr("Font family:"), self._editor_font_combo)
@@ -320,13 +330,17 @@ class SettingsDialog(QDialog):
         preview_page = self._build_page(self.tr("Preview Font"))
         preview_page_layout = preview_page.layout()
         preview_form = QFormLayout()
+        preview_form.setLabelAlignment(Qt.AlignmentFlag.AlignTop)
+        preview_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
         self._preview_font_combo = _FontPicker()
         self._populate_font_picker(self._preview_font_combo, current_preview_font)
-        preview_form.addRow(self.tr("Family:"), self._preview_font_combo)
+        preview_form.addRow(self.tr("Font family:"), self._preview_font_combo)
         self._preview_font_size = QSpinBox()
         self._preview_font_size.setRange(8, 72)
         self._preview_font_size.setValue(current_preview_font_size)
-        preview_form.addRow(self.tr("Size:"), self._preview_font_size)
+        preview_form.addRow(self.tr("Font size:"), self._preview_font_size)
         preview_page_layout.addLayout(preview_form)
         preview_page_layout.addStretch()
         self._stack.addWidget(preview_page)
@@ -345,15 +359,16 @@ class SettingsDialog(QDialog):
         self._dotdir_info = QLabel()
         storage_form.addRow(self.tr("Folder data (.cutemd):"), self._dotdir_info)
 
+        storage_page_layout.addLayout(storage_form)
+
         clear_btn = QPushButton(self.tr("Clear last folder"))
         clear_btn.clicked.connect(self._clear_last_folder)
-        storage_form.addRow("", clear_btn)
+        storage_page_layout.addWidget(clear_btn)
 
         self._session_restore_cb = QCheckBox(self.tr("Restore open tabs on startup"))
         self._session_restore_cb.setChecked(current_session_restore_enabled)
-        storage_form.addRow("", self._session_restore_cb)
+        storage_page_layout.addWidget(self._session_restore_cb)
 
-        storage_page_layout.addLayout(storage_form)
         storage_page_layout.addStretch()
         self._stack.addWidget(storage_page)
 
@@ -377,6 +392,7 @@ class SettingsDialog(QDialog):
                 0, QHeaderView.ResizeMode.Stretch
             )
             self._shortcuts_table.verticalHeader().setVisible(False)
+            self._shortcuts_table.setAlternatingRowColors(True)
             self._shortcuts_table.setSelectionMode(
                 QTableWidget.SelectionMode.NoSelection
             )
@@ -491,10 +507,17 @@ class SettingsDialog(QDialog):
     # Helpers
     # ------------------------------------------------------------------
 
-    def _build_page(self, title: str) -> QGroupBox:
-        group = QGroupBox(title)
-        group.setLayout(QVBoxLayout())
-        return group
+    def _build_page(self, title: str = "") -> QWidget:
+        widget = QWidget()
+        lay = QVBoxLayout(widget)
+        lay.setContentsMargins(8, 8, 8, 8)
+        if title:
+            header = QLabel(title)
+            header.setStyleSheet(
+                "font-weight: bold; font-size: 13px; padding: 0 0 8px 0;"
+            )
+            lay.addWidget(header)
+        return widget
 
     def _populate_font_picker(self, picker: _FontPicker, current: str) -> None:
         """Fill a font picker with 'System' + all available font families."""
@@ -517,6 +540,7 @@ class SettingsDialog(QDialog):
         self._editor_font_combo.select_first()
         self._editor_font_size.setValue(11)
         self._line_number_combo.setCurrentIndex(1)  # all lines
+        self._cursor_width.setValue(2)
         self._link_style_combo.setCurrentIndex(0)  # markdown links
         self._preview_font_combo.select_first()
         self._preview_font_size.setValue(16)
@@ -526,6 +550,33 @@ class SettingsDialog(QDialog):
         self._auto_brackets_cb.setChecked(True)
         self._continue_lists_cb.setChecked(True)
         self._backspace_pairs_cb.setChecked(True)
+        # Autosave
+        self._autosave_spin.setValue(5)
+        # Session restore
+        self._session_restore_cb.setChecked(False)
+        # Images dir
+        if self._images_dir_edit is not None:
+            self._images_dir_edit.clear()
+        # WebDAV
+        if self._webdav_url_edit is not None:
+            self._webdav_url_edit.clear()
+        if self._webdav_user_edit is not None:
+            self._webdav_user_edit.clear()
+        if self._webdav_pass_edit is not None:
+            self._webdav_pass_edit.clear()
+        # Auto-sync
+        if hasattr(self, "_auto_sync_cb"):
+            self._auto_sync_cb.setChecked(False)
+        if hasattr(self, "_auto_sync_interval"):
+            self._auto_sync_interval.setValue(300)
+        if hasattr(self, "_sync_on_save_cb"):
+            self._sync_on_save_cb.setChecked(False)
+        # Shortcuts
+        if hasattr(self, "_shortcuts_table"):
+            for i in range(self._shortcuts_table.rowCount()):
+                editor = self._shortcuts_table.cellWidget(i, 2)
+                if isinstance(editor, QKeySequenceEdit):
+                    editor.clear()
 
     # ------------------------------------------------------------------
     # Results

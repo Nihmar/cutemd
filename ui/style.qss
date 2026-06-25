@@ -74,6 +74,28 @@ QTreeView::item:selected {
     color: ${HIGHLIGHTED_TEXT};
 }
 
+/* === Settings section list ====================================== */
+
+#sectionList {
+    background: ${WINDOW};
+    border-right: 1px solid ${MIDLIGHT};
+    outline: none;
+    padding: 4px 0;
+}
+#sectionList::item {
+    padding: 0 12px;
+    min-height: 28px;
+    border-radius: 3px;
+}
+#sectionList::item:hover {
+    background: ${HIGHLIGHT};
+    color: ${HIGHLIGHTED_TEXT};
+}
+#sectionList::item:selected {
+    background: ${HIGHLIGHT};
+    color: ${HIGHLIGHTED_TEXT};
+}
+
 /* === Editor ====================================================== */
 
 QPlainTextEdit {
