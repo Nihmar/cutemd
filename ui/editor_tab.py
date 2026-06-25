@@ -206,7 +206,7 @@ class EditorTab(QWidget):
         {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"}
     )
     _PDF_EXTS = frozenset({".pdf"})
-    _DOC_EXTS = frozenset({".docx", ".xlsx", ".pptx", ".cbz"})
+    _DOC_EXTS = frozenset({".docx", ".xlsx", ".pptx", ".cbz", ".epub"})
 
     # -- Link detection in the editor (clickable links + hover underline) --
     _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
@@ -504,6 +504,7 @@ class EditorTab(QWidget):
         _LOG.debug("load_file: %s", path)
         self._last_rendered_hash = 0
         ext = path.suffix.lower()
+        _LOG.debug("load_file: ext=%s _DOC_EXTS=%s hit=%s", ext, self._DOC_EXTS, ext in self._DOC_EXTS)
         if ext in self._IMG_EXTS:
             self._file_path = path
             self._load_image(path)
@@ -575,10 +576,11 @@ class EditorTab(QWidget):
         self._splitter.setSizes([0, 1000])
 
     def _load_document(self, path: Path) -> None:
-        """Render a DOCX / XLSX / PPTX / CBZ file as HTML in the preview pane."""
+        """Render a DOCX / XLSX / PPTX / CBZ / EPUB file as HTML in the preview pane."""
         ext = path.suffix.lower()
-        name_map = {".docx": "Word", ".xlsx": "Excel", ".pptx": "PowerPoint", ".cbz": "CBZ"}
+        name_map = {".docx": "Word", ".xlsx": "Excel", ".pptx": "PowerPoint", ".cbz": "CBZ", ".epub": "EPUB"}
         label = name_map.get(ext, "Document")
+        _LOG.debug("_load_document: %s (%s) label=%s", path.name, ext, label)
 
         self.editor.setPlainText(self.tr("{} \u2014 {}").format(label, path.name))
         self.editor.setReadOnly(True)
@@ -601,13 +603,15 @@ class EditorTab(QWidget):
                 self.preview.setPlainText(self.tr("[Unsupported document format]"))
                 self._preview_stack.setCurrentIndex(0)
                 return
-        except Exception:
+            self.preview.setHtml(html)
+            self._preview_stack.setCurrentIndex(0)
+        except Exception as e:
+            _LOG.debug("_load_document: error rendering %s: %s", label, e)
             self.preview.setPlainText(self.tr("[Error rendering {}]").format(label))
             self._preview_stack.setCurrentIndex(0)
             return
 
-        self.preview.setHtml(html)
-        self._preview_stack.setCurrentIndex(0)
+        self._refresh_link_highlights()
 
     def save(self) -> bool:
         _LOG.debug("save: %s", self.file_path)
