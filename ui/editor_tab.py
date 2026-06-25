@@ -52,8 +52,11 @@ from ui.pdf_viewer import PdfViewer
 from ui.preview_browser import PreviewTextBrowser, get_image_size
 from ui.preview_worker import PreviewWorker
 from ui.syntax_highlighter import MarkdownHighlighter
+from core.logging import setup_logging
 
 _LARGE_FILE_THRESHOLD = 1_048_576  # 1 MB
+
+_LOG = setup_logging("cutemd.editor_tab")
 
 
 def _read_file_with_encoding(path: Path) -> tuple[str | None, str]:
@@ -355,6 +358,8 @@ class EditorTab(QWidget):
 
         layout.addWidget(splitter)
 
+        _LOG.debug("EditorTab created")
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -384,6 +389,7 @@ class EditorTab(QWidget):
             self._update_preview()
 
     def set_preview_visible(self, visible: bool) -> None:
+        _LOG.debug("set_preview_visible: %s", visible)
         if visible == self._preview_visible:
             return
         self._preview_visible = visible
@@ -488,6 +494,7 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
 
     def load_file(self, path: Path) -> None:
+        _LOG.debug("load_file: %s", path)
         self._last_rendered_hash = 0
         ext = path.suffix.lower()
         if ext in self._IMG_EXTS:
@@ -513,6 +520,7 @@ class EditorTab(QWidget):
         self.editor.setPlainText(text)
         self._file_path = path
         self._file_encoding = encoding
+        _LOG.debug("load_file: size=%d encoding=%s", len(text), encoding)
         self._saved_text = text
         self._dirty = False
         self._is_binary_preview = False
@@ -554,15 +562,18 @@ class EditorTab(QWidget):
         self._splitter.setSizes([0, 1000])
 
     def save(self) -> bool:
+        _LOG.debug("save: %s", self.file_path)
         if self._file_path:
             return self._write_file(self._file_path)
         return False
 
     def save_as(self, path: Path) -> bool:
+        _LOG.debug("save_as: %s", path)
         self._file_path = path
         return self._write_file(path)
 
     def _write_file(self, path: Path) -> bool:
+        _LOG.debug("_write_file: %s encoding=utf-8", path)
         try:
             path.write_text(self.editor.toPlainText(), encoding="utf-8")
             self._saved_text = self.editor.toPlainText()
@@ -603,6 +614,7 @@ class EditorTab(QWidget):
         if not self.is_modified:
             return True
         name = self._file_path.name if self._file_path else self.tr("Untitled")
+        _LOG.debug("maybe_save: prompting for %s", self.file_path)
         ret = QMessageBox.question(
             self,
             self.tr("Unsaved changes"),
@@ -665,6 +677,7 @@ class EditorTab(QWidget):
         self.status_changed.emit(f"{line}:{col}", words)
 
     def _on_text_changed(self) -> None:
+        _LOG.debug("_on_text_changed")
         # Large files: disable preview and skip expensive work.
         if self._large_file:
             return
@@ -672,6 +685,7 @@ class EditorTab(QWidget):
         lines = self.editor.document().blockCount()
         self._preview_timer.setInterval(150 if lines < 2000 else 500)
         self._preview_timer.start()
+        _LOG.debug("_on_text_changed: debounce=%dms", 150 if lines < 2000 else 500)
         was_dirty = self._dirty
         self._dirty = self.is_modified
         if self._dirty != was_dirty:
@@ -689,12 +703,21 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
 
     def _update_preview(self) -> None:
+        """Render the current Markdown content to HTML in the preview pane.
+
+        Uses adaptive debounce: short delay (150 ms) for small files,
+        longer (500 ms) for large files (>20 KB). Tracks pending renders
+        via ``_preview_busy`` / ``_preview_pending`` flags to avoid
+        unnecessary re-renders when typing quickly. Hash-based change
+        detection prevents re-rendering identical content.
+        """
         if not self._preview_visible or self._is_binary_preview or self._large_file:
             return
         raw_text = self.editor.toPlainText()
         text = strip_frontmatter(raw_text)
         text = preprocess_wikilinks(preprocess_wikilink_images(text))
         text_hash = hash(text)
+        _LOG.debug("_update_preview: hash=%s", text_hash)
         if text_hash != self._line_anchor_map_hash:
             self._line_anchor_map = self._build_line_anchor_map(text)
             self._line_anchor_map_hash = text_hash
@@ -743,6 +766,7 @@ class EditorTab(QWidget):
         }
 
         if self._preview_busy:
+            _LOG.debug("_update_preview: debounce skipped (busy)")
             self._preview_pending = True
             self._pending_preview_params = params
             return
@@ -755,6 +779,7 @@ class EditorTab(QWidget):
             lambda: self._preview_stack.setCurrentIndex(3)
         )
         self._spinner_timer.start(100)
+        _LOG.debug("_update_preview: rendering %d bytes", len(text))
         self._preview_worker.render_requested.emit(params)
 
     def _on_preview_ready(self, html: str) -> None:
@@ -783,6 +808,13 @@ class EditorTab(QWidget):
             self._preview_worker.render_requested.emit(params)
 
     def _build_line_anchor_map(self, text: str) -> list[int]:
+        """Build a mapping from editor line numbers to preview heading anchors.
+
+        Parses the markdown-it token stream to find headings, then for each
+        editor line determines which heading's anchor should be the scroll
+        target. For lines between headings, uses the nearest heading above.
+        Used by ``_do_preview_scrolled()`` for reverse scroll synchronization.
+        """
         from markdown.tools import BLOCK_OPEN_TYPES
 
         tokens = self._md.parse(text)
@@ -886,6 +918,12 @@ class EditorTab(QWidget):
             self._syncing_scroll = 0
 
     def _do_preview_scrolled(self) -> None:
+        """Reverse scroll sync: map the preview's scroll position back to an editor line.
+
+        Uses ``_build_line_anchor_map()`` to convert the current anchor to
+        a line number. Falls back to a ratio-based estimate using the
+        ``scrollRatio`` callback if no anchor mapping is available.
+        """
         if (
             self._syncing_scroll > 0
             or not self._preview_visible
@@ -973,6 +1011,7 @@ class EditorTab(QWidget):
         link = self._link_range_at(pos, block_text)
 
         if link:
+            _LOG.debug("_on_mouse_move: url link detected")
             target, start, end = link
             new_key = (block.blockNumber(), start, end)
             if new_key != self._hover_link_key:
@@ -1052,6 +1091,7 @@ class EditorTab(QWidget):
 
     def _resolve_link_target(self, target: str) -> Path | None:
         """Resolve a link/wikilink target to an absolute Path, or None."""
+        _LOG.debug("_resolve_link_target: %s", target)
         target_path = Path(target)
         if target_path.is_absolute():
             exists = target_path.exists()
@@ -1125,6 +1165,17 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
 
     def eventFilter(self, obj: object, event: QEvent) -> bool:
+        """Intercept events for custom editor behavior.
+
+        Handles:
+          - Resize → update line-number margin width
+          - KeyPress → smart Tab/Backtab indentation
+          - MouseMove → link detection popup (400 ms hover timer)
+          - MouseButtonRelease → Ctrl+click link navigation
+          - DragEnter/Leave/Move → file drop from explorer
+          - Drop → insert file path or image
+          - Wheel + Ctrl → zoom in/out
+        """
         if obj is self.editor:
             if event.type() == QEvent.Type.Resize:
                 cr = self.editor.contentsRect()
@@ -1138,6 +1189,7 @@ class EditorTab(QWidget):
                 )
                 return super().eventFilter(obj, event)
             if event.type() == QEvent.Type.KeyPress:
+                _LOG.debug("eventFilter: KeyPress key=%d", event.key())
                 key_event = event  # type: ignore[assignment]
                 if key_event.key() == Qt.Key.Key_V and bool(
                     key_event.modifiers() & Qt.KeyboardModifier.ControlModifier
@@ -1151,6 +1203,7 @@ class EditorTab(QWidget):
             elif event.type() == QEvent.Type.MouseButtonRelease:
                 return self._on_mouse_click(event)  # type: ignore[arg-type]
             elif event.type() == QEvent.Type.DragEnter:
+                _LOG.debug("eventFilter: DragEnter")
                 self._on_drag_enter(event)  # type: ignore[arg-type]
                 if not self._drag_active:
                     return False
@@ -1164,6 +1217,7 @@ class EditorTab(QWidget):
                     return True
                 return False
             elif event.type() == QEvent.Type.Drop:
+                _LOG.debug("eventFilter: Drop urls=%s", [url.toString() for url in event.mimeData().urls()])
                 if self._drag_active and self._on_drop(event):  # type: ignore[arg-type]
                     self._drag_active = False
                     return True
@@ -1172,6 +1226,7 @@ class EditorTab(QWidget):
                 we = event  # type: ignore[assignment]
                 if we.modifiers() & Qt.KeyboardModifier.ControlModifier:
                     delta = 1 if we.angleDelta().y() > 0 else -1
+                    _LOG.debug("eventFilter: Wheel zoom factor=%.2f", float(delta))
                     if we.modifiers() & Qt.KeyboardModifier.ShiftModifier:
                         self.zoom_preview(delta)
                     else:
@@ -1193,6 +1248,8 @@ class EditorTab(QWidget):
     def _paste_image_from_clipboard(self) -> bool:
         """Check if the clipboard contains an image (bitmap or file URL)
         and paste it. Returns True if handled."""
+
+        _LOG.debug("_paste_image_from_clipboard")
 
         clipboard = QApplication.clipboard()
         if clipboard is None:

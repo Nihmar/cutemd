@@ -13,7 +13,8 @@ There are **no tests, no linter, no type checker, and no CI** configured. Don't 
 ## Package boundaries
 
 - `markdown/` — pure Markdown processing, **no Qt imports**. Used by `ui/`.
-- `ui/` — PySide6 GUI layer. Imports from `markdown/` but not the reverse.
+- `core/` — shared infrastructure (logging). No Qt imports. Importable by all packages.
+- `ui/` — PySide6 GUI layer. Imports from `markdown/` and `core/` but not the reverse.
 - `ui/webdav_sync.py` — WebDAV client (`WebDAVClient`) + sync engine (`sync_folder`). Exposes `WebDAVConfig`, `SyncResult`. Uses `requests` for HTTP, parses PROPFIND responses with `xml.etree.ElementTree`. Sync algorithm uses Depth-1 PROPFIND with manual BFS recursion (most servers block Depth infinity). Maintains `.cutemd/sync_state.json` to track last-synced timestamps and avoid redundant transfers.
 - `main.py` — entry point. Creates `QApplication`, sets app/org name, loads translations, applies theme, shows `MainWindow`.
 - `markdown/tools.py` exposes `set_pygments_style(name)` — call this from the UI layer when the theme changes, never import `ui.themes` from `markdown/`.
@@ -41,37 +42,23 @@ If you add new resource dirs or data packages, update all three build scripts in
 
 ## Debug logging convention
 
-When adding debug-only output (logs, terminal prints, file dumps), **always** gate it behind a check for whether the app is running frozen (PyInstaller):
+Always use the shared logger from `core/logging.py`:
 
 ```python
-import logging
-import sys
+from core.logging import setup_logging
 
-_IS_DEBUG = not getattr(sys, "frozen", False)
-
-_LOG = logging.getLogger("cutemd.{module}")
-_LOG.setLevel(logging.DEBUG if _IS_DEBUG else logging.WARNING)
-_LOG.propagate = False
-
-if _IS_DEBUG:
-    try:
-        _debug_handler = logging.FileHandler(
-            "cutemd_{module}_debug.log", mode="a", encoding="utf-8"
-        )
-        _debug_handler.setLevel(logging.DEBUG)
-        _debug_handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-        )
-        _LOG.addHandler(_debug_handler)
-    except OSError:
-        pass  # CWD not writable — logs are lost
+_LOG = setup_logging("cutemd.{module}")
 ```
 
-Use `_LOG.debug(...)` (never `print`) for all debug output. This way:
+Use `_LOG.debug(...)` for all debug output (never `print`). This way:
 
-- **`uv run ...`** (not frozen, debug mode): logs are written to a file named after the module in the CWD
-- **AppImage / `.exe`** (frozen, production): `_IS_DEBUG = False`, logger level is `WARNING`, no debug output
-- The setup should be **module-level**: logger and handler configured once at import time, never per-run
+- **Terminal** (`uv run main.py`): output goes to stderr, visible in the terminal
+- **GUI** (double-click `.exe`, AppImage, desktop launcher): ``NullHandler`` discards all output silently
+- **No files** are written to disk — no more `cutemd_*_debug.log` clutter
+- The setup is **module-level**: logger configured once at import time
+
+The detection logic uses ``sys.stderr.isatty()`` (all platforms) with an additional
+``GetConsoleWindow()`` check on Windows frozen builds to correctly detect GUI mode.
 
 ### Windows installers
 

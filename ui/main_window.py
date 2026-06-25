@@ -2,9 +2,10 @@
 
 import re
 import sys
-import logging
 from pathlib import Path
 from typing import Any
+
+from core.logging import setup_logging
 
 from PySide6.QtCore import (
     QEasingCurve,
@@ -71,21 +72,7 @@ else:
 _CSS_PATH = _ROOT / "ui" / "preview_styles.css"
 _ICONS_DIR = _ROOT / "ui" / "icons"
 
-_IS_DEBUG = not getattr(sys, "frozen", False)
-
-_LOG = logging.getLogger("cutemd.main_window")
-_LOG.setLevel(logging.DEBUG if _IS_DEBUG else logging.WARNING)
-_LOG.propagate = False
-
-if _IS_DEBUG:
-    try:
-        _dh = logging.FileHandler("cutemd_main_window_debug.log", mode="a", encoding="utf-8")
-        _dh.setLevel(logging.DEBUG)
-        _dh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-        _LOG.addHandler(_dh)
-    except OSError:
-        pass
-
+_LOG = setup_logging("cutemd.main_window")
 
 # ---------------------------------------------------------------------------
 # MainWindow
@@ -100,10 +87,12 @@ class MainWindow(QMainWindow):
 
         # Settings manager (centralized QSettings wrapper)
         self._s = AppSettings(self)
+        _LOG.debug("__init__: settings loaded")
 
         # Theme
         self._theme_manager = ThemeManager(self)
         self._theme_id = self._s.theme()
+        _LOG.debug("__init__: theme=%s", self._theme_id)
         self._current_theme = self._theme_manager.resolve(self._theme_id)
 
         # Fonts
@@ -111,6 +100,7 @@ class MainWindow(QMainWindow):
         self._editor_font_size = self._s.editor_font_size(13)
         self._preview_font_family = self._s.preview_font_family("System")
         self._preview_font_size = self._s.preview_font_size(13)
+        _LOG.debug("__init__: editor_font=%s %d preview_font=%s %d", self._editor_font_family, self._editor_font_size, self._preview_font_family, self._preview_font_size)
 
         # Other settings
         self._language = self._s.language()
@@ -159,6 +149,7 @@ class MainWindow(QMainWindow):
         self._md.renderer.rules["math_inline_double"] = render_math_inline_double  # pyright: ignore[reportAttributeAccessIssue]
         self._md.renderer.rules["math_block"] = render_math_block  # pyright: ignore[reportAttributeAccessIssue]
         self._md.renderer.rules["math_block_label"] = render_math_block_label  # pyright: ignore[reportAttributeAccessIssue]
+        _LOG.debug("__init__: markdown parser ready")
 
         # --- UI ---
         self.setWindowTitle("CuteMD - Markdown Editor")
@@ -394,6 +385,19 @@ class MainWindow(QMainWindow):
     # Central widget
     # ------------------------------------------------------------------
     def _setup_central(self) -> None:
+        """Build the central widget hierarchy.
+
+        Layout (outer to inner):
+          QHBoxLayout(outer)
+            └── _left_tb (QWidget, fixed 42 px) — vertical icon toolbar
+            └── _splitter (QSplitter, horizontal)
+                  ├── _left_stack (QStackedWidget) — tree / search / toc panels
+                  └── editor_pane (QWidget)
+                        ├── EditorToolbar
+                        ├── QTabWidget (editor tabs)
+                        └── Inline status bar (file, cursor, words)
+        """
+        _LOG.debug("_setup_central: building UI")
         icon_color = self._current_theme.icon_color
         self._sidebar_buttons: list[tuple[QToolButton, str]] = []
 
@@ -540,12 +544,14 @@ class MainWindow(QMainWindow):
         self._side_tree_btn.blockSignals(False)
         self._left_stack.setCurrentIndex(0)
 
+        _LOG.debug("_setup_central: done")
         self._add_tab()
 
     # ------------------------------------------------------------------
     # Search panel (embedded find-in-files)
     # ------------------------------------------------------------------
     def _show_left_panel(self) -> None:
+        _LOG.debug("_show_left_panel")
         self._left_stack.show()
         total = self._splitter.width()
         left = self._s.left_panel_width()
@@ -556,6 +562,7 @@ class MainWindow(QMainWindow):
             self._animate_splitter_to(220)
 
     def _hide_left_panel(self) -> None:
+        _LOG.debug("_hide_left_panel")
         self._animate_splitter_to(0, on_finish=lambda: self._left_stack.hide())
 
     def _animate_splitter_to(self, left_width: int, on_finish=None) -> None:
@@ -740,6 +747,7 @@ class MainWindow(QMainWindow):
         self.act_redo.triggered.connect(tab.editor.redo)
 
     def _on_tab_changed(self, index: int) -> None:
+        _LOG.debug("_on_tab_changed: index=%d", index)
         tab = self._current_tab()
         if tab:
             self._connect_edit_actions(tab)
@@ -768,6 +776,7 @@ class MainWindow(QMainWindow):
         self._status_encoding.setText(encoding)
 
     def _on_tab_close_requested(self, index: int) -> None:
+        _LOG.debug("_on_tab_close_requested: index=%d", index)
         tab = self._tabs.widget(index)
         if isinstance(tab, EditorTab) and not tab.maybe_save():
             return
@@ -820,6 +829,7 @@ class MainWindow(QMainWindow):
             tab.open_find()
 
     def _on_find_in_files(self) -> None:
+        _LOG.debug("_on_find_in_files")
         if self._folder_path is None:
             return
         if self._left_stack.currentIndex() == 1 and not self._left_stack.isHidden():
@@ -843,6 +853,7 @@ class MainWindow(QMainWindow):
             self._search_panel._search_input.selectAll()
 
     def _on_replace_in_files(self) -> None:  # Apre/chiude replacement
+        _LOG.debug("_on_replace_in_files")
         if self._folder_path is None:
             return
         if self._left_stack.currentIndex() == 1 and not self._left_stack.isHidden():
@@ -896,6 +907,16 @@ class MainWindow(QMainWindow):
         )
 
     def _insert_md(self, syntax: str) -> None:
+        """Insert or wrap Markdown formatting at the current cursor position.
+
+        Handles: **bold**, *italic*, ~~strikethrough~~, `code`, ```fenced```,
+        [links](), ![images](), and heading prefixes (##) with appropriate
+        cursor positioning after insertion.
+
+        Args:
+            syntax: Formatting type ('bold', 'italic', 'strikethrough',
+                    'code', 'fenced_code', 'link', 'image', 'heading').
+        """
         tab = self._current_tab()
         if tab is None:
             return
@@ -982,6 +1003,7 @@ class MainWindow(QMainWindow):
     # Theme
     # ------------------------------------------------------------------
     def _apply_theme(self) -> None:
+        _LOG.debug("_apply_theme: %s", self._theme_id)
         from markdown.tools import set_pygments_style
 
         set_pygments_style(self._current_theme.pygments_style)
@@ -1002,6 +1024,13 @@ class MainWindow(QMainWindow):
                 )
 
     def _on_settings(self) -> None:
+        """Open the settings dialog and apply changes.
+
+        Handles per-folder shortcuts/sync config vs global preferences.
+        On accept, detect which settings changed and apply incrementally
+        (only re-apply theme if it actually changed, etc.).
+        """
+        _LOG.debug("_on_settings: opening dialog")
         from ui.settings_dialog import SettingsDialog
 
         webdav_url = ""
@@ -1040,6 +1069,8 @@ class MainWindow(QMainWindow):
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
+
+        _LOG.debug("_on_settings: applying changes")
 
         # --- Theme ---
         new_theme_id = dlg.selected_theme_id()
@@ -1222,6 +1253,12 @@ class MainWindow(QMainWindow):
                 tab.set_preview_visible(checked)
 
     def _on_webdav_sync(self, auto_triggered: bool = False) -> None:
+        """Run WebDAV sync in a background thread with progress feedback.
+
+        Show a progress dialog while syncing. On completion, display a
+        summary (files up/down/deleted/conflicts). On error, show a
+        popup with the error details.
+        """
         if self._folder_settings is None or self._folder_path is None:
             return
 
@@ -1415,7 +1452,14 @@ class MainWindow(QMainWindow):
             self._set_folder(folder)
 
     def _set_folder(self, path: Path) -> None:
+        """Open a folder: load per-folder settings, seed global defaults if needed, apply overrides.
+
+        The order is important: theme/font overrides from the per-folder
+        settings are applied *before* the UI is populated, so the user sees
+        the correct appearance immediately.
+        """
         self._folder_path = path
+        _LOG.debug("_set_folder: %s", path)
         self._folder_settings = FolderSettings(path)
         # Seed with global defaults if .cutemd/settings.json doesn't exist yet
         if not self._folder_settings.config_path.is_file():
@@ -1432,6 +1476,7 @@ class MainWindow(QMainWindow):
 
         # Apply per-folder settings (fall back to global)
         fs = self._folder_settings
+        _LOG.debug("_set_folder: settings loaded, theme=%s", fs.get_theme())
         folder_theme = fs.get_theme()
         if folder_theme is not None and folder_theme != self._theme_id:
             self._current_theme = (
@@ -1465,7 +1510,14 @@ class MainWindow(QMainWindow):
         self._update_menu_state()
 
     def _restore_last_folder(self) -> None:
-        # If launched with file arguments (e.g. "Open with"), open them in edit mode
+        """Decide what to show on startup (called via QTimer.singleShot(0)).
+
+        Priority order:
+          1. CLI file arguments (``--path/to/file.md``) → open in edit mode
+          2. Session restore (if enabled) → restore folder + open tabs
+          3. Last used folder → open file tree
+          4. Welcome dialog → let user pick a folder or start blank
+        """
         if self._files_to_open:
             for fp in self._files_to_open:
                 tab = self._current_tab()
@@ -1485,9 +1537,11 @@ class MainWindow(QMainWindow):
 
         last = self._s.last_folder()
         if last and Path(last).is_dir():
+            _LOG.debug("_restore_last_folder: last_folder=%s", last)
             self._set_folder(Path(last))
             return
 
+        _LOG.debug("_restore_last_folder: showing welcome dialog")
         from ui.welcome_dialog import WelcomeDialog
 
         dlg = WelcomeDialog(self)
@@ -1566,6 +1620,7 @@ class MainWindow(QMainWindow):
 
     def _restore_session(self) -> bool:
         """Restore folder and open tabs from the last session. Returns True if any tabs restored."""
+        _LOG.debug("_restore_session: enabled=%s", self._s.session_restore_enabled())
         if not self._s.session_restore_enabled():
             return False
         # Restore folder first if one was open
@@ -1575,6 +1630,7 @@ class MainWindow(QMainWindow):
             if folder.is_dir():
                 self._set_folder(folder)
         saved_tabs = self._s.session_restore_tabs()
+        _LOG.debug("_restore_session: folder=%s tabs=%d", folder_str, len(saved_tabs))
         if not saved_tabs:
             return False
         restored = 0
@@ -1609,6 +1665,7 @@ class MainWindow(QMainWindow):
         self._update_menu_state()
 
     def _on_tree_file_activated(self, path: str) -> None:
+        _LOG.debug("_on_tree_file_activated: %s", path)
         p = Path(path)
         idx = self._find_tab_for_file(p)
         if idx >= 0:
@@ -1744,6 +1801,7 @@ class MainWindow(QMainWindow):
 
     def _on_autosave(self) -> None:
         """Autosave: silently save all modified tabs with a file path."""
+        _LOG.debug("_on_autosave: triggering")
         saved_any = False
         for i in range(self._tabs.count()):
             tab = self._tabs.widget(i)
@@ -1879,12 +1937,12 @@ class MainWindow(QMainWindow):
             self._save_session()
         self._s.set_window_geometry(self.saveGeometry())
         left = self._splitter.sizes()[0]
-        _LOG.info("closeEvent: splitter sizes=%s saving left=%d", self._splitter.sizes(), left)
+        _LOG.debug("closeEvent: splitter sizes=%s saving left=%d", self._splitter.sizes(), left)
         if left > 0:
             self._s.set_left_panel_width(left)
             self._s._s.sync()
         else:
-            _LOG.warning("closeEvent: left=%d, NOT saving (panel hidden?)", left)
+            _LOG.debug("closeEvent: left=%d, NOT saving (panel hidden?)", left)
         event.accept()
 
     def sizeHint(self) -> QSize:

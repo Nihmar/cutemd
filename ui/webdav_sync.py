@@ -289,14 +289,9 @@ class WebDAVClient:
 
 _EXCLUDE_DIRS = {".cutemd", ".git", ".svn", "_dav"}
 
-import logging
-import sys
+from core.logging import setup_logging
 
-_IS_DEBUG = not getattr(sys, "frozen", False)
-
-_LOG = logging.getLogger("cutemd.sync")
-_LOG.setLevel(logging.DEBUG if _IS_DEBUG else logging.WARNING)
-_LOG.propagate = False
+_LOG = setup_logging("cutemd.sync")
 
 
 def _parse_http_datetime(text: str) -> datetime | None:
@@ -724,33 +719,11 @@ class SyncThread(QThread):
         self._password = password
 
     def run(self) -> None:
-        handler = None
-        if _IS_DEBUG:
-            try:
-                log_dir = self._local_root / ".cutemd"
-                log_dir.mkdir(parents=True, exist_ok=True)
-                handler = logging.FileHandler(
-                    log_dir / "sync_debug.log", mode="a", encoding="utf-8"
-                )
-                handler.setLevel(logging.DEBUG)
-                handler.setFormatter(
-                    logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-                )
-                _LOG.addHandler(handler)
-            except OSError:
-                handler = None
-
-        try:
-            result = sync_folder(
-                self._local_root,
-                self._url,
-                self._username,
-                self._password,
-                progress_callback=lambda msg: self.progress.emit(msg),
-            )
-        finally:
-            if handler:
-                _LOG.removeHandler(handler)
-                handler.close()
-
+        result = sync_folder(
+            self._local_root,
+            self._url,
+            self._username,
+            self._password,
+            progress_callback=lambda msg: self.progress.emit(msg),
+        )
         self.finished.emit(result)

@@ -16,6 +16,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.logging import setup_logging
+
+_LOG = setup_logging("cutemd.file_tree")
+
 
 class _FileTreeView(QTreeView):
     """Custom tree view with keyboard shortcuts and drag-drop support."""
@@ -85,6 +89,13 @@ class _FileTreeView(QTreeView):
             event.acceptProposedAction()
 
     def dropEvent(self, event) -> None:
+        """Resolve the drop target path and emit ``files_dropped``.
+
+        If the drop lands on a folder index, that folder becomes the target.
+        If it lands on a file, the file's parent directory is used instead.
+        When the drop position does not hit any index, the tree's root path
+        is used as the fallback target directory.
+        """
         if event.source() != self:
             event.ignore()
             return
@@ -198,6 +209,7 @@ class FileTreePanel(QWidget):
 
         Pass an empty string to clear the tree.
         """
+        _LOG.debug("set_root_path: %s", path)
         p = Path(path)
         if not p.is_dir():
             self._model.setRootPath("")
@@ -226,10 +238,12 @@ class FileTreePanel(QWidget):
     def _on_activated(self, index) -> None:
         src_idx = self._proxy.mapToSource(index)
         path = self._model.filePath(src_idx)
+        _LOG.debug("_on_activated: %s", path)
         if path and Path(path).is_file():
             self.file_activated.emit(path)
 
     def _on_context_menu(self, point) -> None:
+        _LOG.debug("_on_context_menu")
         index = self._tree.indexAt(point)
         if not index.isValid():
             return
@@ -294,6 +308,7 @@ class FileTreePanel(QWidget):
             return
         try:
             p.rename(new_path)
+            _LOG.debug("_on_file_renamed: old=%s new=%s", path_str, str(new_path))
             self.file_renamed.emit(str(p), str(new_path))
         except OSError as e:
             QMessageBox.critical(
@@ -339,6 +354,7 @@ class FileTreePanel(QWidget):
                 shutil.rmtree(p)
             else:
                 p.unlink()
+            _LOG.debug("_on_file_deleted: %s", path_str)
             self.file_deleted.emit(str(p))
         except OSError as e:
             QMessageBox.critical(
@@ -347,6 +363,14 @@ class FileTreePanel(QWidget):
             )
 
     def _move_items(self, source_paths: list[str], target_dir: str) -> None:
+        """Perform a drag-drop move of files/folders into *target_dir*.
+
+        If the destination already contains an item with the same name, the user
+        is asked whether to overwrite it (overwritten items are deleted first).
+        After each successful move, ``file_renamed`` is emitted so that listeners
+        (e.g. open editor tabs) can update their paths.
+        """
+        _LOG.debug("_move_items")
         dest = Path(target_dir)
         moved_old_new = []
         for sp in source_paths:

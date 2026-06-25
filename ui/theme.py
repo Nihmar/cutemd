@@ -3,10 +3,13 @@
 import sys
 from pathlib import Path
 
+from core.logging import setup_logging
+
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication
 
+_LOG = setup_logging("cutemd.theme")
 _STYLE_TEMPLATE: str | None = None
 
 
@@ -27,6 +30,7 @@ def _load_template() -> str:
 
 def load_qss(pal: QPalette | None = None) -> str:
     """Return the QSS with palette colours resolved."""
+    _LOG.debug("load_qss: %s", _resolve_path("style.qss"))
     if pal is None:
         app = QCoreApplication.instance()
         if app is None:
@@ -62,5 +66,6 @@ def load_qss(pal: QPalette | None = None) -> str:
 
 def apply_modern_style(app: QApplication) -> None:
     """Apply the Fusion style and load the custom QSS stylesheet."""
+    _LOG.debug("apply_modern_style")
     app.setStyle("Fusion")
     app.setStyleSheet(load_qss(app.palette()))

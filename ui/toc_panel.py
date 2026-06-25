@@ -3,12 +3,15 @@
 import re
 from pathlib import Path
 
+from core.logging import setup_logging
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QListWidgetItem, QVBoxLayout, QWidget
 
 from ui.widgets import CuteListWidget
 
+_LOG = setup_logging("cutemd.toc")
 _RE_HEADING = re.compile(r"^(#{1,6})\s+(.+)")
 
 
@@ -56,8 +59,11 @@ class TocPanel(QWidget):
                 item.setData(Qt.ItemDataRole.UserRole, line_num)
                 self._list.addItem(item)
 
+        _LOG.debug("rebuild: %d headings", len(self._entries))
+
     def clear(self) -> None:
         """Clear the heading list."""
+        _LOG.debug("clear")
         self._list.clear()
         self._entries = []
 

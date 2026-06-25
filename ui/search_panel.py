@@ -19,10 +19,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.logging import setup_logging
 from ui.widgets import CuteListWidget
 
 _CHUNK_SIZE = 20
 _CHUNK_INTERVAL = 10  # ms
+
+_LOG = setup_logging("cutemd.search")
 
 
 class SearchPanel(QWidget):
@@ -103,6 +106,7 @@ class SearchPanel(QWidget):
     # internal
     # ------------------------------------------------------------------
     def _on_search_text_changed(self, text: str) -> None:
+        _LOG.debug("_on_search_text_changed: pattern=%s", text)
         self._timer.stop()
         self._generator = None
         self._search_results.clear()
@@ -117,6 +121,17 @@ class SearchPanel(QWidget):
         self._timer.start()
 
     def _process_chunk(self) -> None:
+        """Process one chunk of files from the rglob generator.
+
+        This method is called periodically by a QTimer. It pulls up to
+        ``_CHUNK_SIZE`` files from the generator, reads each one, and
+        performs a regex search (with ``re.escape`` for literal matching)
+        across every line. Matches are accumulated into the results
+        ``CuteListWidget`` as ``QListWidgetItem`` items, each storing the
+        file path and line number in ``UserRole`` data. Once the generator
+        is exhausted the timer stops and the count label is updated.
+        """
+        _LOG.debug("_process_chunk: searching")
         query = self._query
         if not query or self._generator is None:
             self._timer.stop()
@@ -132,6 +147,7 @@ class SearchPanel(QWidget):
                 self._timer.stop()
                 self._generator = None
                 self._update_count()
+                _LOG.debug("_process_chunk: found %d matches", results.count())
                 return
 
             try:
@@ -148,6 +164,7 @@ class SearchPanel(QWidget):
                     results.addItem(item)
 
         self._update_count()
+        _LOG.debug("_process_chunk: found %d matches", results.count())
 
     def _update_count(self) -> None:
         count = self._search_results.count()
@@ -202,6 +219,7 @@ class SearchPanel(QWidget):
             return
 
         file_path, line_num = location
+        _LOG.debug("_replace_single: %s line %d", file_path, line_num)
         try:
             content = file_path.read_text(encoding="utf-8")
         except OSError as e:
@@ -250,6 +268,8 @@ class SearchPanel(QWidget):
         count = self._search_results.count()
         if count == 0:
             return
+
+        _LOG.debug("_replace_all_in_files: %d files", len(self._get_affected_files()))
 
         confirm = QMessageBox.question(
             self,
