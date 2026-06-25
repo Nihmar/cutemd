@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 from markdown.document_renderers import (
     cbz_to_html,
     docx_to_html,
+    epub_to_html,
     pptx_to_html,
     xlsx_to_html,
 )
@@ -599,6 +600,8 @@ class EditorTab(QWidget):
                 html = pptx_to_html(path, self._preview_css)
             elif ext == ".cbz":
                 html = cbz_to_html(path, self._preview_css)
+            elif ext == ".epub":
+                html = epub_to_html(path, self._preview_css)
             else:
                 self.preview.setPlainText(self.tr("[Unsupported document format]"))
                 self._preview_stack.setCurrentIndex(0)

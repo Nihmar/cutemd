@@ -162,3 +162,43 @@ def cbz_to_html(path: Path, css: str) -> str:
         max-width: 100%; height: auto; display: block; margin: 1em auto;
     }"""
     return _wrap_html(f'<div class="cbz-gallery">{body}</div>', style)
+
+
+# ---------------------------------------------------------------------------
+# EPUB  →  HTML (chapter text)
+# ---------------------------------------------------------------------------
+
+def _strip_html(text: str) -> str:
+    """Remove HTML/XML tags, returning clean text."""
+    import re
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def epub_to_html(path: Path, css: str) -> str:
+    """Convert an EPUB to HTML — text from each chapter."""
+    import zipfile
+
+    parts: list[str] = []
+    try:
+        with zipfile.ZipFile(path) as zf:
+            for name in sorted(zf.namelist()):
+                if not name.lower().endswith((".xhtml", ".html", ".htm")):
+                    continue
+                content = zf.read(name).decode("utf-8", errors="replace")
+                text = _strip_html(content)
+                if not text:
+                    continue
+                title = Path(name).stem
+                parts.append(f"<h2>{title}</h2>")
+                # Split into paragraphs on double newlines
+                for para in text.split("\n\n"):
+                    para = para.strip()
+                    if para:
+                        parts.append(f"<p>{para}</p>")
+    except Exception:
+        pass
+
+    body = "\n".join(parts[:50]) if parts else "<p>[No content found in EPUB]</p>"
+    return _wrap_html(body, css)

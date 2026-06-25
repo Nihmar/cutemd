@@ -319,6 +319,31 @@ class LinkPreviewPopup(QFrame):
         self._image_label.setPixmap(scaled)
         self._image_label.show()
 
+    def mousePressEvent(self, event) -> None:
+        """Navigate CBZ pages with mouse clicks (left half=prev, right half=next)."""
+        if self._cbz_images and event.button() == Qt.MouseButton.LeftButton:
+            w = self._image_label.width()
+            if w > 0 and event.position().x() > w / 2:
+                self._cbz_index = (self._cbz_index + 1) % len(self._cbz_images)
+            else:
+                self._cbz_index = (self._cbz_index - 1) % len(self._cbz_images)
+            self._show_cbz_page(self._cbz_index)
+            return
+        super().mousePressEvent(event)
+
+    def wheelEvent(self, event) -> None:
+        """Navigate CBZ pages with the mouse wheel."""
+        if self._cbz_images:
+            if event.angleDelta().y() < 0:  # scroll down
+                self._cbz_index = (self._cbz_index + 1) % len(self._cbz_images)
+                self._show_cbz_page(self._cbz_index)
+            elif event.angleDelta().y() > 0:  # scroll up
+                self._cbz_index = (self._cbz_index - 1) % len(self._cbz_images)
+                self._show_cbz_page(self._cbz_index)
+            event.accept()
+            return
+        super().wheelEvent(event)
+
     def keyPressEvent(self, event) -> None:
         """Navigate CBZ pages with Left/Right arrow keys."""
         if self._cbz_images:
