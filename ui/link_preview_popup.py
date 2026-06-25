@@ -178,7 +178,7 @@ class LinkPreviewPopup(QFrame):
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
-            text = f"[Cannot read file: {path.name}]"
+            text = self.tr("[Cannot read file: {}]").format(path.name)
 
         self._editor.setPlainText(text)
 
@@ -203,7 +203,7 @@ class LinkPreviewPopup(QFrame):
 
         pixmap = QPixmap(str(path))
         if pixmap.isNull():
-            self._image_label.setText(f"[Cannot display: {path.name}]")
+            self._image_label.setText(self.tr("[Cannot display: {}]").format(path.name))
         else:
             scaled = pixmap.scaled(
                 self._MAX_W - 10,
@@ -223,7 +223,7 @@ class LinkPreviewPopup(QFrame):
         doc = QPdfDocument()
         doc.load(str(path))
         if doc.pageCount() == 0:
-            self._image_label.setText(f"[Cannot render: {path.name}]")
+            self._image_label.setText(self.tr("[Cannot render: {}]").format(path.name))
             self._image_label.show()
             return
 
@@ -255,7 +255,7 @@ class LinkPreviewPopup(QFrame):
                 reader = csv.reader(f, delimiter=delimiter)
                 rows = list(reader)[:100]
         except Exception:
-            self._editor.setPlainText(f"[Cannot read: {path.name}]")
+            self._editor.setPlainText(self.tr("[Cannot read: {}]").format(path.name))
             return
 
         if not rows:
@@ -302,7 +302,7 @@ class LinkPreviewPopup(QFrame):
             pass
 
         if not self._cbz_images:
-            self._image_label.setText(f"[Cannot display: {path.name}]")
+            self._image_label.setText(self.tr("[Cannot display: {}]").format(path.name))
             self._image_label.show()
             return
 
@@ -313,7 +313,7 @@ class LinkPreviewPopup(QFrame):
         data, name = self._cbz_images[index]
         pixmap = QPixmap()
         if not pixmap.loadFromData(data) or pixmap.isNull():
-            self._image_label.setText(f"[Cannot display page: {Path(name).name}]")
+            self._image_label.setText(self.tr("[Cannot display page: {}]").format(Path(name).name))
             self._image_label.show()
             return
 
@@ -400,16 +400,16 @@ class LinkPreviewPopup(QFrame):
                     lines.append(line)
                     row_count += 1
                 if row_count == 50:
-                    lines.append("... (truncated)")
+                    lines.append(self.tr("... (truncated)"))
                 lines.append("")
             wb.close()
             text = "\n".join(lines)
         except ImportError:
-            text = f"[Package 'openpyxl' required for .xlsx preview]"
+            text = self.tr("[Package 'openpyxl' required for .xlsx preview]")
         except Exception:
-            text = f"[Cannot read: {path.name}]"
+            text = self.tr("[Cannot read: {}]").format(path.name)
 
-        self._editor.setPlainText(text[:10000] if text else "[Empty spreadsheet]")
+        self._editor.setPlainText(text[:10000] if text else self.tr("[Empty spreadsheet]"))
         mono = QFont("Consolas", 9) if QFont("Consolas").exactMatch() else QFont("monospace", 9)
         self._editor.setFont(mono)
 

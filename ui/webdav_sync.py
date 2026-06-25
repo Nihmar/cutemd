@@ -11,6 +11,8 @@ from urllib.parse import unquote
 
 import requests
 
+from PySide6.QtCore import QCoreApplication
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -466,26 +468,28 @@ def sync_folder(
     the baseline instead of blindly uploading or downloading
     everything.
     """
+    _tr = QCoreApplication.translate
+
     result = SyncResult()
     client = WebDAVClient(webdav_url, username, password)
 
     if progress_callback:
-        progress_callback("Connecting...")
+        progress_callback(_tr("WebDAV", "Connecting..."))
 
     ok, err = client.test_connection()
     if not ok:
-        result.errors.append(f"Connection failed: {err}")
+        result.errors.append(_tr("WebDAV", "Connection failed: {}").format(err))
         return result
 
     if progress_callback:
-        progress_callback("Listing remote files...")
+        progress_callback(_tr("WebDAV", "Listing remote files..."))
     ok, remote = client.list_files()
     if not ok:
-        result.errors.append("Remote listing failed — aborting sync")
+        result.errors.append(_tr("WebDAV", "Remote listing failed \u2014 aborting sync"))
         return result
 
     if progress_callback:
-        progress_callback("Scanning local files...")
+        progress_callback(_tr("WebDAV", "Scanning local files..."))
     local_entries: dict[str, Path] = {}
     for p in local_root.rglob("*"):
         if p.is_dir():
@@ -500,7 +504,7 @@ def sync_folder(
     all_paths = set(remote.keys()) | set(local_entries.keys()) | set(sync_state.keys())
 
     if progress_callback:
-        progress_callback("Synchronising...")
+        progress_callback(_tr("WebDAV", "Synchronising..."))
 
     all_items = sorted(all_paths)
     total = len(all_items)
@@ -538,7 +542,7 @@ def sync_folder(
                 del new_state[rel]
                 result.deleted.append(rel)
                 if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Deleted       {_fmt_rel(rel)}")
+                    progress_callback(_tr("WebDAV", "[{}/{}] Deleted       {}").format(idx, total, _fmt_rel(rel)))
             continue
 
         # ── first time seeing this path (bootstrap) ──────────────
@@ -569,7 +573,7 @@ def sync_folder(
                             f"[{idx}/{total}] Uploaded      {_fmt_rel(rel)}"
                         )
                 else:
-                    result.errors.append(f"Upload failed: {rel}")
+                    result.errors.append(_tr("WebDAV", "Upload failed: {}").format(rel))
             elif remote_info:
                 # Only remote — download immediately.
                 local_path = local_root / rel
@@ -580,10 +584,10 @@ def sync_folder(
                     result.downloaded.append(rel)
                     if progress_callback:
                         progress_callback(
-                            f"[{idx}/{total}] Downloaded    {_fmt_rel(rel)}"
+                            _tr("WebDAV", "[{}/{}] Downloaded    {}").format(idx, total, _fmt_rel(rel))
                         )
                 else:
-                    result.errors.append(f"Download failed: {rel}")
+                    result.errors.append(_tr("WebDAV", "Download failed: {}").format(rel))
             continue
 
         # ── local only (was synced, now remote deleted) ──────────
@@ -592,7 +596,7 @@ def sync_folder(
             local_file.unlink(missing_ok=True)
             result.deleted.append(rel)
             if progress_callback:
-                progress_callback(f"[{idx}/{total}] Deleted       {_fmt_rel(rel)}")
+                progress_callback(_tr("WebDAV", "[{}/{}] Deleted       {}").format(idx, total, _fmt_rel(rel)))
             continue
 
         # ── remote only (was synced, now locally deleted) ────────
@@ -601,7 +605,7 @@ def sync_folder(
             client.delete(rel)
             result.deleted.append(rel)
             if progress_callback:
-                progress_callback(f"[{idx}/{total}] Deleted remote {_fmt_rel(rel)}")
+                progress_callback(_tr("WebDAV", "[{}/{}] Deleted remote {}").format(idx, total, _fmt_rel(rel)))
             continue
 
         # ── both sides exist — detect changes ────────────────────
@@ -633,9 +637,9 @@ def sync_folder(
                 _record_upload(client, local_file, rel, local_ns, new_state)
                 result.uploaded.append(rel)
                 if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Uploaded      {_fmt_rel(rel)}")
+                    progress_callback(_tr("WebDAV", "[{}/{}] Uploaded      {}").format(idx, total, _fmt_rel(rel)))
             else:
-                result.errors.append(f"Upload failed: {rel}")
+                result.errors.append(_tr("WebDAV", "Upload failed: {}").format(rel))
 
         elif remote_changed and not local_changed:
             # Only the remote file was modified → download.
@@ -644,9 +648,9 @@ def sync_folder(
                 new_state[rel] = remote_ns
                 result.downloaded.append(rel)
                 if progress_callback:
-                    progress_callback(f"[{idx}/{total}] Downloaded    {_fmt_rel(rel)}")
+                    progress_callback(_tr("WebDAV", "[{}/{}] Downloaded    {}").format(idx, total, _fmt_rel(rel)))
             else:
-                result.errors.append(f"Download failed: {rel}")
+                result.errors.append(_tr("WebDAV", "Download failed: {}").format(rel))
 
         else:
             # Both changed — conflict resolved by newer mtime.
@@ -657,10 +661,10 @@ def sync_folder(
                     result.uploaded.append(rel)
                     if progress_callback:
                         progress_callback(
-                            f"[{idx}/{total}] Uploaded      {_fmt_rel(rel)} (conflict)"
+                            _tr("WebDAV", "[{}/{}] Uploaded      {} (conflict)").format(idx, total, _fmt_rel(rel))
                         )
                 else:
-                    result.errors.append(f"Upload failed (conflict): {rel}")
+                    result.errors.append(_tr("WebDAV", "Upload failed (conflict): {}").format(rel))
             elif remote_ns > local_ns:
                 if client.download(rel, local_file):
                     _set_file_mtime(local_file, remote_dt)
@@ -668,10 +672,10 @@ def sync_folder(
                     result.downloaded.append(rel)
                     if progress_callback:
                         progress_callback(
-                            f"[{idx}/{total}] Downloaded    {_fmt_rel(rel)} (conflict)"
+                            _tr("WebDAV", "[{}/{}] Downloaded    {} (conflict)").format(idx, total, _fmt_rel(rel))
                         )
                 else:
-                    result.errors.append(f"Download failed (conflict): {rel}")
+                    result.errors.append(_tr("WebDAV", "Download failed (conflict): {}").format(rel))
             else:
                 # Equal mtimes — both sides claim changes, skip.
                 new_state[rel] = max(local_ns, remote_ns)
@@ -690,7 +694,7 @@ def sync_folder(
     )
 
     if progress_callback:
-        progress_callback("Done.")
+        progress_callback(_tr("WebDAV", "Done."))
 
     return result
 

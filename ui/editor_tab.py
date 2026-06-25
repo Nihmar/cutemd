@@ -591,13 +591,13 @@ class EditorTab(QWidget):
         """Render a DOCX / XLSX / PPTX / CBZ / EPUB file as HTML in the preview pane."""
         ext = path.suffix.lower()
         name_map = {
-            ".docx": "Word",
-            ".xlsx": "Excel",
-            ".pptx": "PowerPoint",
-            ".cbz": "CBZ",
-            ".epub": "EPUB",
+            ".docx": self.tr("Word"),
+            ".xlsx": self.tr("Excel"),
+            ".pptx": self.tr("PowerPoint"),
+            ".cbz": self.tr("CBZ"),
+            ".epub": self.tr("EPUB"),
         }
-        label = name_map.get(ext, "Document")
+        label = name_map.get(ext, self.tr("Document"))
         _LOG.debug("_load_document: %s (%s) label=%s", path.name, ext, label)
 
         self.editor.setPlainText(self.tr("{} \u2014 {}").format(label, path.name))

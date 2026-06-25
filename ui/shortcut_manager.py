@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 DEFAULT_SHORTCUTS: dict[str, str] = {
     "act_open_folder": "Ctrl+O",
+    "act_close_folder": "Ctrl+Shift+O",
     "act_new": "Ctrl+N",
     "act_save": "Ctrl+S",
     "act_save_as": "Ctrl+Shift+S",
@@ -21,9 +22,12 @@ DEFAULT_SHORTCUTS: dict[str, str] = {
     "act_find_files": "Ctrl+Shift+F",
     "act_replace_files": "Ctrl+Shift+H",
     "act_toggle_preview": "Ctrl+P",
+    "act_toggle_split": "Ctrl+Shift+P",
     "act_toggle_tree": "Ctrl+B",
+    "act_toggle_statusbar": "Ctrl+Shift+B",
     "act_settings": "Ctrl+,",
     "act_shortcuts": "Ctrl+/",
+    "act_webdav_sync": "Ctrl+Alt+S",
     "act_zoom_in": "Ctrl+=",
     "act_zoom_out": "Ctrl+-",
     "act_zoom_reset": "Ctrl+0",

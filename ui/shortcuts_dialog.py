@@ -40,6 +40,7 @@ _SHORTCUT_CATEGORIES: dict[str, str] = {
     "act_zoom_reset": "View",
     "act_zoom_preview_in": "View",
     "act_zoom_preview_out": "View",
+    "act_webdav_sync": "File",
     "act_settings": "Settings",
     "act_shortcuts": "Help",
 }
@@ -83,7 +84,7 @@ class ShortcutsDialog(QDialog):
         table.setRowCount(len(rows))
         for i, (text, cat, shortcut) in enumerate(rows):
             table.setItem(i, 0, QTableWidgetItem(text))
-            table.setItem(i, 1, QTableWidgetItem(cat))
+            table.setItem(i, 1, QTableWidgetItem(self.tr(cat)))
             table.setItem(i, 2, QTableWidgetItem(shortcut))
 
         layout.addWidget(table)

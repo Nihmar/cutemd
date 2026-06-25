@@ -28,5 +28,5 @@ class PreviewWorker(QObject):
         try:
             html = build_html(**params)
         except Exception:
-            html = "<pre>Preview rendering error</pre>"
+            html = self.tr("<pre>{}</pre>").format(self.tr("Preview rendering error"))
         self.result_ready.emit(html)

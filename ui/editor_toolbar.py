@@ -46,7 +46,7 @@ class EditorToolbar(QWidget):
         for prefix, label in HEADING_PREFIXES:
             level = len(prefix.strip())
             icon_size = max(8, 20 - level * 2)
-            action = heading_menu.addAction(label)
+            action = heading_menu.addAction(self.tr(label))
             action.setIcon(self._icon("heading", icon_size))
             action.triggered.connect(lambda checked=False, p=prefix: self.format_requested.emit(p))
         self._heading_btn.setMenu(heading_menu)

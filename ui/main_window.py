@@ -152,7 +152,7 @@ class MainWindow(QMainWindow):
         _LOG.debug("__init__: markdown parser ready")
 
         # --- UI ---
-        self.setWindowTitle("CuteMD - Markdown Editor")
+        self.setWindowTitle(self.tr("CuteMD - Markdown Editor"))
 
         # Restore saved window geometry, or fall back to default size
         geometry = self._s.window_geometry()
@@ -343,6 +343,9 @@ class MainWindow(QMainWindow):
         mb = self.menuBar()
 
         self._file_menu = mb.addMenu(self.tr("&File"))
+        self._file_menu.addAction(self.act_open_folder)
+        self._file_menu.addAction(self.act_close_folder)
+        self._file_menu.addSeparator()
         self._file_menu.addAction(self.act_new)
         self._file_menu.addAction(self.act_save)
         self._file_menu.addAction(self.act_save_as)
@@ -495,11 +498,11 @@ class MainWindow(QMainWindow):
         editor_toolbar = self._editor_toolbar
 
         # --- Inline status bar ---
-        self._status_file = QLabel("...")
+        self._status_file = QLabel(self.tr("..."))
         self._status_sync = QLabel("")
         self._status_encoding = QLabel("")
-        self._status_cursor = QLabel("Ln 1, Col 1")
-        self._status_words = QLabel("0 words")
+        self._status_cursor = QLabel(self.tr("Ln 1, Col 1"))
+        self._status_words = QLabel(self.tr("0 words"))
         status_widget = QWidget()
         status_widget.setObjectName("inlineStatusBar")
         sl = QHBoxLayout(status_widget)
@@ -1894,9 +1897,9 @@ class MainWindow(QMainWindow):
         start_dir = str(self._folder_path) if self._folder_path else ""
         path, _ = QFileDialog.getSaveFileName(
             self,
-            "Save Markdown file",
+            self.tr("Save Markdown file"),
             start_dir,
-            "Markdown files (*.md *.markdown);;All files (*)",
+            self.tr("Markdown files (*.md *.markdown);;All files (*)"),
         )
         if not path:
             return
@@ -1914,7 +1917,7 @@ class MainWindow(QMainWindow):
             display = tab.display_name()
         else:
             display = "CuteMD"
-        self.setWindowTitle(f"{display} \u2013 CuteMD")
+        self.setWindowTitle(self.tr("{} \u2013 CuteMD").format(display))
 
         # Status bar
         if self._folder_path:

@@ -206,7 +206,7 @@ class SettingsDialog(QDialog):
         lang_form = QFormLayout()
         self._lang_combo = QComboBox()
         for i, (code, name) in enumerate(LANGUAGES):
-            self._lang_combo.addItem(name, code)
+            self._lang_combo.addItem(self.tr(name), code)
             if code == current_language:
                 self._lang_combo.setCurrentIndex(i)
         lang_form.addRow(self.tr("Language:"), self._lang_combo)
@@ -290,7 +290,7 @@ class SettingsDialog(QDialog):
             self._attachments_dir_edit.setText(
                 folder_settings.load().get("attachments_dir", "attachments")
             )
-            self._attachments_dir_edit.setPlaceholderText("attachments")
+            self._attachments_dir_edit.setPlaceholderText(self.tr("attachments"))
             att_form.addRow(self.tr("Attachments folder:"), self._attachments_dir_edit)
             editor_page_layout.addLayout(att_form)
 
@@ -458,7 +458,7 @@ class SettingsDialog(QDialog):
             sync_form = QFormLayout()
 
             self._webdav_url_edit = QLineEdit()
-            self._webdav_url_edit.setPlaceholderText("https://dav.example.com/notes")
+            self._webdav_url_edit.setPlaceholderText(self.tr("https://dav.example.com/notes"))
             self._webdav_url_edit.setText(current_webdav_url)
             sync_form.addRow(self.tr("URL:"), self._webdav_url_edit)
 
