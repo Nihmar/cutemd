@@ -1326,15 +1326,29 @@ class EditorTab(QWidget):
     def _insert_file_link(self, dest: Path) -> bool:
         """Insert a markdown or wikilink for *dest*, using relative paths
         when possible. Images get ``!`` prefix."""
-        if self._file_path and self._file_path.parent:
+        link = None
+
+        # If the file is inside the attachments directory, use just the filename
+        # — the resolver already knows to look there.
+        if self._attachments_dir is not None:
+            try:
+                dest.resolve().relative_to(self._attachments_dir.resolve())
+                link = dest.name
+            except ValueError:
+                pass
+
+        # Otherwise compute a relative path from the current file.
+        if link is None and self._file_path and self._file_path.parent:
             try:
                 rel = dest.resolve().relative_to(
                     self._file_path.parent.resolve(), walk_up=True
                 )
                 link = rel.as_posix()
             except ValueError:
-                link = dest.as_posix()
-        else:
+                pass
+
+        # Fallback: absolute path.
+        if link is None:
             link = dest.as_posix()
 
         is_image = dest.suffix.lower() in self._IMG_EXTS
