@@ -312,7 +312,7 @@ class MainWindow(QMainWindow):
         self.act_shortcuts.triggered.connect(self._on_show_shortcuts)
 
         self.act_webdav_sync = QAction(self.tr("&Sync Now"), self)
-        self.act_webdav_sync.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        self.act_webdav_sync.setShortcut(QKeySequence("Ctrl+Alt+S"))
         self.act_webdav_sync.triggered.connect(self._on_webdav_sync)
 
         # Zoom

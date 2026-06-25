@@ -213,19 +213,29 @@ powershell -ExecutionPolicy Bypass -File scripts\register_windows.ps1 -ExePath "
 | Key | Action |
 |---|---|
 | `Ctrl+O` | Open folder |
+| `Ctrl+Shift+O` | Close folder |
 | `Ctrl+N` | New file |
 | `Ctrl+S` | Save |
-| `Ctrl+Shift+S` | WebDAV Sync Now |
+| `Ctrl+Shift+S` | Save as |
+| `Ctrl+Alt+S` | WebDAV Sync Now |
 | `Ctrl+W` | Close tab |
 | `Ctrl+Q` | Quit |
 | `Ctrl+Z` | Undo |
 | `Ctrl+Shift+Z` | Redo |
 | `Ctrl+F` | Find in editor |
 | `Ctrl+Shift+F` | Find in files |
+| `Ctrl+Shift+H` | Replace in files |
 | `Ctrl+B` | Toggle file tree |
 | `Ctrl+P` | Toggle preview |
+| `Ctrl+Shift+P` | Toggle split |
+| `Ctrl+Shift+B` | Toggle status bar |
 | `Ctrl+,` | Settings |
 | `Ctrl+/` | Keyboard shortcuts reference |
+| `Ctrl+=` | Zoom in (editor) |
+| `Ctrl+-` | Zoom out (editor) |
+| `Ctrl+0` | Reset zoom |
+| `Ctrl+Shift+=` | Zoom in (preview) |
+| `Ctrl+Shift+-` | Zoom out (preview) |
 
 ## Versioning
 
@@ -233,8 +243,8 @@ The version is stored in four places — update all of them in sync:
 
 | File | Key | Applies to |
 |---|---|---|
-| `pyproject.toml` | `version = "x.y.z"` | Python package metadata (all platforms) |
-| `main.py` | `__version__ = "x.y.z"` | Runtime version string (all platforms) |
+| `pyproject.toml` | `version = "1.0.0"` | Python package metadata (all platforms) |
+| `main.py` | `__version__ = "1.0.0"` | Runtime version string (all platforms) |
 | `scripts/file_version_info.txt` | `filevers`, `prodvers`, etc. | Windows EXE metadata (via `--version-file`) |
 | `scripts/cutemd_setup.iss` | `#define MyAppVersion "x.y.z"` | Inno Setup installer (Windows)
 
@@ -265,7 +275,7 @@ CuteMD can synchronise a folder with any WebDAV server (Nextcloud, OpenMediaVaul
 4. Save with OK — credentials are saved in `.cutemd/webdav.json`
 
 **Usage:**
-- `Ctrl+Shift+S` or File → Sync Now to synchronise
+- `Ctrl+Alt+S` or File → Sync Now to synchronise
 - All files in the folder (excluding `.cutemd/`, `.git/`) are synced
 - Sync is bidirectional: new local files are uploaded, new remote files are downloaded
 - If a file was modified on both sides, the newest version wins
