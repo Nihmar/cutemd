@@ -45,8 +45,6 @@ def setup_logging(name: str, level: int = logging.DEBUG) -> logging.Logger:
 
     if _IS_TERMINAL:
         try:
-            if hasattr(sys.stderr, "reconfigure"):
-                sys.stderr.reconfigure(encoding="utf-8", errors="replace")
             handler = logging.StreamHandler(sys.stderr)
             handler.setLevel(level)
             handler.setFormatter(
