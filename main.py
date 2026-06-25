@@ -73,3 +73,7 @@ def main() -> None:
     _LOG.debug("Window shown, entering event loop")
 
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
