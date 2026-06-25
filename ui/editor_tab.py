@@ -200,7 +200,6 @@ class EditorTab(QWidget):
         {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"}
     )
     _PDF_EXTS = frozenset({".pdf"})
-    _DROP_EXTS = _IMG_EXTS | _MD_EXTS
 
     # -- Link detection in the editor (clickable links + hover underline) --
     _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
@@ -1246,8 +1245,8 @@ class EditorTab(QWidget):
         return super().eventFilter(obj, event)
 
     def _paste_image_from_clipboard(self) -> bool:
-        """Check if the clipboard contains an image (bitmap or file URL)
-        and paste it. Returns True if handled."""
+        """Paste clipboard content: file URLs (any type) or bitmap image.
+        Returns True if handled."""
 
         _LOG.debug("_paste_image_from_clipboard")
 
@@ -1255,17 +1254,14 @@ class EditorTab(QWidget):
         if clipboard is None:
             return False
 
-        # 1) Try file URLs first (copy from Explorer / file manager)
+        # 1) Try file URLs first (copy from Explorer / file manager) — any file type
         mime = clipboard.mimeData()
         if mime is not None and mime.hasUrls():
             for url in mime.urls():
                 if url.isLocalFile():
                     path = Path(url.toLocalFile())
-                    ext = path.suffix.lower()
-                    if ext in self._IMG_EXTS and path.is_file():
-                        return self._handle_image_file(path)
-                    if ext in self._MD_EXTS and path.is_file():
-                        return self._handle_md_file(path)
+                    if path.is_file() and self._handle_file_drop(path):
+                        return True
 
         # 2) Try bitmap data (copy from browser / screenshot)
         img = clipboard.image()
@@ -1280,37 +1276,33 @@ class EditorTab(QWidget):
             self._attachments_dir.mkdir(parents=True, exist_ok=True)
             if not img.save(str(dest), "PNG"):
                 return False
-            return self._insert_image_link(dest)
+            return self._handle_file_drop(dest)
 
         return False
 
-    def _handle_image_file(self, path: Path) -> bool:
-        """Copy a local image file to the images dir and insert a link.
-        Returns True if handled."""
+    def _handle_file_drop(self, path: Path) -> bool:
+        """Copy *path* to the attachments dir and insert a link.
+        Images get ``!`` prefix; other files get plain links.
+        Link style (md vs wikilink) respects the user setting."""
         dest_dir = self._attachments_dir
         if dest_dir is None:
-            # Fallback: use file's directory (or CWD) + "images" subfolder
             base = self._file_path.parent if self._file_path else Path.cwd()
-            dest_dir = base / "images"
+            dest_dir = base / "attachments"
         dest_dir.mkdir(parents=True, exist_ok=True)
         dest = dest_dir / path.name
         if dest.exists():
-            stem = path.stem
-            ext = path.suffix
+            stem, ext = path.stem, path.suffix
             n = 1
             while dest.exists():
                 dest = dest_dir / f"{stem}_{n}{ext}"
                 n += 1
         import shutil
         try:
-            shutil.copy2(str(path), str(dest))
+            if dest.resolve() != path.resolve():
+                shutil.copy2(str(path), str(dest))
         except OSError:
             return False
-        return self._insert_image_link(dest)
 
-    def _insert_image_link(self, dest: Path) -> bool:
-        """Insert a link to *dest* at the cursor position, respecting
-        the configured link style. Returns True."""
         if self._file_path and self._file_path.parent:
             try:
                 rel = dest.relative_to(self._file_path.parent)
@@ -1320,32 +1312,11 @@ class EditorTab(QWidget):
         else:
             link = dest.as_posix()
 
+        is_image = path.suffix.lower() in self._IMG_EXTS
         if self._link_style == "wiki":
-            syntax = f"![[{link}]]"
+            syntax = f"![[{link}]]" if is_image else f"[[{link}]]"
         else:
-            syntax = f"![{dest.stem}]({link})"
-
-        cursor = self.editor.textCursor()
-        cursor.insertText(syntax)
-        self.editor.setFocus()
-        return True
-
-    def _handle_md_file(self, path: Path) -> bool:
-        """Insert a link to a markdown file at the cursor position,
-        respecting the configured link style. Returns True."""
-        if self._file_path and self._file_path.parent:
-            try:
-                rel = path.relative_to(self._file_path.parent)
-                link = rel.as_posix()
-            except ValueError:
-                link = path.as_posix()
-        else:
-            link = path.as_posix()
-
-        if self._link_style == "wiki":
-            syntax = f"[[{link}]]"
-        else:
-            syntax = f"[{path.stem}]({link})"
+            syntax = f"![{dest.stem}]({link})" if is_image else f"[{dest.stem}]({link})"
 
         cursor = self.editor.textCursor()
         cursor.insertText(syntax)
@@ -1353,38 +1324,27 @@ class EditorTab(QWidget):
         return True
 
     def _on_drag_enter(self, event) -> None:
-        """Accept drag events that contain image or markdown files."""
-        from PySide6.QtCore import QUrl
-
+        """Accept drag events that contain any local file."""
         self._drag_active = False
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 if url.isLocalFile():
-                    path = Path(url.toLocalFile())
-                    if path.suffix.lower() in self._DROP_EXTS:
-                        self._drag_active = True
-                        event.acceptProposedAction()
-                        return
+                    self._drag_active = True
+                    event.acceptProposedAction()
+                    return
         event.ignore()
 
     def _on_drop(self, event) -> bool:
-        """Handle dropped image or markdown files. Returns True if handled."""
-        from PySide6.QtCore import QUrl
-
+        """Handle dropped files — copy to attachments dir and insert a link.
+        Returns True if any file was handled."""
         if not event.mimeData().hasUrls():
             return False
 
         handled = False
         for url in event.mimeData().urls():
-            if not url.isLocalFile():
-                continue
-            path = Path(url.toLocalFile())
-            ext = path.suffix.lower()
-            if ext in self._IMG_EXTS:
-                if self._handle_image_file(path):
-                    handled = True
-            elif ext in self._MD_EXTS:
-                if self._handle_md_file(path):
+            if url.isLocalFile():
+                path = Path(url.toLocalFile())
+                if path.is_file() and self._handle_file_drop(path):
                     handled = True
 
         if handled:
