@@ -2,7 +2,6 @@
 
 import csv
 import zipfile
-from html.parser import HTMLParser
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer
@@ -11,27 +10,15 @@ from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import (
     QFrame,
     QLabel,
-    QPlainTextEdit,
     QSizePolicy,
+    QTextBrowser,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
+from markdown.document_renderers import epub_to_html
 from ui.syntax_highlighter import MarkdownHighlighter
-
-
-class _HTMLStripper(HTMLParser):
-    """Strip HTML tags, preserving only text content."""
-
-    def __init__(self):
-        super().__init__()
-        self._parts: list[str] = []
-
-    def handle_data(self, data: str) -> None:
-        self._parts.append(data)
-
-    def get_text(self) -> str:
-        return " ".join(self._parts)
 
 
 class LinkPreviewPopup(QFrame):
@@ -89,10 +76,10 @@ class LinkPreviewPopup(QFrame):
         )
         layout.addWidget(self._header)
 
-        # --- Text editor (markdown / plain text) ---
-        self._editor = QPlainTextEdit()
+        # --- Text / HTML preview ---
+        self._editor = QTextBrowser()
         self._editor.setReadOnly(True)
-        self._editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._editor.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self._editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._editor.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self._editor.setWordWrapMode(QTextOption.WrapMode.NoWrap)
@@ -175,6 +162,8 @@ class LinkPreviewPopup(QFrame):
     def _show_text(self, path: Path, editor_font: QFont | None) -> None:
         self._image_label.hide()
         self._editor.show()
+        self._editor.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self._editor.setWordWrapMode(QTextOption.WrapMode.NoWrap)
 
         try:
             text = path.read_text(encoding="utf-8")
@@ -245,6 +234,8 @@ class LinkPreviewPopup(QFrame):
     def _show_csv(self, path: Path) -> None:
         self._image_label.hide()
         self._editor.show()
+        self._editor.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self._editor.setWordWrapMode(QTextOption.WrapMode.NoWrap)
         if self._highlighter is not None:
             self._highlighter.setDocument(None)
 
@@ -369,36 +360,17 @@ class LinkPreviewPopup(QFrame):
         if self._highlighter is not None:
             self._highlighter.setDocument(None)
 
-        text_parts: list[str] = []
-        try:
-            with zipfile.ZipFile(path) as zf:
-                for name in sorted(zf.namelist()):
-                    ext = Path(name).suffix.lower()
-                    if ext not in (".xhtml", ".html", ".htm", ".xml"):
-                        continue
-                    content = zf.read(name).decode("utf-8", errors="replace")
-                    if ext == ".xml" and "<html" not in content.lower()[:500]:
-                        continue
-                    stripper = _HTMLStripper()
-                    stripper.feed(content)
-                    t = stripper.get_text().strip()
-                    if t:
-                        text_parts.append(t)
-        except (zipfile.BadZipFile, FileNotFoundError):
-            text = self.tr("[Cannot read: file is corrupted]")
-            self._editor.setPlainText(text)
-            return
-        except Exception:
-            text = f"[Cannot read: {path.name}]"
-            self._editor.setPlainText(text)
-            return
-
-        text = "\n\n---\n\n".join(text_parts[:10])
-        self._editor.setPlainText(text[:10000] if text else self.tr("[Empty EPUB]"))
+        self._editor.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self._editor.setWordWrapMode(QTextOption.WrapMode.WordWrap)
+        html = epub_to_html(path, "")
+        self._editor.setHtml(html)
+        self._editor.verticalScrollBar().setValue(0)
 
     def _show_xlsx(self, path: Path) -> None:
         self._image_label.hide()
         self._editor.show()
+        self._editor.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self._editor.setWordWrapMode(QTextOption.WrapMode.NoWrap)
         if self._highlighter is not None:
             self._highlighter.setDocument(None)
 

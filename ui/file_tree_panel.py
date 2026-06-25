@@ -137,6 +137,12 @@ class _DotFileFilterProxy(QSortFilterProxyModel):
             self._show_hidden = show
             self.invalidateFilter()
 
+    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
+        if role == Qt.ItemDataRole.ToolTipRole:
+            src_idx = self.mapToSource(index)
+            return self.sourceModel().fileName(src_idx)
+        return super().data(index, role)
+
     def filterAcceptsRow(self, source_row: int, source_parent) -> bool:
         if self._show_hidden:
             return True

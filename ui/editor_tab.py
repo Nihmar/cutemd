@@ -250,6 +250,7 @@ class EditorTab(QWidget):
         self._large_file = False
         self._link_style: str = "md"
         self._drag_active = False
+        self._mouse_press_pos: QPoint | None = None
 
         # Async preview state.
         self._preview_busy = False
@@ -1108,6 +1109,15 @@ class EditorTab(QWidget):
     def _on_mouse_click(self, event: QMouseEvent) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
+
+        # Ignore if this was a drag (press and release at different positions).
+        if self._mouse_press_pos is not None:
+            release_pt = event.position().toPoint()
+            if (release_pt - self._mouse_press_pos).manhattanLength() > 5:
+                self._mouse_press_pos = None
+                return False
+        self._mouse_press_pos = None
+
         pt = event.position().toPoint()
         cursor = self.editor.cursorForPosition(pt)
         block_text = cursor.block().text()
@@ -1325,6 +1335,8 @@ class EditorTab(QWidget):
         elif obj is self._viewport:
             if event.type() == QEvent.Type.MouseMove:
                 self._on_mouse_move(event)  # type: ignore[arg-type]
+            elif event.type() == QEvent.Type.MouseButtonPress:
+                self._mouse_press_pos = event.position().toPoint()  # type: ignore[attr-defined]
             elif event.type() == QEvent.Type.MouseButtonRelease:
                 return self._on_mouse_click(event)  # type: ignore[arg-type]
             elif event.type() == QEvent.Type.DragEnter:
@@ -1344,7 +1356,6 @@ class EditorTab(QWidget):
             elif event.type() == QEvent.Type.Drop:
                 _LOG.debug("eventFilter: Drop urls=%s", [url.toString() for url in event.mimeData().urls()])
                 if self._drag_active and self._on_drop(event):  # type: ignore[arg-type]
-                    self._drag_active = False
                     return True
                 self._drag_active = False
             elif event.type() == QEvent.Type.Wheel:
