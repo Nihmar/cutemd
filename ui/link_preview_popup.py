@@ -280,15 +280,23 @@ class LinkPreviewPopup(QFrame):
         self._cbz_images = []
         self._cbz_index = 0
 
+        self._cbz_images = []
+        self._cbz_index = 0
+
         try:
             with zipfile.ZipFile(path) as zf:
                 for name in sorted(zf.namelist()):
                     ext = Path(name).suffix.lower()
                     if ext in self._IMG_EXTS:
                         data = zf.read(name)
-                        pixmap = QPixmap()
-                        if pixmap.loadFromData(data) and not pixmap.isNull():
+                        pm = QPixmap()
+                        if pm.loadFromData(data) and not pm.isNull():
                             self._cbz_images.append((data, name))
+        except (zipfile.BadZipFile, FileNotFoundError):
+            self._image_label.setText(self.tr("[Cannot read: file is corrupted]"))
+            self._image_label.show()
+            self._editor.hide()
+            return
         except Exception:
             pass
 
@@ -361,15 +369,14 @@ class LinkPreviewPopup(QFrame):
         if self._highlighter is not None:
             self._highlighter.setDocument(None)
 
+        text_parts: list[str] = []
         try:
             with zipfile.ZipFile(path) as zf:
-                text_parts: list[str] = []
                 for name in sorted(zf.namelist()):
                     ext = Path(name).suffix.lower()
                     if ext not in (".xhtml", ".html", ".htm", ".xml"):
                         continue
                     content = zf.read(name).decode("utf-8", errors="replace")
-                    # For .xml files, skip metadata files (OPF/NCX/container)
                     if ext == ".xml" and "<html" not in content.lower()[:500]:
                         continue
                     stripper = _HTMLStripper()
@@ -377,11 +384,17 @@ class LinkPreviewPopup(QFrame):
                     t = stripper.get_text().strip()
                     if t:
                         text_parts.append(t)
-                text = "\n\n---\n\n".join(text_parts[:10])
+        except (zipfile.BadZipFile, FileNotFoundError):
+            text = self.tr("[Cannot read: file is corrupted]")
+            self._editor.setPlainText(text)
+            return
         except Exception:
             text = f"[Cannot read: {path.name}]"
+            self._editor.setPlainText(text)
+            return
 
-        self._editor.setPlainText(text[:10000] if text else "[Empty EPUB]")
+        text = "\n\n---\n\n".join(text_parts[:10])
+        self._editor.setPlainText(text[:10000] if text else self.tr("[Empty EPUB]"))
 
     def _show_xlsx(self, path: Path) -> None:
         self._image_label.hide()

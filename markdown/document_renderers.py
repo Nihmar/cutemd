@@ -14,7 +14,7 @@ def _wrap_html(body: str, css: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# XLSX  →  HTML <table>
+# XLSX  ->  HTML <table>
 # ---------------------------------------------------------------------------
 
 def xlsx_to_html(path: Path, css: str) -> str:
@@ -41,7 +41,7 @@ def xlsx_to_html(path: Path, css: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# DOCX  →  HTML (headings, paragraphs, tables)
+# DOCX  ->  HTML (headings, paragraphs, tables)
 # ---------------------------------------------------------------------------
 
 def docx_to_html(path: Path, css: str) -> str:
@@ -103,11 +103,11 @@ def _docx_table_to_html(tbl_el) -> str:
 
 
 # ---------------------------------------------------------------------------
-# PPTX  →  HTML (slides with text)
+# PPTX  ->  HTML (slides with text)
 # ---------------------------------------------------------------------------
 
 def pptx_to_html(path: Path, css: str) -> str:
-    """Convert a PPTX presentation to HTML — text from each slide."""
+    """Convert a PPTX presentation to HTML -- text from each slide."""
     from pptx import Presentation
 
     prs = Presentation(str(path))
@@ -125,7 +125,7 @@ def pptx_to_html(path: Path, css: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# CBZ  →  HTML (image gallery)
+# CBZ  ->  HTML (image gallery)
 # ---------------------------------------------------------------------------
 
 def cbz_to_html(path: Path, css: str) -> str:
@@ -152,11 +152,12 @@ def cbz_to_html(path: Path, css: str) -> str:
                         mime = "image/webp"
                     b64 = base64.b64encode(data).decode("ascii")
                     images.append(f'<p><img src="data:{mime};base64,{b64}" /></p>')
+    except (zipfile.BadZipFile, FileNotFoundError):
+        return _wrap_html("<p>[Cannot read: file is corrupted]</p>", css)
     except Exception:
         pass
 
     body = "\n".join(images) if images else "<p>[No images found in CBZ file]</p>"
-    # Add some CSS for centered, max-width images
     style = css + """
     .cbz-gallery img {
         max-width: 100%; height: auto; display: block; margin: 1em auto;
@@ -165,7 +166,7 @@ def cbz_to_html(path: Path, css: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# EPUB  →  HTML (chapter text)
+# EPUB  ->  HTML (chapter text)
 # ---------------------------------------------------------------------------
 
 def _strip_html(text: str) -> str:
@@ -177,9 +178,7 @@ def _strip_html(text: str) -> str:
 
 
 def epub_to_html(path: Path, css: str) -> str:
-    """Convert an EPUB to HTML — text from each chapter."""
-    import zipfile
-
+    """Convert an EPUB to HTML -- text from each chapter."""
     parts: list[str] = []
     try:
         with zipfile.ZipFile(path) as zf:
@@ -188,19 +187,19 @@ def epub_to_html(path: Path, css: str) -> str:
                 if ext not in (".xhtml", ".html", ".htm", ".xml"):
                     continue
                 content = zf.read(name).decode("utf-8", errors="replace")
-                # For .xml files, skip metadata files (OPF/NCX/container)
                 if ext == ".xml" and "<html" not in content.lower()[:500]:
                     continue
                 text = _strip_html(content)
                 if not text:
                     continue
                 title = Path(name).stem
-                parts.append(f"<h2>{title}</h2>")
-                # Split into paragraphs on double newlines
+                parts.append(f"<h2>{escape(title)}</h2>")
                 for para in text.split("\n\n"):
                     para = para.strip()
                     if para:
-                        parts.append(f"<p>{para}</p>")
+                        parts.append(f"<p>{escape(para)}</p>")
+    except (zipfile.BadZipFile, FileNotFoundError):
+        return _wrap_html("<p>[Cannot read: file is corrupted]</p>", css)
     except Exception:
         pass
 
