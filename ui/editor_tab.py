@@ -38,6 +38,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from markdown.document_renderers import (
+    cbz_to_html,
+    docx_to_html,
+    pptx_to_html,
+    xlsx_to_html,
+)
 from markdown.html_builder import (
     preprocess_wikilink_images,
     preprocess_wikilinks,
@@ -200,6 +206,7 @@ class EditorTab(QWidget):
         {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"}
     )
     _PDF_EXTS = frozenset({".pdf"})
+    _DOC_EXTS = frozenset({".docx", ".xlsx", ".pptx", ".cbz"})
 
     # -- Link detection in the editor (clickable links + hover underline) --
     _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
@@ -507,6 +514,10 @@ class EditorTab(QWidget):
             self._load_pdf(path)
             self.title_changed.emit()
             return
+        if ext in self._DOC_EXTS:
+            self._file_path = path
+            self._load_document(path)
+            return
 
         text, encoding = _read_file_with_encoding(path)
         if text is None:
@@ -562,6 +573,41 @@ class EditorTab(QWidget):
         self._preview_stack.setCurrentIndex(2)
         self._is_binary_preview = True
         self._splitter.setSizes([0, 1000])
+
+    def _load_document(self, path: Path) -> None:
+        """Render a DOCX / XLSX / PPTX / CBZ file as HTML in the preview pane."""
+        ext = path.suffix.lower()
+        name_map = {".docx": "Word", ".xlsx": "Excel", ".pptx": "PowerPoint", ".cbz": "CBZ"}
+        label = name_map.get(ext, "Document")
+
+        self.editor.setPlainText(self.tr("{} \u2014 {}").format(label, path.name))
+        self.editor.setReadOnly(True)
+        self._highlighter.setDocument(None)
+        self._saved_text = ""
+        self._is_binary_preview = True
+        self._splitter.setSizes([0, 1000])
+        self.title_changed.emit()
+
+        try:
+            if ext == ".xlsx":
+                html = xlsx_to_html(path, self._preview_css)
+            elif ext == ".docx":
+                html = docx_to_html(path, self._preview_css)
+            elif ext == ".pptx":
+                html = pptx_to_html(path, self._preview_css)
+            elif ext == ".cbz":
+                html = cbz_to_html(path, self._preview_css)
+            else:
+                self.preview.setPlainText(self.tr("[Unsupported document format]"))
+                self._preview_stack.setCurrentIndex(0)
+                return
+        except Exception:
+            self.preview.setPlainText(self.tr("[Error rendering {}]").format(label))
+            self._preview_stack.setCurrentIndex(0)
+            return
+
+        self.preview.setHtml(html)
+        self._preview_stack.setCurrentIndex(0)
 
     def save(self) -> bool:
         _LOG.debug("save: %s", self.file_path)

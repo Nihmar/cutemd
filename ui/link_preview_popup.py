@@ -71,6 +71,10 @@ class LinkPreviewPopup(QFrame):
         self._hide_timer.timeout.connect(self._maybe_hide)
         self._mouse_over = False
 
+        # CBZ gallery state
+        self._cbz_images: list[tuple[bytes, str]] = []
+        self._cbz_index: int = 0
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -273,6 +277,9 @@ class LinkPreviewPopup(QFrame):
         if self._highlighter is not None:
             self._highlighter.setDocument(None)
 
+        self._cbz_images = []
+        self._cbz_index = 0
+
         try:
             with zipfile.ZipFile(path) as zf:
                 for name in sorted(zf.namelist()):
@@ -280,22 +287,48 @@ class LinkPreviewPopup(QFrame):
                     if ext in self._IMG_EXTS:
                         data = zf.read(name)
                         pixmap = QPixmap()
-                        pixmap.loadFromData(data)
-                        if not pixmap.isNull():
-                            scaled = pixmap.scaled(
-                                self._MAX_W - 10,
-                                self._MAX_H - 30,
-                                Qt.AspectRatioMode.KeepAspectRatio,
-                                Qt.TransformationMode.SmoothTransformation,
-                            )
-                            self._image_label.setPixmap(scaled)
-                            self._image_label.show()
-                            return
+                        if pixmap.loadFromData(data) and not pixmap.isNull():
+                            self._cbz_images.append((data, name))
         except Exception:
             pass
 
-        self._image_label.setText(f"[Cannot display: {path.name}]")
+        if not self._cbz_images:
+            self._image_label.setText(f"[Cannot display: {path.name}]")
+            self._image_label.show()
+            return
+
+        self._show_cbz_page(0)
+
+    def _show_cbz_page(self, index: int) -> None:
+        """Show the *index*-th image from the CBZ archive."""
+        data, name = self._cbz_images[index]
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(data) or pixmap.isNull():
+            self._image_label.setText(f"[Cannot display page: {Path(name).name}]")
+            self._image_label.show()
+            return
+
+        total = len(self._cbz_images)
+        self._header.setText(f"{self._path.name}  [{index + 1} / {total}]")
+        scaled = pixmap.scaled(
+            self._MAX_W - 10,
+            self._MAX_H - 30,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._image_label.setPixmap(scaled)
         self._image_label.show()
+
+    def keyPressEvent(self, event) -> None:
+        """Navigate CBZ pages with Left/Right arrow keys."""
+        if self._cbz_images:
+            if event.key() == Qt.Key.Key_Right:
+                self._cbz_index = (self._cbz_index + 1) % len(self._cbz_images)
+                self._show_cbz_page(self._cbz_index)
+            elif event.key() == Qt.Key.Key_Left:
+                self._cbz_index = (self._cbz_index - 1) % len(self._cbz_images)
+                self._show_cbz_page(self._cbz_index)
+        super().keyPressEvent(event)
 
     def _show_epub(self, path: Path) -> None:
         self._image_label.hide()
