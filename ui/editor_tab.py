@@ -1282,8 +1282,25 @@ class EditorTab(QWidget):
 
     def _handle_file_drop(self, path: Path) -> bool:
         """Copy *path* to the attachments dir and insert a link.
+        If the file is already inside the opened folder, use it in-place.
         Images get ``!`` prefix; other files get plain links.
         Link style (md vs wikilink) respects the user setting."""
+        # Determine the vault root (parent of attachments dir).
+        vault_root = (
+            self._attachments_dir.parent.resolve()
+            if self._attachments_dir
+            else None
+        )
+
+        # If the file is already inside the vault, link it in-place.
+        if vault_root is not None:
+            try:
+                path.resolve().relative_to(vault_root)
+                return self._insert_file_link(path)
+            except ValueError:
+                pass
+
+        # Otherwise copy to the attachments directory.
         dest_dir = self._attachments_dir
         if dest_dir is None:
             base = self._file_path.parent if self._file_path else Path.cwd()
@@ -1302,17 +1319,21 @@ class EditorTab(QWidget):
                 shutil.copy2(str(path), str(dest))
         except OSError:
             return False
+        return self._insert_file_link(dest)
 
+    def _insert_file_link(self, dest: Path) -> bool:
+        """Insert a markdown or wikilink for *dest*, using relative paths
+        when possible. Images get ``!`` prefix."""
         if self._file_path and self._file_path.parent:
             try:
-                rel = dest.relative_to(self._file_path.parent)
+                rel = dest.resolve().relative_to(self._file_path.parent.resolve())
                 link = rel.as_posix()
             except ValueError:
                 link = dest.as_posix()
         else:
             link = dest.as_posix()
 
-        is_image = path.suffix.lower() in self._IMG_EXTS
+        is_image = dest.suffix.lower() in self._IMG_EXTS
         if self._link_style == "wiki":
             syntax = f"![[{link}]]" if is_image else f"[[{link}]]"
         else:
