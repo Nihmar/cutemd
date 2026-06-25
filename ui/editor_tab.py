@@ -225,7 +225,7 @@ class EditorTab(QWidget):
         self._theme = theme
 
         self._file_path: Path | None = None
-        self._images_dir: Path | None = None
+        self._attachments_dir: Path | None = None
         self._saved_text: str = ""
         self._dirty = False
         self._syncing_scroll = 0
@@ -304,8 +304,8 @@ class EditorTab(QWidget):
         self.preview.file_link_clicked.connect(
             lambda target: self.file_link_clicked.emit(target)
         )
-        if self._images_dir is not None:
-            self.preview.set_images_dir(self._images_dir)
+        if self._attachments_dir is not None:
+            self.preview.set_attachments_dir(self._attachments_dir)
         self._preview_viewport = self.preview.viewport()
         self._preview_viewport.installEventFilter(self)
 
@@ -691,12 +691,12 @@ class EditorTab(QWidget):
         if self._dirty != was_dirty:
             self.modified_changed.emit(self._dirty)
 
-    def set_images_dir(self, d: Path | None) -> None:
+    def set_attachments_dir(self, d: Path | None) -> None:
         """Set the configured images directory (from folder settings)."""
-        if d != self._images_dir:
+        if d != self._attachments_dir:
             self._last_rendered_hash = 0
-        self._images_dir = d
-        self.preview.set_images_dir(d)
+        self._attachments_dir = d
+        self.preview.set_attachments_dir(d)
 
     # ------------------------------------------------------------------
     # Preview rendering
@@ -744,7 +744,7 @@ class EditorTab(QWidget):
                 self._preview_font_size,
                 str(base_dir),
                 max(pw, 200),
-                str(self._images_dir) if self._images_dir else "",
+                str(self._attachments_dir) if self._attachments_dir else "",
             )
         )
         if params_hash == self._last_rendered_hash:
@@ -762,7 +762,7 @@ class EditorTab(QWidget):
             "base_dir": base_dir,
             "max_width": max(pw, 200),
             "get_image_size": get_image_size,
-            "images_dir": self._images_dir,
+            "attachments_dir": self._attachments_dir,
         }
 
         if self._preview_busy:
@@ -1110,8 +1110,8 @@ class EditorTab(QWidget):
                 return p.resolve()
 
         # Try the configured images directory.
-        if self._images_dir is not None:
-            candidate = self._images_dir / target_path.name
+        if self._attachments_dir is not None:
+            candidate = self._attachments_dir / target_path.name
             if candidate.is_file():
                 return candidate.resolve()
 
@@ -1121,14 +1121,14 @@ class EditorTab(QWidget):
                 p = base / (target + ext)
                 if p.is_file():
                     return p.resolve()
-                if self._images_dir is not None:
-                    p2 = self._images_dir / (target_path.name + ext)
+                if self._attachments_dir is not None:
+                    p2 = self._attachments_dir / (target_path.name + ext)
                     if p2.is_file():
                         return p2.resolve()
 
         # Fallback: full recursive search of the vault root.
-        # If images_dir is known, its parent is the vault root.
-        vault_root = self._images_dir.parent if self._images_dir is not None else base
+        # If attachments_dir is known, its parent is the vault root.
+        vault_root = self._attachments_dir.parent if self._attachments_dir is not None else base
         target_name = target_path.name.lower()
         try:
             for p in vault_root.rglob("*"):
@@ -1270,14 +1270,14 @@ class EditorTab(QWidget):
         # 2) Try bitmap data (copy from browser / screenshot)
         img = clipboard.image()
         if not img.isNull():
-            if self._images_dir is None:
+            if self._attachments_dir is None:
                 return False
             import datetime
 
             ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"paste_{ts}.png"
-            dest = self._images_dir / filename
-            self._images_dir.mkdir(parents=True, exist_ok=True)
+            dest = self._attachments_dir / filename
+            self._attachments_dir.mkdir(parents=True, exist_ok=True)
             if not img.save(str(dest), "PNG"):
                 return False
             return self._insert_image_link(dest)
@@ -1287,7 +1287,7 @@ class EditorTab(QWidget):
     def _handle_image_file(self, path: Path) -> bool:
         """Copy a local image file to the images dir and insert a link.
         Returns True if handled."""
-        dest_dir = self._images_dir
+        dest_dir = self._attachments_dir
         if dest_dir is None:
             # Fallback: use file's directory (or CWD) + "images" subfolder
             base = self._file_path.parent if self._file_path else Path.cwd()

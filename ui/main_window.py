@@ -709,7 +709,7 @@ class MainWindow(QMainWindow):
 
         # Propagate the configured images directory to every new tab.
         if self._folder_settings is not None:
-            tab.set_images_dir(self._folder_settings.images_dir())
+            tab.set_attachments_dir(self._folder_settings.attachments_dir())
 
         return tab
 
@@ -980,7 +980,7 @@ class MainWindow(QMainWindow):
         image_path = Path(path)
 
         if self._folder_path is not None and self._folder_settings is not None:
-            dest_dir = self._folder_settings.images_dir()
+            dest_dir = self._folder_settings.attachments_dir()
             dest = dest_dir / image_path.name
             import shutil
 
@@ -1165,9 +1165,9 @@ class MainWindow(QMainWindow):
             self._folder_settings.save_shortcuts(new_sc)
 
             cfg = self._folder_settings.load()
-            new_id = dlg.selected_images_dir()
+            new_id = dlg.selected_attachments_dir()
             if new_id is not None:
-                cfg["images_dir"] = new_id
+                cfg["attachments_dir"] = new_id
 
             cfg["theme"] = self._theme_id
             cfg["editor_font_family"] = self._editor_font_family
@@ -1181,12 +1181,12 @@ class MainWindow(QMainWindow):
             self._shortcut_mgr = ShortcutManager(self._folder_settings)
             self._shortcut_mgr.apply(self._all_actions)
 
-            # Propagate updated images_dir to all open tabs
-            images_dir = self._folder_settings.images_dir()
+            # Propagate updated attachments_dir to all open tabs
+            attachments_dir = self._folder_settings.attachments_dir()
             for i in range(self._tabs.count()):
                 w = self._tabs.widget(i)
                 if isinstance(w, EditorTab):
-                    w.set_images_dir(images_dir)
+                    w.set_attachments_dir(attachments_dir)
 
             # --- WebDAV config ---
             new_url = dlg.selected_webdav_url()
@@ -1469,7 +1469,7 @@ class MainWindow(QMainWindow):
                 "editor_font_size": self._editor_font_size,
                 "preview_font_family": self._preview_font_family,
                 "preview_font_size": self._preview_font_size,
-                "images_dir": "images",
+                "attachments_dir": "images",
             }
             self._folder_settings.save(global_cfg)
         self._folder_settings.load()
@@ -1743,9 +1743,9 @@ class MainWindow(QMainWindow):
 
         path = self._resolve_link_target(target, source_tab.file_path)
         if path is None and self._folder_path is not None:
-            # Try the configured images_dir first (fast).
+            # Try the configured attachments_dir first (fast).
             if self._folder_settings is not None:
-                candidate = self._folder_settings.images_dir() / Path(target).name
+                candidate = self._folder_settings.attachments_dir() / Path(target).name
                 if candidate.is_file():
                     path = candidate.resolve()
             # Fall back to rglob in the folder.

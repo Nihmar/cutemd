@@ -36,7 +36,7 @@ def _rglob_search(filename: str, root: Path) -> Path | None:
 
 
 def resolve_image_path(
-    src: str, base_dir: Path, images_dir: Path | None = None
+    src: str, base_dir: Path, attachments_dir: Path | None = None
 ) -> Path | None:
     src = unquote(src)
     p = Path(src)
@@ -49,14 +49,14 @@ def resolve_image_path(
         return resolved
 
     # 2. Configured images directory.
-    if images_dir is not None:
-        resolved = (images_dir / p.name).resolve()
+    if attachments_dir is not None:
+        resolved = (attachments_dir / p.name).resolve()
         if resolved.is_file():
             return resolved
 
     # 3. Full recursive search of the vault root.
-    #    If images_dir is known, its parent is the vault root.
-    vault_root = images_dir.parent if images_dir is not None else base_dir
+    #    If attachments_dir is known, its parent is the vault root.
+    vault_root = attachments_dir.parent if attachments_dir is not None else base_dir
     return _rglob_search(p.name, vault_root)
 
 
@@ -69,7 +69,7 @@ def add_img_dimensions(
     base_dir: Path,
     max_width: int,
     get_size: SizeProvider,
-    images_dir: Path | None = None,
+    attachments_dir: Path | None = None,
 ) -> str:
     """Resolve local image paths to file:// URLs and add width/height."""
 
@@ -80,7 +80,7 @@ def add_img_dimensions(
         # Leave external/existing absolute URLs alone.
         if not needs_loading(src) or Path(src).is_absolute():
             return m.group(0)
-        resolved = resolve_image_path(src, base_dir, images_dir)
+        resolved = resolve_image_path(src, base_dir, attachments_dir)
         if resolved is None:
             return m.group(0)
         # Embed an absolute file:// URL so Qt never needs to resolve it.

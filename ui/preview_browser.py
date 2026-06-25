@@ -38,7 +38,7 @@ class PreviewTextBrowser(QTextBrowser):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._base_dir: Path | None = None
-        self._images_dir: Path | None = None
+        self._attachments_dir: Path | None = None
         self.anchorClicked.connect(self._on_anchor_clicked)
 
     def set_base_dir(self, d: Path) -> None:
@@ -46,9 +46,9 @@ class PreviewTextBrowser(QTextBrowser):
         if self._base_dir != resolved:
             self._base_dir = resolved
 
-    def set_images_dir(self, d: Path | None) -> None:
+    def set_attachments_dir(self, d: Path | None) -> None:
         resolved = d.resolve() if d is not None else None
-        self._images_dir = resolved
+        self._attachments_dir = resolved
 
     def _on_anchor_clicked(self, url: QUrl) -> None:
         """Forward clicked links (e.g. wrapped images) to the tab.
@@ -73,7 +73,7 @@ class PreviewTextBrowser(QTextBrowser):
         if resource_type == int(QTextDocument.ImageResource):
             url_str = url.toLocalFile() if url.isLocalFile() else url.toString()
             if self._base_dir is not None and needs_loading(url_str):
-                resolved = resolve_image_path(url_str, self._base_dir, self._images_dir)
+                resolved = resolve_image_path(url_str, self._base_dir, self._attachments_dir)
                 if resolved is not None:
                     try:
                         img = QImage(str(resolved))

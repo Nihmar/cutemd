@@ -95,7 +95,7 @@ def build_html(
     base_dir: Path,
     max_width: int,
     get_image_size: SizeProvider,
-    images_dir: Path | None = None,
+    attachments_dir: Path | None = None,
 ) -> str:
     try:
         body_html = add_heading_ids(render_with_anchors(text, md))
@@ -107,7 +107,7 @@ def build_html(
         )
 
     body_html = add_img_dimensions(
-        body_html, base_dir, max_width, get_image_size, images_dir
+        body_html, base_dir, max_width, get_image_size, attachments_dir
     )
     body_html = fix_image_paragraphs(body_html)
 

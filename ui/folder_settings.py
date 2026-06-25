@@ -27,15 +27,15 @@ class FolderSettings:
     def config_path(self) -> Path:
         return self._config_path
 
-    def images_dir(self) -> Path:
-        """Return the configured images directory (created on demand).
+    def attachments_dir(self) -> Path:
+        """Return the configured attachments directory (created on demand).
 
         Resolved relative to the opened folder, never outside it.
-        Defaults to ``"images"`` unless overridden in settings.json.
+        Defaults to ``"attachments"`` unless overridden in settings.json.
         """
-        name = str(self._values.get("images_dir", "images")).strip()
+        name = str(self._values.get("attachments_dir", "attachments")).strip()
         if not name or ".." in name or "/" in name or "\\" in name:
-            name = "images"
+            name = "attachments"
         target = self._folder / name
         target.mkdir(parents=True, exist_ok=True)
         return target

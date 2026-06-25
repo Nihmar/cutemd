@@ -282,17 +282,17 @@ class SettingsDialog(QDialog):
 
         editor_page_layout.addLayout(editor_form)
 
-        # Per-folder: images directory
-        self._images_dir_edit: QLineEdit | None = None
+        # Per-folder: attachments directory
+        self._attachments_dir_edit: QLineEdit | None = None
         if folder_settings is not None:
-            img_form = QFormLayout()
-            self._images_dir_edit = QLineEdit()
-            self._images_dir_edit.setText(
-                folder_settings.load().get("images_dir", "images")
+            att_form = QFormLayout()
+            self._attachments_dir_edit = QLineEdit()
+            self._attachments_dir_edit.setText(
+                folder_settings.load().get("attachments_dir", "attachments")
             )
-            self._images_dir_edit.setPlaceholderText("images")
-            img_form.addRow(self.tr("Images folder:"), self._images_dir_edit)
-            editor_page_layout.addLayout(img_form)
+            self._attachments_dir_edit.setPlaceholderText("attachments")
+            att_form.addRow(self.tr("Attachments folder:"), self._attachments_dir_edit)
+            editor_page_layout.addLayout(att_form)
 
         # Smart editing checkboxes
         smart_group = QGroupBox(self.tr("Smart Editing"))
@@ -590,8 +590,8 @@ class SettingsDialog(QDialog):
         # Hidden files
         self._show_hidden_cb.setChecked(False)
         # Images dir
-        if self._images_dir_edit is not None:
-            self._images_dir_edit.clear()
+        if self._attachments_dir_edit is not None:
+            self._attachments_dir_edit.clear()
         # WebDAV
         if self._webdav_url_edit is not None:
             self._webdav_url_edit.clear()
@@ -667,9 +667,9 @@ class SettingsDialog(QDialog):
                         )
         return shortcuts
 
-    def selected_images_dir(self) -> str | None:
-        if self._images_dir_edit is not None:
-            return self._images_dir_edit.text().strip() or None
+    def selected_attachments_dir(self) -> str | None:
+        if self._attachments_dir_edit is not None:
+            return self._attachments_dir_edit.text().strip() or None
         return None
 
     def selected_autosave_interval(self) -> int:

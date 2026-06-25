@@ -125,12 +125,12 @@ Similarly, when adding a new action (even without a QSetting), always add a menu
 - `ui/link_preview_popup.py` — `LinkPreviewPopup(QFrame)` shown on hover over Markdown/wikilinks.
 - `ui/editor_tab.py` owns the popup: creates it in `__init__`, manages a 400ms `_link_preview_show_timer` in `_on_mouse_move`.
 - **Link detection**: `_LINK_RE` (`[text](url)`) and `_WIKILINK_RE` (`!?[[target]]` — optional `!` for embeds).
-- **Path resolution** (`EditorTab._resolve_link_target`) in order:
-  1. Absolute paths (if they exist).
-  2. Relative to the current file's directory (exact name, then + `.md`/`.markdown`).
-  3. The folder-settings images directory (`_images_dir`) by filename only.
-  4. **Extension fallback**: if the target has no image/PDF extension, try all `_IMG_EXTS` + `_PDF_EXTS` in the base and images dir.
-  5. **Tree walk**: walk up to 5 ancestor directories, checking for the file directly and in immediate subdirectories (handles Obsidian-style vaults where images live in `attachments/`, `assets/`, etc. anywhere in the tree).
-- **Image resolution does NOT depend on the `.cutemd` images folder setting** — that is only one step in the chain. The tree-walk fallback finds images regardless.
+ - **Path resolution** (`EditorTab._resolve_link_target`) in order:
+   1. Absolute paths (if they exist).
+   2. Relative to the current file's directory (exact name, then + `.md`/`.markdown`).
+   3. The folder-settings attachments directory (`_attachments_dir`) by filename only.
+   4. **Extension fallback**: if the target has no image/PDF extension, try all `_IMG_EXTS` + `_PDF_EXTS` in the base and attachments dir.
+   5. **Tree walk**: walk up to 5 ancestor directories, checking for the file directly and in immediate subdirectories (handles Obsidian-style vaults where files live in `attachments/`, `assets/`, etc. anywhere in the tree).
+- **Image resolution does NOT depend on the `.cutemd` attachments folder setting** — that is only one step in the chain. The tree-walk fallback finds attachments regardless.
 - The popup uses `Qt.WindowType.Tool | FramelessWindowHint | WindowStaysOnTopHint`; `WA_ShowWithoutActivating` avoids focus stealing.
 - Supported preview types: text (editor with syntax highlight for `.md`), images (scaled `QPixmap`), PDF (first page via `QPdfDocument`).
