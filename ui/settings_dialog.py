@@ -1,16 +1,18 @@
-"""Settings dialog — theme and font selection."""
+"""Settings dialog — theme and font selection (redesigned UI)."""
 
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QSettings, QThread, Qt, Signal
-from PySide6.QtGui import QFontDatabase, QKeySequence
+from PySide6.QtCore import QRectF, QSettings, QSize, Qt, QThread, Signal
+from PySide6.QtGui import QColor, QFontDatabase, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -20,6 +22,8 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QStackedWidget,
     QTableWidget,
@@ -36,6 +40,127 @@ from ui.webdav_sync import WebDAVClient
 from ui.widgets import CuteListWidget
 
 _FONT_FAMILIES: list[str] | None = None
+
+# ======================================================================
+# Toggle switch
+# ======================================================================
+
+
+class _ToggleSwitch(QWidget):
+    """Toggle switch styled after KDE Plasma / Breeze.
+
+    The track is a narrow pill ("rail") and the thumb circle is taller,
+    overflowing above and below — exactly like the Breeze toggle.
+
+    OFF  — outlined rail, bordered thumb on left.
+    ON   — filled rail (highlight colour), white thumb on right.
+    """
+
+    toggled = Signal(bool)
+
+    _W = 44  # total widget width
+    _H = 22  # total widget height  (fits the thumb)
+    _TRACK_H = 12  # narrow rail height
+    _THUMB = 20  # thumb diameter  (> _TRACK_H → overflows)
+    _BORDER = 1.5
+    _MARGIN = 1  # gap between thumb edge and widget edge
+
+    def __init__(self, checked: bool = False, parent=None) -> None:
+        super().__init__(parent)
+        self._checked = checked
+        self.setFixedSize(self._W, self._H)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    # --- public API (QCheckBox-compatible) ---
+
+    def isChecked(self) -> bool:
+        return self._checked
+
+    def setChecked(self, checked: bool) -> None:
+        if self._checked != checked:
+            self._checked = checked
+            self.update()
+            self.toggled.emit(self._checked)
+
+    def setEnabled(self, enabled: bool) -> None:
+        super().setEnabled(enabled)
+        if enabled:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.unsetCursor()
+        self.update()
+
+    # --- events ---
+
+    def mousePressEvent(self, event) -> None:
+        if self.isEnabled():
+            self._checked = not self._checked
+            self.update()
+            self.toggled.emit(self._checked)
+
+    def paintEvent(self, event) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        pal = self.palette()
+        disabled = not self.isEnabled()
+
+        # Track geometry (narrow rail, vertically centred)
+        track_y = (self._H - self._TRACK_H) / 2.0
+        track_rect = QRectF(0, track_y, self._W, self._TRACK_H)
+        track_r = self._TRACK_H / 2.0
+
+        # Thumb geometry (bigger circle, vertically centred)
+        thumb_y = (self._H - self._THUMB) / 2.0
+        thumb_off_x = self._MARGIN
+        thumb_on_x = self._W - self._THUMB - self._MARGIN
+
+        if self._checked:
+            # ON — filled rail, white thumb on the right
+            fill = pal.highlight().color()
+            if disabled:
+                fill.setAlpha(80)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(fill)
+            p.drawRoundedRect(track_rect, track_r, track_r)
+
+            thumb_c = QColor(255, 255, 255)
+            if disabled:
+                thumb_c.setAlpha(100)
+            p.setBrush(thumb_c)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawEllipse(QRectF(thumb_on_x, thumb_y, self._THUMB, self._THUMB))
+        else:
+            # OFF — outlined rail, bordered thumb on the left
+            border = pal.mid().color()
+            if disabled:
+                border.setAlpha(60)
+            pen = QPen(border, self._BORDER)
+
+            # Rail outline
+            p.setPen(pen)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            inset = self._BORDER / 2.0
+            p.drawRoundedRect(
+                track_rect.adjusted(inset, inset, -inset, -inset),
+                track_r,
+                track_r,
+            )
+
+            # Thumb
+            bg = pal.window().color()
+            if disabled:
+                bg.setAlpha(100)
+            p.setBrush(bg)
+            p.setPen(pen)
+            p.drawEllipse(QRectF(thumb_off_x, thumb_y, self._THUMB, self._THUMB))
+
+        p.end()
+
+
+# ======================================================================
+# Font picker (unchanged)
+# ======================================================================
 
 
 class _FontPicker(QWidget):
@@ -56,14 +181,15 @@ class _FontPicker(QWidget):
         self._list.setFixedHeight(self._LIST_HEIGHT)
         lay.addWidget(self._list)
 
-        # Fissa l'altezza del widget contenitore, non solo della lista
         edit_h = self._edit.sizeHint().height()
         total_h = edit_h + lay.spacing() + self._LIST_HEIGHT
         self.setMaximumHeight(total_h)
 
-        self._edit.textChanged.connect(self._apply_filter)
+        sp = self.sizePolicy()
+        sp.setVerticalPolicy(QSizePolicy.Policy.Fixed)
+        self.setSizePolicy(sp)
 
-    # --- populate / select ---
+        self._edit.textChanged.connect(self._apply_filter)
 
     def add_item(self, text: str, data: str) -> None:
         item = QListWidgetItem(text)
@@ -86,8 +212,6 @@ class _FontPicker(QWidget):
             self._list.setCurrentRow(0)
             self._list.scrollToItem(self._list.item(0))
 
-    # --- filter ---
-
     def _apply_filter(self, text: str) -> None:
         ft = text.lower()
         first_visible = None
@@ -97,20 +221,22 @@ class _FontPicker(QWidget):
             item.setHidden(not visible)
             if visible and first_visible is None:
                 first_visible = item
-        # auto-select first visible when current selection is hidden
         cur = self._list.currentItem()
         if cur is None or cur.isHidden():
             if first_visible is not None:
                 self._list.setCurrentItem(first_visible)
                 self._list.scrollToItem(first_visible)
 
-    # --- result ---
-
     def current_data(self) -> str:
         item = self._list.currentItem()
         if item is not None:
             return item.data(Qt.ItemDataRole.UserRole)
         return "System"
+
+
+# ======================================================================
+# WebDAV test worker (unchanged)
+# ======================================================================
 
 
 class _WebDAVTestWorker(QThread):
@@ -131,12 +257,20 @@ class _WebDAVTestWorker(QThread):
         self.result.emit(ok, err)
 
 
+# ======================================================================
+# Settings dialog
+# ======================================================================
+
+
 class SettingsDialog(QDialog):
     """A dialog for adjusting application settings.
 
-    Provides a language selector, a theme picker with live preview,
-    and font family/size selection for both the editor and preview pane.
+    Redesigned with fixed dimensions, scrollable content areas,
+    card-grouped sections, and toggle switches.
     """
+
+    _DIALOG_W = 700
+    _DIALOG_H = 560
 
     def __init__(
         self,
@@ -164,20 +298,27 @@ class SettingsDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
-        self.setMinimumWidth(600)
+        self.setFixedSize(self._DIALOG_W, self._DIALOG_H)
         self._folder_settings = folder_settings
 
         smart = dict(DEFAULT_SMART_EDITING)
         if current_smart_editing:
             smart.update(current_smart_editing)
 
-        main_layout = QHBoxLayout(self)
+        # Theme selection state
+        self._selected_theme_id = current_theme_id
 
-        # --- Left panel: section list ---
+        main_layout = QHBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # --- Left panel: sidebar ---
         self._section_list = CuteListWidget()
         self._section_list.setObjectName("sectionList")
-        self._section_list.setFixedWidth(140)
-        sections = [
+        self._section_list.setFixedWidth(160)
+
+        _icons = ["🌐", "🎨", "✏️", "👁️", "💾", "⌨️", "🔄"]
+        _names = [
             self.tr("Language"),
             self.tr("Theme"),
             self.tr("Editor"),
@@ -188,8 +329,8 @@ class SettingsDialog(QDialog):
         ]
         self._shortcuts_idx = 5
         self._sync_idx = 6
-        for i, name in enumerate(sections):
-            item = QListWidgetItem(name)
+        for i, (icon, name) in enumerate(zip(_icons, _names)):
+            item = QListWidgetItem(f"{icon}   {name}")
             if folder_settings is None and i in (self._shortcuts_idx, self._sync_idx):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
             self._section_list.addItem(item)
@@ -197,62 +338,94 @@ class SettingsDialog(QDialog):
 
         # --- Right panel ---
         right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(0)
 
         self._stack = QStackedWidget()
 
-        # Page 0: Language
-        lang_page = self._build_page(self.tr("Language"))
-        lang_page_layout = lang_page.layout()
-        lang_form = QFormLayout()
+        # ---- Page 0: Language ----
+        lang_scroll, lang_lay = self._build_page(
+            self.tr("Language"),
+            self.tr("Choose the interface language"),
+        )
+        card, card_lay = self._make_card()
         self._lang_combo = QComboBox()
-        # Normalise empty string (old saved value) to "system"
         match_lang = "system" if not current_language else current_language
         for i, (code, name) in enumerate(LANGUAGES):
             self._lang_combo.addItem(self.tr(name), code)
             if code == match_lang:
                 self._lang_combo.setCurrentIndex(i)
-        lang_form.addRow(self.tr("Language:"), self._lang_combo)
-        lang_page_layout.addLayout(lang_form)
-        lang_page_layout.addStretch()
-        self._stack.addWidget(lang_page)
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Display language"),
+                self._lang_combo,
+                self.tr("Requires restart to apply"),
+            )
+        )
+        lang_lay.addWidget(card)
+        lang_lay.addStretch()
+        self._stack.addWidget(lang_scroll)
 
-        # Page 1: Theme
-        theme_page = self._build_page(self.tr("Theme"))
-        theme_page_layout = theme_page.layout()
-        theme_form = QFormLayout()
-        self._theme_combo = QComboBox()
+        # ---- Page 1: Theme ----
+        theme_scroll, theme_lay = self._build_page(
+            self.tr("Theme"),
+            self.tr("Pick a color scheme for the interface"),
+        )
+        theme_grid = QGridLayout()
+        theme_grid.setSpacing(8)
+        self._theme_swatch_btns: list[tuple[str, QPushButton]] = []
         for i, t in enumerate(ALL_THEMES):
-            self._theme_combo.addItem(self.tr(t.name), t.id)
-            if t.id == current_theme_id:
-                self._theme_combo.setCurrentIndex(i)
-        theme_form.addRow(self.tr("Theme:"), self._theme_combo)
-        self._preview = QLabel()
-        self._preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._preview.setMinimumHeight(70)
-        self._preview.setStyleSheet(
-            "padding: 12px; border-radius: 6px; font-size: 13px;"
-        )
-        theme_form.addRow(self._preview)
-        self._theme_combo.currentIndexChanged.connect(self._update_preview)
-        theme_page_layout.addLayout(theme_form)
-        theme_page_layout.addStretch()
-        self._stack.addWidget(theme_page)
+            theme = get_theme(t.id)
+            btn = QPushButton("Aa")
+            btn.setFixedHeight(52)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setToolTip(self.tr(t.name))
+            btn.clicked.connect(lambda _, tid=t.id: self._select_theme(tid))
+            self._theme_swatch_btns.append((t.id, btn))
+            row, col = divmod(i, 3)
+            # Container with swatch + label
+            box = QVBoxLayout()
+            box.setSpacing(2)
+            box.addWidget(btn)
+            lbl = QLabel(self.tr(t.name))
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setStyleSheet("font-size: 11px;")
+            box.addWidget(lbl)
+            theme_grid.addLayout(box, row, col)
+        theme_lay.addLayout(theme_grid)
+        theme_lay.addStretch()
+        self._stack.addWidget(theme_scroll)
+        self._update_theme_swatches()
 
-        # Page 2: Editor
-        editor_page = self._build_page(self.tr("Editor"))
-        editor_page_layout = editor_page.layout()
-        editor_form = QFormLayout()
-        editor_form.setLabelAlignment(Qt.AlignmentFlag.AlignTop)
-        editor_form.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        # ---- Page 2: Editor ----
+        editor_scroll, editor_lay = self._build_page(
+            self.tr("Editor"),
+            self.tr("Font, display and editing behavior"),
         )
+
+        # Section: Font
+        editor_lay.addWidget(self._section_label(self.tr("FONT")))
+        card, card_lay = self._make_card()
         self._editor_font_combo = _FontPicker()
         self._populate_font_picker(self._editor_font_combo, current_editor_font)
-        editor_form.addRow(self.tr("Font family:"), self._editor_font_combo)
+        f_row = QFormLayout()
+        f_row.setLabelAlignment(Qt.AlignmentFlag.AlignTop)
+        f_row.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        f_row.addRow(self.tr("Font family:"), self._editor_font_combo)
+        card_lay.addLayout(f_row)
+        card_lay.addWidget(self._separator())
         self._editor_font_size = QSpinBox()
         self._editor_font_size.setRange(8, 72)
         self._editor_font_size.setValue(current_editor_font_size)
-        editor_form.addRow(self.tr("Font size:"), self._editor_font_size)
+        card_lay.addLayout(
+            self._field_row(self.tr("Font size"), self._editor_font_size)
+        )
+        editor_lay.addWidget(card)
+
+        # Section: Display
+        editor_lay.addWidget(self._section_label(self.tr("DISPLAY")))
+        card, card_lay = self._make_card()
+
         self._line_number_combo = QComboBox()
         self._line_number_combo.addItem(self.tr("Off"), 0)
         self._line_number_combo.addItem(self.tr("All lines"), 1)
@@ -261,17 +434,16 @@ class SettingsDialog(QDialog):
             if self._line_number_combo.itemData(i) == current_line_number_mode:
                 self._line_number_combo.setCurrentIndex(i)
                 break
-        editor_form.addRow(self.tr("Line numbers:"), self._line_number_combo)
+        card_lay.addLayout(
+            self._field_row(self.tr("Line numbers"), self._line_number_combo)
+        )
+        card_lay.addWidget(self._separator())
 
         self._cursor_width = QSpinBox()
         self._cursor_width.setRange(1, 5)
         self._cursor_width.setValue(current_cursor_width)
-        self._cursor_width.setToolTip(self.tr("Cursor thickness in pixels"))
-        editor_form.addRow(self.tr("Cursor width:"), self._cursor_width)
-
-        self._show_hidden_cb = QCheckBox(self.tr("Show hidden files and folders"))
-        self._show_hidden_cb.setChecked(current_show_hidden_files)
-        editor_form.addRow("", self._show_hidden_cb)
+        card_lay.addLayout(self._field_row(self.tr("Cursor width"), self._cursor_width))
+        card_lay.addWidget(self._separator())
 
         self._link_style_combo = QComboBox()
         self._link_style_combo.addItem(self.tr("Markdown [text](url)"), "md")
@@ -280,63 +452,101 @@ class SettingsDialog(QDialog):
             if self._link_style_combo.itemData(i) == current_link_style:
                 self._link_style_combo.setCurrentIndex(i)
                 break
-        editor_form.addRow(self.tr("Link style:"), self._link_style_combo)
+        card_lay.addLayout(
+            self._field_row(self.tr("Link style"), self._link_style_combo)
+        )
+        card_lay.addWidget(self._separator())
 
-        editor_page_layout.addLayout(editor_form)
+        self._show_hidden_toggle = _ToggleSwitch(current_show_hidden_files)
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Show hidden files"),
+                self._show_hidden_toggle,
+                self.tr("Display dotfiles in the sidebar"),
+            )
+        )
 
         # Per-folder: attachments directory
         self._attachments_dir_edit: QLineEdit | None = None
         if folder_settings is not None:
-            att_form = QFormLayout()
+            card_lay.addWidget(self._separator())
             self._attachments_dir_edit = QLineEdit()
             self._attachments_dir_edit.setText(
                 folder_settings.load().get("attachments_dir", "attachments")
             )
             self._attachments_dir_edit.setPlaceholderText(self.tr("attachments"))
-            att_form.addRow(self.tr("Attachments folder:"), self._attachments_dir_edit)
-            editor_page_layout.addLayout(att_form)
+            self._attachments_dir_edit.setMaximumWidth(180)
+            card_lay.addLayout(
+                self._field_row(
+                    self.tr("Attachments folder"),
+                    self._attachments_dir_edit,
+                    self.tr("Where pasted images are saved"),
+                )
+            )
+        editor_lay.addWidget(card)
 
-        # Smart editing checkboxes
-        smart_group = QGroupBox(self.tr("Smart Editing"))
-        smart_layout = QVBoxLayout(smart_group)
+        # Section: Smart editing
+        editor_lay.addWidget(self._section_label(self.tr("SMART EDITING")))
+        card, card_lay = self._make_card()
 
-        self._smart_enabled = QCheckBox(self.tr("Enable smart editing"))
-        self._smart_enabled.setChecked(smart["enabled"])
+        self._smart_enabled = _ToggleSwitch(smart["enabled"])
+        card_lay.addLayout(
+            self._field_row(self.tr("Enable smart editing"), self._smart_enabled)
+        )
+        card_lay.addWidget(self._separator())
 
-        self._auto_pair_cb = QCheckBox(self.tr("Auto-pair delimiters (*, _, ~, `)"))
-        self._auto_pair_cb.setChecked(smart["auto_pair"])
+        self._auto_pair_toggle = _ToggleSwitch(smart["auto_pair"])
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Auto-pair delimiters"),
+                self._auto_pair_toggle,
+                "*, _, ~, `",
+            )
+        )
+        card_lay.addWidget(self._separator())
 
-        self._auto_brackets_cb = QCheckBox(self.tr("Auto-pair brackets ([], ())"))
-        self._auto_brackets_cb.setChecked(smart["auto_pair_brackets"])
+        self._auto_brackets_toggle = _ToggleSwitch(smart["auto_pair_brackets"])
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Auto-pair brackets"),
+                self._auto_brackets_toggle,
+                "[], ()",
+            )
+        )
+        card_lay.addWidget(self._separator())
 
-        self._continue_lists_cb = QCheckBox(self.tr("Continue lists on Enter"))
-        self._continue_lists_cb.setChecked(smart["continue_lists"])
+        self._continue_lists_toggle = _ToggleSwitch(smart["continue_lists"])
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Continue lists on enter"), self._continue_lists_toggle
+            )
+        )
+        card_lay.addWidget(self._separator())
 
-        self._backspace_pairs_cb = QCheckBox(self.tr("Remove empty pairs on Backspace"))
-        self._backspace_pairs_cb.setChecked(smart["backspace_pairs"])
+        self._backspace_pairs_toggle = _ToggleSwitch(smart["backspace_pairs"])
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Remove empty pairs on backspace"),
+                self._backspace_pairs_toggle,
+            )
+        )
 
-        smart_layout.addWidget(self._smart_enabled)
-        smart_layout.addWidget(self._auto_pair_cb)
-        smart_layout.addWidget(self._auto_brackets_cb)
-        smart_layout.addWidget(self._continue_lists_cb)
-        smart_layout.addWidget(self._backspace_pairs_cb)
-
-        # Slave sub-checkboxes to master
-        self._smart_enabled.toggled.connect(self._auto_pair_cb.setEnabled)
-        self._smart_enabled.toggled.connect(self._auto_brackets_cb.setEnabled)
-        self._smart_enabled.toggled.connect(self._continue_lists_cb.setEnabled)
-        self._smart_enabled.toggled.connect(self._backspace_pairs_cb.setEnabled)
-        # Initial enabled state
+        # Master → slave
+        self._smart_enabled.toggled.connect(self._auto_pair_toggle.setEnabled)
+        self._smart_enabled.toggled.connect(self._auto_brackets_toggle.setEnabled)
+        self._smart_enabled.toggled.connect(self._continue_lists_toggle.setEnabled)
+        self._smart_enabled.toggled.connect(self._backspace_pairs_toggle.setEnabled)
         enabled = smart["enabled"]
-        self._auto_pair_cb.setEnabled(enabled)
-        self._auto_brackets_cb.setEnabled(enabled)
-        self._continue_lists_cb.setEnabled(enabled)
-        self._backspace_pairs_cb.setEnabled(enabled)
+        self._auto_pair_toggle.setEnabled(enabled)
+        self._auto_brackets_toggle.setEnabled(enabled)
+        self._continue_lists_toggle.setEnabled(enabled)
+        self._backspace_pairs_toggle.setEnabled(enabled)
 
-        editor_page_layout.addWidget(smart_group)
+        editor_lay.addWidget(card)
 
-        # Autosave
-        autosave_form = QFormLayout()
+        # Section: Autosave
+        editor_lay.addWidget(self._section_label(self.tr("AUTO-SAVE")))
+        card, card_lay = self._make_card()
         self._autosave_spin = QSpinBox()
         self._autosave_spin.setRange(1, 300)
         self._autosave_spin.setSuffix(self.tr(" s"))
@@ -344,72 +554,104 @@ class SettingsDialog(QDialog):
             self.tr("Automatically save open files every N seconds")
         )
         self._autosave_spin.setValue(current_autosave_interval)
-        autosave_form.addRow(self.tr("Autosave interval:"), self._autosave_spin)
-        editor_page_layout.addLayout(autosave_form)
-
-        editor_page_layout.addStretch()
-        self._stack.addWidget(editor_page)
-
-        # Page 3: Preview Font
-        preview_page = self._build_page(self.tr("Preview Font"))
-        preview_page_layout = preview_page.layout()
-        preview_form = QFormLayout()
-        preview_form.setLabelAlignment(Qt.AlignmentFlag.AlignTop)
-        preview_form.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Save interval"),
+                self._autosave_spin,
+                self.tr("Automatically save open files"),
+            )
         )
+        editor_lay.addWidget(card)
+        editor_lay.addStretch()
+        self._stack.addWidget(editor_scroll)
+
+        # ---- Page 3: Preview Font ----
+        prev_scroll, prev_lay = self._build_page(
+            self.tr("Preview Font"),
+            self.tr("Typography for the markdown preview pane"),
+        )
+        card, card_lay = self._make_card()
         self._preview_font_combo = _FontPicker()
         self._populate_font_picker(self._preview_font_combo, current_preview_font)
-        preview_form.addRow(self.tr("Font family:"), self._preview_font_combo)
+        f_row = QFormLayout()
+        f_row.setLabelAlignment(Qt.AlignmentFlag.AlignTop)
+        f_row.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        f_row.addRow(self.tr("Font family:"), self._preview_font_combo)
+        card_lay.addLayout(f_row)
+        card_lay.addWidget(self._separator())
         self._preview_font_size = QSpinBox()
         self._preview_font_size.setRange(8, 72)
         self._preview_font_size.setValue(current_preview_font_size)
-        preview_form.addRow(self.tr("Font size:"), self._preview_font_size)
-        preview_page_layout.addLayout(preview_form)
-        preview_page_layout.addStretch()
-        self._stack.addWidget(preview_page)
+        card_lay.addLayout(
+            self._field_row(self.tr("Font size"), self._preview_font_size)
+        )
+        prev_lay.addWidget(card)
+        prev_lay.addStretch()
+        self._stack.addWidget(prev_scroll)
 
-        # Page 4: Storage
-        storage_page = self._build_page(self.tr("Storage"))
-        storage_page_layout = storage_page.layout()
-        storage_form = QFormLayout()
+        # ---- Page 4: Storage ----
+        stor_scroll, stor_lay = self._build_page(
+            self.tr("Storage"),
+            self.tr("Configuration paths and session behavior"),
+        )
+        card, card_lay = self._make_card()
 
         qs_path = QSettings("cutemd", "cutemd").fileName()
         qs_label = QLabel(qs_path)
         qs_label.setWordWrap(True)
         qs_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        storage_form.addRow(self.tr("Config file:"), qs_label)
+        qs_label.setStyleSheet("font-size: 11px; font-family: monospace;")
+        info_row = QVBoxLayout()
+        info_title = QLabel(self.tr("Config file"))
+        info_title.setStyleSheet("font-weight: bold;")
+        info_row.addWidget(info_title)
+        info_row.addWidget(qs_label)
+        card_lay.addLayout(info_row)
+
+        card_lay.addWidget(self._separator())
 
         self._dotdir_info = QLabel()
-        storage_form.addRow(self.tr("Folder data (.cutemd):"), self._dotdir_info)
+        self._dotdir_info.setStyleSheet("font-size: 11px; font-family: monospace;")
+        self._dotdir_info.setWordWrap(True)
+        info_row2 = QVBoxLayout()
+        info_title2 = QLabel(self.tr("Folder data (.cutemd)"))
+        info_title2.setStyleSheet("font-weight: bold;")
+        info_row2.addWidget(info_title2)
+        info_row2.addWidget(self._dotdir_info)
+        card_lay.addLayout(info_row2)
 
-        storage_page_layout.addLayout(storage_form)
+        stor_lay.addWidget(card)
 
         clear_btn = QPushButton(self.tr("Clear last folder"))
+        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         clear_btn.clicked.connect(self._clear_last_folder)
-        storage_page_layout.addWidget(clear_btn)
+        stor_lay.addWidget(clear_btn)
 
-        self._session_restore_cb = QCheckBox(self.tr("Restore open tabs on startup"))
-        self._session_restore_cb.setChecked(current_session_restore_enabled)
-        storage_page_layout.addWidget(self._session_restore_cb)
+        stor_lay.addSpacing(12)
+        card, card_lay = self._make_card()
+        self._session_restore_toggle = _ToggleSwitch(current_session_restore_enabled)
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Restore open tabs on startup"),
+                self._session_restore_toggle,
+                self.tr("Re-open last session's files"),
+            )
+        )
+        stor_lay.addWidget(card)
+        stor_lay.addStretch()
+        self._stack.addWidget(stor_scroll)
 
-        storage_page_layout.addStretch()
-        self._stack.addWidget(storage_page)
-
-        # Page 5: Shortcuts (always present, disabled when no folder)
+        # ---- Page 5: Shortcuts ----
+        sc_scroll, sc_lay = self._build_page(
+            self.tr("Shortcuts"),
+            self.tr("Customize keyboard shortcuts"),
+        )
         if folder_settings is not None:
             current_shortcuts = folder_settings.load_shortcuts()
-            shortcuts_page = self._build_page(self.tr("Shortcuts"))
-            shortcuts_page_layout = shortcuts_page.layout()
-
             self._shortcuts_table = QTableWidget()
             self._shortcuts_table.setColumnCount(3)
             self._shortcuts_table.setHorizontalHeaderLabels(
-                [
-                    self.tr("Action"),
-                    self.tr("Default"),
-                    self.tr("Custom"),
-                ]
+                [self.tr("Action"), self.tr("Default"), self.tr("Custom")]
             )
             self._shortcuts_table.horizontalHeader().setStretchLastSection(True)
             self._shortcuts_table.horizontalHeader().setSectionResizeMode(
@@ -425,8 +667,8 @@ class SettingsDialog(QDialog):
             for name, default_seq in DEFAULT_SHORTCUTS.items():
                 custom = current_shortcuts.get(name, "")
                 shortcut_rows.append((name, default_seq, custom))
-
             shortcut_rows.sort(key=lambda r: r[0])
+
             self._shortcuts_table.setRowCount(len(shortcut_rows))
             self._shortcut_keys: list[str] = []
             for i, (name, default_seq, custom) in enumerate(shortcut_rows):
@@ -440,122 +682,221 @@ class SettingsDialog(QDialog):
                 editor.setMaximumWidth(160)
                 self._shortcuts_table.setCellWidget(i, 2, editor)
                 self._shortcut_keys.append(name)
-
-            shortcuts_page_layout.addWidget(self._shortcuts_table)
-            shortcuts_page_layout.addStretch()
-            self._stack.addWidget(shortcuts_page)
+            sc_lay.addWidget(self._shortcuts_table)
         else:
-            page = self._build_page(self.tr("Shortcuts"))
-            page.layout().addWidget(QLabel(self.tr("Open a folder to customize shortcuts.")))
-            page.layout().addStretch()
-            self._stack.addWidget(page)
+            sc_lay.addWidget(QLabel(self.tr("Open a folder to customize shortcuts.")))
+        sc_lay.addStretch()
+        self._stack.addWidget(sc_scroll)
 
-        # Page N: Sync (only when folder is open)
+        # ---- Page 6: Sync ----
+        sync_scroll, sync_lay = self._build_page(
+            self.tr("Sync"),
+            self.tr("Connect to a WebDAV server to sync your notes"),
+        )
         self._webdav_url_edit: QLineEdit | None = None
         self._webdav_user_edit: QLineEdit | None = None
         self._webdav_pass_edit: QLineEdit | None = None
+
         if folder_settings is not None:
-            sync_page = self._build_page(self.tr("Sync"))
-            sync_page_layout = sync_page.layout()
-            sync_form = QFormLayout()
+            card, card_lay = self._make_card()
 
             self._webdav_url_edit = QLineEdit()
-            self._webdav_url_edit.setPlaceholderText(self.tr("https://dav.example.com/notes"))
+            self._webdav_url_edit.setPlaceholderText(
+                self.tr("https://dav.example.com/notes")
+            )
             self._webdav_url_edit.setText(current_webdav_url)
-            sync_form.addRow(self.tr("URL:"), self._webdav_url_edit)
+            lbl_url = QLabel(self.tr("URL"))
+            lbl_url.setStyleSheet("font-size: 12px; font-weight: bold;")
+            card_lay.addWidget(lbl_url)
+            card_lay.addWidget(self._webdav_url_edit)
+            card_lay.addSpacing(8)
 
             self._webdav_user_edit = QLineEdit()
             self._webdav_user_edit.setPlaceholderText(self.tr("Username"))
             self._webdav_user_edit.setText(current_webdav_user)
-            sync_form.addRow(self.tr("Username:"), self._webdav_user_edit)
+            lbl_user = QLabel(self.tr("Username"))
+            lbl_user.setStyleSheet("font-size: 12px; font-weight: bold;")
+            card_lay.addWidget(lbl_user)
+            card_lay.addWidget(self._webdav_user_edit)
+            card_lay.addSpacing(8)
 
             self._webdav_pass_edit = QLineEdit()
             self._webdav_pass_edit.setEchoMode(QLineEdit.EchoMode.Password)
             self._webdav_pass_edit.setPlaceholderText(self.tr("Password"))
             self._webdav_pass_edit.setText(current_webdav_pass)
-            sync_form.addRow(self.tr("Password:"), self._webdav_pass_edit)
+            lbl_pass = QLabel(self.tr("Password"))
+            lbl_pass.setStyleSheet("font-size: 12px; font-weight: bold;")
+            card_lay.addWidget(lbl_pass)
+            card_lay.addWidget(self._webdav_pass_edit)
 
+            card_lay.addSpacing(8)
             test_btn = QPushButton(self.tr("Test Connection"))
+            test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             test_btn.clicked.connect(self._on_test_webdav)
-            sync_form.addRow("", test_btn)
+            card_lay.addWidget(test_btn)
             self._test_btn = test_btn
 
-            sync_page_layout.addLayout(sync_form)
+            sync_lay.addWidget(card)
 
-            auto_group = QGroupBox(self.tr("Auto Sync"))
-            auto_layout = QVBoxLayout(auto_group)
+            # Auto-sync section
+            sync_lay.addWidget(self._section_label(self.tr("AUTOMATIC SYNC")))
+            card, card_lay = self._make_card()
 
-            self._auto_sync_cb = QCheckBox(self.tr("Auto-sync periodically"))
-            self._auto_sync_cb.setChecked(current_auto_sync_enabled)
-            auto_layout.addWidget(self._auto_sync_cb)
+            self._auto_sync_toggle = _ToggleSwitch(current_auto_sync_enabled)
+            card_lay.addLayout(
+                self._field_row(
+                    self.tr("Auto-sync periodically"),
+                    self._auto_sync_toggle,
+                    self.tr("Push and pull changes on a schedule"),
+                )
+            )
+            card_lay.addWidget(self._separator())
 
-            interval_row = QHBoxLayout()
-            interval_row.addWidget(QLabel(self.tr("Interval:")))
             self._auto_sync_interval = QSpinBox()
             self._auto_sync_interval.setRange(1, 3600)
             self._auto_sync_interval.setValue(current_auto_sync_interval)
             self._auto_sync_interval.setSuffix(self.tr(" s"))
             self._auto_sync_interval.setToolTip(self.tr("Sync every N seconds"))
-            interval_row.addWidget(self._auto_sync_interval)
-            interval_row.addStretch()
-            auto_layout.addLayout(interval_row)
+            card_lay.addLayout(
+                self._field_row(self.tr("Sync interval"), self._auto_sync_interval)
+            )
+            card_lay.addWidget(self._separator())
 
-            self._sync_on_save_cb = QCheckBox(self.tr("Sync file immediately on save"))
-            self._sync_on_save_cb.setChecked(current_sync_on_save)
-            auto_layout.addWidget(self._sync_on_save_cb)
+            self._sync_on_save_toggle = _ToggleSwitch(current_sync_on_save)
+            card_lay.addLayout(
+                self._field_row(
+                    self.tr("Sync on save"),
+                    self._sync_on_save_toggle,
+                    self.tr("Push immediately when a file is saved"),
+                )
+            )
 
-            self._auto_sync_cb.toggled.connect(self._auto_sync_interval.setEnabled)
+            self._auto_sync_toggle.toggled.connect(self._auto_sync_interval.setEnabled)
             self._auto_sync_interval.setEnabled(current_auto_sync_enabled)
 
-            sync_page_layout.addWidget(auto_group)
-            sync_page_layout.addStretch()
-            self._stack.addWidget(sync_page)
+            sync_lay.addWidget(card)
         else:
-            page = self._build_page(self.tr("Sync"))
-            page.layout().addWidget(QLabel(self.tr("Open a folder to configure WebDAV sync.")))
-            page.layout().addStretch()
-            self._stack.addWidget(page)
+            sync_lay.addWidget(
+                QLabel(self.tr("Open a folder to configure WebDAV sync."))
+            )
+        sync_lay.addStretch()
+        self._stack.addWidget(sync_scroll)
 
-        right.addWidget(self._stack)
+        right.addWidget(self._stack, stretch=1)
 
-        # Buttons
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        # --- Footer ---
+        footer = QHBoxLayout()
+        footer.setContentsMargins(12, 8, 12, 8)
         self._defaults_btn = QPushButton(self.tr("Defaults"))
-        buttons.addButton(self._defaults_btn, QDialogButtonBox.ButtonRole.ResetRole)
         self._defaults_btn.clicked.connect(self._reset_defaults)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        right.addWidget(buttons)
+        footer.addWidget(self._defaults_btn)
+        footer.addStretch()
+        cancel_btn = QPushButton(self.tr("Cancel"))
+        cancel_btn.clicked.connect(self.reject)
+        footer.addWidget(cancel_btn)
+        ok_btn = QPushButton(self.tr("Save"))
+        ok_btn.setDefault(True)
+        ok_btn.clicked.connect(self.accept)
+        footer.addWidget(ok_btn)
+        right.addLayout(footer)
 
         main_layout.addLayout(right)
 
-        # Connect list to stack
-        self._section_list.currentRowChanged.connect(self._stack.setCurrentIndex)
+        # Connect sidebar to stack & reset scroll on page change
+        self._section_list.currentRowChanged.connect(self._on_page_changed)
         self._section_list.setCurrentRow(0)
 
-        self._update_preview()
         self._refresh_storage_info()
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
+    # ==================================================================
+    # Layout helpers
+    # ==================================================================
 
-    def _build_page(self, title: str = "") -> QWidget:
-        widget = QWidget()
-        lay = QVBoxLayout(widget)
-        lay.setContentsMargins(8, 8, 8, 8)
+    def _build_page(
+        self, title: str = "", subtitle: str = ""
+    ) -> tuple[QScrollArea, QVBoxLayout]:
+        """Create a scrollable page with optional header."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setSpacing(6)
+
         if title:
-            header = QLabel(title)
-            header.setStyleSheet(
-                "font-weight: bold; font-size: 13px; padding: 0 0 8px 0;"
-            )
-            lay.addWidget(header)
-        return widget
+            h = QLabel(title)
+            h.setStyleSheet("font-weight: bold; font-size: 16px; padding: 0;")
+            lay.addWidget(h)
+        if subtitle:
+            s = QLabel(subtitle)
+            s.setStyleSheet("font-size: 12px; padding: 0 0 8px 0;")
+            s.setForegroundRole(s.foregroundRole())
+            lay.addWidget(s)
+
+        scroll.setWidget(page)
+        return scroll, lay
+
+    def _make_card(self) -> tuple[QFrame, QVBoxLayout]:
+        """Create a rounded card frame."""
+        frame = QFrame()
+        frame.setObjectName("settingsCard")
+        frame.setStyleSheet(
+            "#settingsCard {"
+            "  border: 1px solid palette(mid);"
+            "  border-radius: 8px;"
+            "  padding: 4px 0px;"
+            "}"
+        )
+        lay = QVBoxLayout(frame)
+        lay.setContentsMargins(16, 4, 16, 4)
+        lay.setSpacing(0)
+        return frame, lay
+
+    def _field_row(
+        self,
+        label_text: str,
+        control: QWidget,
+        hint_text: str | None = None,
+    ) -> QHBoxLayout:
+        """Create a label | control row, with optional hint below the label."""
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 8, 0, 8)
+
+        left = QVBoxLayout()
+        left.setSpacing(1)
+        lbl = QLabel(label_text)
+        left.addWidget(lbl)
+        if hint_text:
+            hint = QLabel(hint_text)
+            hint.setStyleSheet("font-size: 11px;")
+            left.addWidget(hint)
+
+        row.addLayout(left)
+        row.addStretch()
+        row.addWidget(control)
+        return row
+
+    @staticmethod
+    def _separator() -> QFrame:
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFixedHeight(1)
+        line.setStyleSheet("background: palette(mid); border: none;")
+        return line
+
+    @staticmethod
+    def _section_label(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setStyleSheet(
+            "font-size: 10px; font-weight: bold; letter-spacing: 1px;"
+            "padding: 12px 0 4px 2px;"
+        )
+        return lbl
 
     def _populate_font_picker(self, picker: _FontPicker, current: str) -> None:
-        """Fill a font picker with 'System' + all available font families."""
         global _FONT_FAMILIES
         picker._edit.setPlaceholderText(self.tr("Type to filter\u2026"))
         picker.add_item(self.tr("System"), "System")
@@ -565,33 +906,80 @@ class SettingsDialog(QDialog):
             picker.add_item(family, family)
         picker.select_by_data(current if current else "System")
 
+    # ==================================================================
+    # Page switching
+    # ==================================================================
+
+    def _on_page_changed(self, index: int) -> None:
+        self._stack.setCurrentIndex(index)
+        # Reset scroll position to top
+        scroll = self._stack.widget(index)
+        if isinstance(scroll, QScrollArea):
+            scroll.verticalScrollBar().setValue(0)
+
+    # ==================================================================
+    # Theme swatches
+    # ==================================================================
+
+    def _update_theme_swatches(self) -> None:
+        hl_color = self.palette().highlight().color().name()
+        mid_color = self.palette().mid().color().name()
+        for tid, btn in self._theme_swatch_btns:
+            theme = get_theme(tid)
+            sel = tid == self._selected_theme_id
+            if sel:
+                border = f"2px solid {hl_color}"
+            else:
+                border = f"2px solid transparent"
+            hover_border = mid_color if not sel else hl_color
+            btn.setStyleSheet(
+                f"QPushButton {{"
+                f"  background: {theme.base.name()};"
+                f"  color: {theme.text.name()};"
+                f"  border: {border};"
+                f"  border-radius: 8px;"
+                f"  font-weight: bold; font-size: 13px;"
+                f"}}"
+                f"QPushButton:hover {{"
+                f"  border-color: {hover_border};"
+                f"}}"
+            )
+
+    def _select_theme(self, theme_id: str) -> None:
+        self._selected_theme_id = theme_id
+        self._update_theme_swatches()
+
+    # ==================================================================
+    # Defaults
+    # ==================================================================
+
     def _reset_defaults(self) -> None:
-        """Reset all fields to their factory defaults."""
         self._lang_combo.setCurrentIndex(0)
-        for i in range(self._theme_combo.count()):
-            if self._theme_combo.itemData(i) == "system":
-                self._theme_combo.setCurrentIndex(i)
+        # Theme
+        for tid, _ in self._theme_swatch_btns:
+            if tid == "system":
+                self._select_theme(tid)
                 break
+        # Editor font
         self._editor_font_combo.select_first()
         self._editor_font_size.setValue(11)
-        self._line_number_combo.setCurrentIndex(1)  # all lines
+        self._line_number_combo.setCurrentIndex(1)
         self._cursor_width.setValue(2)
-        self._link_style_combo.setCurrentIndex(0)  # markdown links
+        self._link_style_combo.setCurrentIndex(0)
+        # Preview font
         self._preview_font_combo.select_first()
         self._preview_font_size.setValue(16)
-        # Smart editing defaults
+        # Toggles
         self._smart_enabled.setChecked(True)
-        self._auto_pair_cb.setChecked(True)
-        self._auto_brackets_cb.setChecked(True)
-        self._continue_lists_cb.setChecked(True)
-        self._backspace_pairs_cb.setChecked(True)
+        self._auto_pair_toggle.setChecked(True)
+        self._auto_brackets_toggle.setChecked(True)
+        self._continue_lists_toggle.setChecked(True)
+        self._backspace_pairs_toggle.setChecked(True)
+        self._show_hidden_toggle.setChecked(False)
+        self._session_restore_toggle.setChecked(False)
         # Autosave
         self._autosave_spin.setValue(5)
-        # Session restore
-        self._session_restore_cb.setChecked(False)
-        # Hidden files
-        self._show_hidden_cb.setChecked(False)
-        # Images dir
+        # Attachments
         if self._attachments_dir_edit is not None:
             self._attachments_dir_edit.clear()
         # WebDAV
@@ -602,12 +990,12 @@ class SettingsDialog(QDialog):
         if self._webdav_pass_edit is not None:
             self._webdav_pass_edit.clear()
         # Auto-sync
-        if hasattr(self, "_auto_sync_cb"):
-            self._auto_sync_cb.setChecked(False)
+        if hasattr(self, "_auto_sync_toggle"):
+            self._auto_sync_toggle.setChecked(False)
         if hasattr(self, "_auto_sync_interval"):
             self._auto_sync_interval.setValue(300)
-        if hasattr(self, "_sync_on_save_cb"):
-            self._sync_on_save_cb.setChecked(False)
+        if hasattr(self, "_sync_on_save_toggle"):
+            self._sync_on_save_toggle.setChecked(False)
         # Shortcuts
         if hasattr(self, "_shortcuts_table"):
             for i in range(self._shortcuts_table.rowCount()):
@@ -615,12 +1003,12 @@ class SettingsDialog(QDialog):
                 if isinstance(editor, QKeySequenceEdit):
                     editor.clear()
 
-    # ------------------------------------------------------------------
-    # Results
-    # ------------------------------------------------------------------
+    # ==================================================================
+    # Results (public API — unchanged signatures)
+    # ==================================================================
 
     def selected_theme_id(self) -> str:
-        return self._theme_combo.currentData()
+        return self._selected_theme_id
 
     def selected_editor_font(self) -> str:
         return self._editor_font_combo.current_data()
@@ -649,10 +1037,10 @@ class SettingsDialog(QDialog):
     def selected_smart_editing(self) -> dict[str, Any]:
         return {
             "enabled": self._smart_enabled.isChecked(),
-            "auto_pair": self._auto_pair_cb.isChecked(),
-            "auto_pair_brackets": self._auto_brackets_cb.isChecked(),
-            "continue_lists": self._continue_lists_cb.isChecked(),
-            "backspace_pairs": self._backspace_pairs_cb.isChecked(),
+            "auto_pair": self._auto_pair_toggle.isChecked(),
+            "auto_pair_brackets": self._auto_brackets_toggle.isChecked(),
+            "continue_lists": self._continue_lists_toggle.isChecked(),
+            "backspace_pairs": self._backspace_pairs_toggle.isChecked(),
         }
 
     def selected_shortcuts(self) -> dict[str, str]:
@@ -678,8 +1066,8 @@ class SettingsDialog(QDialog):
         return self._autosave_spin.value()
 
     def selected_auto_sync_enabled(self) -> bool:
-        if hasattr(self, "_auto_sync_cb"):
-            return self._auto_sync_cb.isChecked()
+        if hasattr(self, "_auto_sync_toggle"):
+            return self._auto_sync_toggle.isChecked()
         return False
 
     def selected_auto_sync_interval(self) -> int:
@@ -688,15 +1076,15 @@ class SettingsDialog(QDialog):
         return 300
 
     def selected_sync_on_save(self) -> bool:
-        if hasattr(self, "_sync_on_save_cb"):
-            return self._sync_on_save_cb.isChecked()
+        if hasattr(self, "_sync_on_save_toggle"):
+            return self._sync_on_save_toggle.isChecked()
         return False
 
     def selected_session_restore_enabled(self) -> bool:
-        return self._session_restore_cb.isChecked()
+        return self._session_restore_toggle.isChecked()
 
     def selected_show_hidden_files(self) -> bool:
-        return self._show_hidden_cb.isChecked()
+        return self._show_hidden_toggle.isChecked()
 
     def selected_webdav_url(self) -> str:
         if self._webdav_url_edit is not None:
@@ -713,9 +1101,9 @@ class SettingsDialog(QDialog):
             return self._webdav_pass_edit.text()
         return ""
 
-    # ------------------------------------------------------------------
+    # ==================================================================
     # Storage
-    # ------------------------------------------------------------------
+    # ==================================================================
 
     def _refresh_storage_info(self) -> None:
         if self._folder_settings is not None:
@@ -745,23 +1133,9 @@ class SettingsDialog(QDialog):
             ),
         )
 
-    # ------------------------------------------------------------------
-    # Preview
-    # ------------------------------------------------------------------
-
-    def _update_preview(self) -> None:
-        """Refresh the preview label with the currently selected theme colours."""
-        theme = get_theme(self._theme_combo.currentData())
-        self._preview.setText(self.tr("This is a preview of {}").format(theme.name))
-        self._preview.setStyleSheet(
-            f"background: {theme.base.name()};"
-            f"color: {theme.text.name()};"
-            "padding: 12px; border-radius: 6px; font-size: 13px;"
-        )
-
-    # ------------------------------------------------------------------
+    # ==================================================================
     # Sync helpers
-    # ------------------------------------------------------------------
+    # ==================================================================
 
     def _on_test_webdav(self) -> None:
         url = self._webdav_url_edit.text().strip() if self._webdav_url_edit else ""

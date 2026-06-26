@@ -62,7 +62,8 @@ QTreeView {
     padding: 4px 0;
 }
 QTreeView::item {
-    padding: 3px 8px;
+    min-height: 24px;
+    padding: 0 6px;
     border-radius: 3px;
 }
 QTreeView::item:hover {
@@ -98,8 +99,8 @@ QListWidget::item:hover {
     padding: 4px 0;
 }
 #sectionList::item {
-    padding: 0 12px;
-    min-height: 28px;
+    min-height: 24px;
+    padding: 0 6px;
     border-radius: 3px;
 }
 #sectionList::item:hover {
