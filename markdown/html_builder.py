@@ -48,9 +48,11 @@ def _inject_copy_buttons(html: str) -> str:
     """Wrap every fenced code block with a \"Copy\" link.
 
     QTextBrowser does not support JavaScript, so we inject a clickable
-    anchor with a custom *cutemd-copy://* scheme carrying the raw code
-    (URL-safe base64 encoded).  The ``PreviewTextBrowser`` handles the
-    scheme and writes the decoded text to the system clipboard.
+    anchor.  Qt's rich-text renderer treats any ``http://`` URL as a
+    clickable link, so we use ``http://cutemd-copy/`` as a pseudo-scheme
+    carrying the raw code (URL-safe base64 encoded).  The
+    ``PreviewTextBrowser`` intercepts the link before external-browser
+    dispatch and writes the decoded text to the system clipboard.
     """
 
     def _replace(m: re.Match) -> str:
@@ -63,8 +65,8 @@ def _inject_copy_buttons(html: str) -> str:
         encoded = base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
 
         copy_link = (
-            '<p style="text-align:right;margin:2px 0;font-size:small;">'
-            f'<a href="cutemd-copy://{encoded}" '
+            '<p style="text-align:right;margin:4px 2px 2px;font-size:13px;">'
+            f'<a href="http://cutemd-copy/{encoded}" '
             'style="text-decoration:none;">📋 Copy</a></p>'
         )
         return f"{copy_link}{open_tag}{inner}{close_tag}"

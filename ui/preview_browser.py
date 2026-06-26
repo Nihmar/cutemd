@@ -1,7 +1,7 @@
 """QTextBrowser subclass that loads local images via loadResource() override."""
 
 import base64
-
+import logging
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, Signal
@@ -12,6 +12,8 @@ from markdown.image_utils import (
     needs_loading,
     resolve_image_path,
 )
+
+_LOG = logging.getLogger("cutemd.preview_browser")
 
 
 def _fit_image(img: QImage, max_width: int) -> QImage:
@@ -39,6 +41,7 @@ class PreviewTextBrowser(QTextBrowser):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setOpenLinks(False)
         self._base_dir: Path | None = None
         self._attachments_dir: Path | None = None
         self.anchorClicked.connect(self._on_anchor_clicked)
@@ -56,18 +59,25 @@ class PreviewTextBrowser(QTextBrowser):
         """Forward clicked links (e.g. wrapped images) to the tab.
 
         External URLs are opened via the system browser.
-        ``cutemd-copy://`` URLs copy the encoded code to the clipboard.
+        ``http://cutemd-copy/`` URLs copy the encoded code to the clipboard.
         """
         url_str = url.toString()
-        if url_str.startswith("cutemd-copy://"):
-            payload = url_str.removeprefix("cutemd-copy://")
+        _LOG.debug("_on_anchor_clicked: %s", url_str[:120])
+
+        if url_str.startswith("http://cutemd-copy/"):
+            payload = url_str.removeprefix("http://cutemd-copy/")
+            _LOG.debug("cutemd-copy payload length: %d", len(payload))
             try:
                 decoded = base64.urlsafe_b64decode(payload).decode("utf-8")
+                _LOG.debug("decoded %d chars to clipboard", len(decoded))
                 clipboard = QApplication.clipboard()
                 if clipboard is not None:
                     clipboard.setText(decoded)
-            except Exception:
-                pass
+                    _LOG.debug("clipboard.setText succeeded")
+                else:
+                    _LOG.debug("clipboard is None")
+            except Exception as exc:
+                _LOG.debug("cutemd-copy error: %s", exc)
             return
         if url_str.startswith(("http://", "https://", "www.")):
             from PySide6.QtGui import QDesktopServices
