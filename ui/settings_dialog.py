@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QRectF, QSettings, QSize, Qt, QThread, Signal
+from PySide6.QtCore import QRectF, QSize, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QFontDatabase, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -285,6 +285,7 @@ class SettingsDialog(QDialog):
         current_link_style: str = "md",
         current_smart_editing: dict[str, Any] | None = None,
         folder_settings: Any = None,
+        app_settings: Any = None,
         parent=None,
         current_webdav_url: str = "",
         current_webdav_user: str = "",
@@ -300,6 +301,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle(self.tr("Settings"))
         self.setFixedSize(self._DIALOG_W, self._DIALOG_H)
         self._folder_settings = folder_settings
+        self._app_settings = app_settings
 
         smart = dict(DEFAULT_SMART_EDITING)
         if current_smart_editing:
@@ -596,7 +598,7 @@ class SettingsDialog(QDialog):
         )
         card, card_lay = self._make_card()
 
-        qs_path = QSettings("cutemd", "cutemd").fileName()
+        qs_path = self._app_settings.config_file_path() if self._app_settings else ""
         qs_label = QLabel(qs_path)
         qs_label.setWordWrap(True)
         qs_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
@@ -1122,8 +1124,9 @@ class SettingsDialog(QDialog):
             self._dotdir_info.setText(self.tr("No folder open"))
 
     def _clear_last_folder(self) -> None:
-        QSettings("cutemd", "cutemd").remove("last_folder")
-        QSettings("cutemd", "cutemd").remove("recent_folders")
+        if self._app_settings is not None:
+            self._app_settings.remove_last_folder()
+            self._app_settings.remove_recent_folders()
         QMessageBox.information(
             self,
             self.tr("Storage"),

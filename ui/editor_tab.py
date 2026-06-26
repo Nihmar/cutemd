@@ -1159,6 +1159,10 @@ class EditorTab(QWidget):
             self._link_preview_show_timer.stop()
             self.file_link_clicked.emit(link[0])
             return True
+        # Hide popup on any click not on a link.
+        self._link_preview_popup.hide()
+        self._hovered_link_target = None
+        self._link_preview_show_timer.stop()
         return False
 
     # ------------------------------------------------------------------

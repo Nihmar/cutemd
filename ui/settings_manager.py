@@ -215,3 +215,18 @@ class AppSettings(QObject):
 
     def set_raw_value(self, key: str, value: Any) -> None:
         self._s.setValue(key, value)
+
+    # ------------------------------------------------------------------
+    # Config file path (display-only)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def config_file_path() -> str:
+        """Return the QSettings file path for display purposes."""
+        from PySide6.QtCore import QSettings
+        return QSettings("cutemd", "cutemd").fileName()
+
+    # ------------------------------------------------------------------
+    # Clear last folder + recent folders
+    # ------------------------------------------------------------------
+    def remove_recent_folders(self) -> None:
+        self._s.remove("recent_folders")

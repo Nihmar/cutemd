@@ -53,8 +53,9 @@ class LinkPreviewPopup(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowFlags(
-            Qt.WindowType.Popup
+            Qt.WindowType.Tool
             | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
