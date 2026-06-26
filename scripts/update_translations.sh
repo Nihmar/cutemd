@@ -24,7 +24,7 @@ LRELEASE="${VENV_PYSIDE6}-lrelease"
 
 SOURCE_DIRS=("$PROJECT_DIR/ui" "$PROJECT_DIR/main.py")
 
-LANGUAGES=("it")
+LANGUAGES=("de" "es" "fr" "it" "nl" "pt")
 
 # Default extensions exclude Python; we must opt in.
 EXTENSIONS="py,ui"

@@ -20,7 +20,12 @@ from PySide6.QtWidgets import QApplication
 LANGUAGES: list[tuple[str, str]] = [
     ("system", "System default"),
     ("en", "English"),
+    ("de", "Deutsch"),
+    ("es", "Español"),
+    ("fr", "Français"),
     ("it", "Italiano"),
+    ("nl", "Nederlands"),
+    ("pt", "Português"),
 ]
 
 
