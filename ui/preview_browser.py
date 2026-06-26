@@ -1,10 +1,12 @@
 """QTextBrowser subclass that loads local images via loadResource() override."""
 
+import base64
+
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QImage, QTextDocument
-from PySide6.QtWidgets import QTextBrowser
+from PySide6.QtWidgets import QApplication, QTextBrowser
 
 from markdown.image_utils import (
     needs_loading,
@@ -52,8 +54,21 @@ class PreviewTextBrowser(QTextBrowser):
 
     def _on_anchor_clicked(self, url: QUrl) -> None:
         """Forward clicked links (e.g. wrapped images) to the tab.
-        External URLs are opened via the system browser."""
+
+        External URLs are opened via the system browser.
+        ``cutemd-copy://`` URLs copy the encoded code to the clipboard.
+        """
         url_str = url.toString()
+        if url_str.startswith("cutemd-copy://"):
+            payload = url_str.removeprefix("cutemd-copy://")
+            try:
+                decoded = base64.urlsafe_b64decode(payload).decode("utf-8")
+                clipboard = QApplication.clipboard()
+                if clipboard is not None:
+                    clipboard.setText(decoded)
+            except Exception:
+                pass
+            return
         if url_str.startswith(("http://", "https://", "www.")):
             from PySide6.QtGui import QDesktopServices
 

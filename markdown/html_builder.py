@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,6 +25,12 @@ _TABLE_BORDER_ATTR_RE = re.compile(r'\s+border="[^"]*"', re.IGNORECASE)
 _IMG_FILE_URL_RE = re.compile(r'<img\s[^>]*\bsrc="(file:///[^"]+)"[^>]*>')
 _FRONTMATTER_RE = re.compile(r"^---\s*\n.*?\n(?:---|\.\.\.)\s*\n", re.DOTALL)
 
+# Match fenced code blocks for copy-button injection.
+_CODE_BLOCK_RE = re.compile(
+    r"(<pre><code[^>]*>)(.*?)(</code></pre>)", re.DOTALL
+)
+_TAG_STRIP_RE = re.compile(r"<[^>]+>")
+
 
 def _fix_table_tag(m: re.Match) -> str:
     """Ensure every <table> has border="1", preserving original case."""
@@ -35,6 +42,34 @@ def _fix_table_tag(m: re.Match) -> str:
     # Remove any existing border attribute.
     attrs = _TABLE_BORDER_ATTR_RE.sub("", attrs)
     return f'{tag_name}{attrs} border="1"{close}'
+
+
+def _inject_copy_buttons(html: str) -> str:
+    """Wrap every fenced code block with a \"Copy\" link.
+
+    QTextBrowser does not support JavaScript, so we inject a clickable
+    anchor with a custom *cutemd-copy://* scheme carrying the raw code
+    (URL-safe base64 encoded).  The ``PreviewTextBrowser`` handles the
+    scheme and writes the decoded text to the system clipboard.
+    """
+
+    def _replace(m: re.Match) -> str:
+        open_tag = m.group(1)
+        inner = m.group(2)
+        close_tag = m.group(3)
+
+        # Strip HTML tags to recover the raw source code.
+        raw = _TAG_STRIP_RE.sub("", inner)
+        encoded = base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
+
+        copy_link = (
+            '<p style="text-align:right;margin:2px 0;font-size:small;">'
+            f'<a href="cutemd-copy://{encoded}" '
+            'style="text-decoration:none;">📋 Copy</a></p>'
+        )
+        return f"{copy_link}{open_tag}{inner}{close_tag}"
+
+    return _CODE_BLOCK_RE.sub(_replace, html)
 
 
 def preprocess_wikilink_images(text: str) -> str:
@@ -118,6 +153,9 @@ def build_html(
 
     # Rende le immagini cliccabili: wrap <img src="file:///..."> in <a href="...">
     body_html = _IMG_FILE_URL_RE.sub(r'<a href="\1">\g<0></a>', body_html)
+
+    # Inject "Copy" links on code blocks.
+    body_html = _inject_copy_buttons(body_html)
 
     theme_class = "dark" if theme == "dark" else "light"
 
