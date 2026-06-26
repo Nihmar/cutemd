@@ -81,6 +81,21 @@ _LOG = setup_logging("cutemd.main_window")
 # ---------------------------------------------------------------------------
 # MainWindow
 # ---------------------------------------------------------------------------
+
+def _heading_from_display(display: str, target: str) -> str:
+    """Build an ``# `` heading for a newly created link target.
+
+    Only when the display text starts with ``#`` is it treated as a
+    heading reference (e.g. ``[[# Intro|some-page]]``).  Plain display
+    text such as ``[[Qualcosa|una_nota]]`` is just an alias shown in the
+    preview and does NOT become file content.
+    """
+    text = display.strip()
+    if text.startswith("#"):
+        return f"# {text.lstrip('#').strip()}" if text.lstrip("#").strip() else ""
+    return ""
+
+
 class MainWindow(QMainWindow):
     def __init__(self, files_to_open: list[Path] | None = None) -> None:
         super().__init__()
@@ -1938,14 +1953,6 @@ class MainWindow(QMainWindow):
         tab.load_file(path)
         self._refresh_tab_title(tab)
         self._update_window_title()
-
-
-def _heading_from_display(display: str, target: str) -> str:
-    """Build an ``# `` heading for a newly created link target."""
-    text = display or target
-    text = text.strip().lstrip("#").strip()
-    return f"# {text}" if text else ""
-
 
     def _on_autosave(self) -> None:
         """Autosave: silently save all modified tabs with a file path."""
