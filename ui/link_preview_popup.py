@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from markdown.document_renderers import epub_to_html
+from markdown.document_renderers import epub_to_html, xlsx_to_html
 from core.logging import setup_logging
 
 _LOG = setup_logging("cutemd.link_preview_popup")
@@ -133,6 +133,8 @@ class LinkPreviewPopup(QFrame):
 
         self._cbz_images = []
 
+        self._header.setText(str(path))
+
         ext = path.suffix.lower()
 
         if ext in self._IMG_EXTS:
@@ -149,8 +151,6 @@ class LinkPreviewPopup(QFrame):
             self._show_epub(path)
         else:
             self._show_text(path, editor_font)
-
-        self._header.setText(str(path))
         self._move_within_screen(screen_pos)
         self.setVisible(True)
         self.raise_()
@@ -382,36 +382,19 @@ class LinkPreviewPopup(QFrame):
         self._image_label.hide()
         self._editor.show()
         self._editor.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
-        self._editor.setWordWrapMode(QTextOption.WrapMode.NoWrap)
+        self._editor.setWordWrapMode(QTextOption.WrapMode.WordWrap)
         if self._highlighter is not None:
             self._highlighter.setDocument(None)
 
         try:
-            import openpyxl
-
-            wb = openpyxl.load_workbook(str(path), read_only=True, data_only=True)
-            lines: list[str] = []
-            for sheet_name in wb.sheetnames[:3]:
-                ws = wb[sheet_name]
-                lines.append(f"=== {sheet_name} ===")
-                row_count = 0
-                for row in ws.iter_rows(values_only=True, max_row=50):
-                    line = " \u2502 ".join(str(c) if c is not None else "" for c in row)
-                    lines.append(line)
-                    row_count += 1
-                if row_count == 50:
-                    lines.append(self.tr("... (truncated)"))
-                lines.append("")
-            wb.close()
-            text = "\n".join(lines)
+            html = xlsx_to_html(path, "")
         except ImportError:
-            text = self.tr("[Package 'openpyxl' required for .xlsx preview]")
+            html = f"<p>{self.tr('[Package openpyxl required for .xlsx preview]')}</p>"
         except Exception:
-            text = self.tr("[Cannot read: {}]").format(path.name)
+            html = f"<p>{self.tr('[Cannot read: {}]').format(path.name)}</p>"
 
-        self._editor.setPlainText(text[:10000] if text else self.tr("[Empty spreadsheet]"))
-        mono = QFont("Consolas", 9) if QFont("Consolas").exactMatch() else QFont("monospace", 9)
-        self._editor.setFont(mono)
+        self._editor.setHtml(html)
+        self._editor.verticalScrollBar().setValue(0)
 
     # ------------------------------------------------------------------
     # Delayed hide
