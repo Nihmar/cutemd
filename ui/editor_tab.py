@@ -53,6 +53,8 @@ from markdown.html_builder import (
     strip_frontmatter,
 )
 from core.animation_speed import animation_duration_ms
+from core.services.anchor_map import build_line_anchor_map
+from core.services.file_io import read_file_with_encoding
 from core.services.link_resolver import resolve_link_target
 from ui.find_bar import FindBar
 from ui.image_viewer import ImageViewer
@@ -68,23 +70,6 @@ _LARGE_FILE_THRESHOLD = 1_048_576  # 1 MB
 _LOG = setup_logging("cutemd.editor_tab")
 
 
-def _read_file_with_encoding(path: Path) -> tuple[str | None, str]:
-    """Read a file trying multiple encodings. Returns (text, encoding) or
-    (None, error_message)."""
-    try:
-        return path.read_text(encoding="utf-8"), "utf-8"
-    except (UnicodeDecodeError, UnicodeError):
-        pass
-    for enc in ("utf-8-sig", "cp1252", "iso-8859-1", "latin-1", "ascii"):
-        try:
-            return path.read_text(encoding=enc), enc
-        except (UnicodeDecodeError, UnicodeError):
-            continue
-    try:
-        raw = path.read_bytes()
-        return raw.decode("utf-8", errors="replace"), "utf-8 (broken)"
-    except OSError as e:
-        return None, str(e)
 
 
 # ---------------------------------------------------------------------------
@@ -534,7 +519,7 @@ class EditorTab(QWidget):
             self._load_document(path)
             return
 
-        text, encoding = _read_file_with_encoding(path)
+        text, encoding = read_file_with_encoding(path)
         if text is None:
             QMessageBox.critical(
                 self,
@@ -892,52 +877,8 @@ class EditorTab(QWidget):
 
     def _build_line_anchor_map(self, text: str) -> list[int]:
         """Build a mapping from editor line numbers to preview heading anchors.
-
-        Parses the markdown-it token stream to find headings, then for each
-        editor line determines which heading's anchor should be the scroll
-        target. For lines between headings, uses the nearest heading above.
-        Used by ``_do_preview_scrolled()`` for reverse scroll synchronization.
-        """
-        from markdown.tools import BLOCK_OPEN_TYPES
-
-        tokens = self._md.parse(text)
-        entries: list[tuple[int, int, int]] = []
-        anchor_idx = 0
-        for token in tokens:
-            if token.type in BLOCK_OPEN_TYPES and token.map:
-                start, end = token.map
-                if start < end:
-                    entries.append((start, end, anchor_idx))
-                    anchor_idx += 1
-
-        total_lines = len(text.split("\n"))
-        mapping = [0] * max(total_lines, 1)
-        last_anchor = anchor_idx - 1 if anchor_idx > 0 else 0
-        entries.sort(key=lambda x: x[0])
-
-        for line in range(total_lines):
-            best: int | None = None
-            best_width = float("inf")
-            for start, end, aidx in entries:
-                if line < start:
-                    break
-                if start <= line < end:
-                    width = end - start
-                    if width < best_width:
-                        best_width = width
-                        best = aidx
-            if best is not None:
-                mapping[line] = best
-            else:
-                # Line is between blocks — use anchor of the nearest block
-                # before it, not after it, to avoid the preview jumping ahead.
-                prev: int = last_anchor
-                for s, e, aidx in entries:
-                    if line < s:
-                        break
-                    prev = aidx
-                mapping[line] = prev
-        return mapping
+        Delegates to pure ``build_line_anchor_map`` in core.services."""
+        return build_line_anchor_map(self._md, text)
 
     # ------------------------------------------------------------------
     # Scroll sync

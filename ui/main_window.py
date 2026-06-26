@@ -641,6 +641,7 @@ class MainWindow(QMainWindow):
             self._side_toc_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(1)
             self._show_left_panel()
+            self._search_panel._search_input.setFocus()
         else:
             self._hide_left_panel()
 
