@@ -4,7 +4,7 @@ import csv
 import zipfile
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap, QTextOption
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import (
@@ -17,7 +17,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from markdown.document_renderers import epub_to_html, xlsx_to_html
+from markdown.document_renderers import (
+    docx_to_html,
+    epub_to_html,
+    pptx_to_html,
+    xlsx_to_html,
+)
 from core.logging import setup_logging
 
 _LOG = setup_logging("cutemd.link_preview_popup")
@@ -38,6 +43,8 @@ class LinkPreviewPopup(QFrame):
     _CSV_EXTS = frozenset({".csv", ".tsv"})
     _CBZ_EXTS = frozenset({".cbz"})
     _EPUB_EXTS = frozenset({".epub"})
+    _DOCX_EXTS = frozenset({".docx"})
+    _PPTX_EXTS = frozenset({".pptx"})
     _XLSX_EXTS = frozenset({".xlsx"})
 
     _MAX_W = 520
@@ -64,6 +71,10 @@ class LinkPreviewPopup(QFrame):
         self._cbz_images: list[tuple[bytes, str]] = []
         self._cbz_index: int = 0
 
+        # PPTX slide state
+        self._pptx_total: int = 0
+        self._pptx_index: int = 0
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -89,6 +100,8 @@ class LinkPreviewPopup(QFrame):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
         )
         self._highlighter: MarkdownHighlighter | None = None
+        self._editor.installEventFilter(self)
+        self._editor.viewport().installEventFilter(self)
         layout.addWidget(self._editor)
 
         # --- Image viewer ---
@@ -132,6 +145,10 @@ class LinkPreviewPopup(QFrame):
             self.hide()
 
         self._cbz_images = []
+        self._pptx_total = 0
+        self._pptx_index = 0
+        self._editor.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+        self._image_label.setCursor(Qt.CursorShape.ArrowCursor)
 
         self._header.setText(str(path))
 
@@ -145,6 +162,10 @@ class LinkPreviewPopup(QFrame):
             self._show_pdf(path)
         elif ext in self._CSV_EXTS:
             self._show_csv(path)
+        elif ext in self._DOCX_EXTS:
+            self._show_docx(path)
+        elif ext in self._PPTX_EXTS:
+            self._show_pptx(path)
         elif ext in self._XLSX_EXTS:
             self._show_xlsx(path)
         elif ext in self._EPUB_EXTS:
@@ -330,19 +351,27 @@ class LinkPreviewPopup(QFrame):
         self._image_label.show()
 
     def mousePressEvent(self, event) -> None:
-        """Navigate CBZ pages with mouse clicks (left half=prev, right half=next)."""
-        if self._cbz_images and event.button() == Qt.MouseButton.LeftButton:
-            w = self._image_label.width()
-            if w > 0 and event.position().x() > w / 2:
-                self._cbz_index = (self._cbz_index + 1) % len(self._cbz_images)
-            else:
-                self._cbz_index = (self._cbz_index - 1) % len(self._cbz_images)
-            self._show_cbz_page(self._cbz_index)
-            return
+        """Navigate CBZ/PPTX pages with mouse clicks (left half=prev, right half=next)."""
+        if event.button() == Qt.MouseButton.LeftButton:
+            if self._cbz_images:
+                w = self._image_label.width()
+                if w > 0 and event.position().x() > w / 2:
+                    self._cbz_index = (self._cbz_index + 1) % len(self._cbz_images)
+                else:
+                    self._cbz_index = (self._cbz_index - 1) % len(self._cbz_images)
+                self._show_cbz_page(self._cbz_index)
+                return
+            if self._pptx_total > 0:
+                w = self._editor.width()
+                if w > 0 and event.position().x() > w / 2:
+                    self._navigate_pptx(1)
+                else:
+                    self._navigate_pptx(-1)
+                return
         super().mousePressEvent(event)
 
     def wheelEvent(self, event) -> None:
-        """Navigate CBZ pages with the mouse wheel."""
+        """Navigate CBZ/PPTX pages with the mouse wheel."""
         if self._cbz_images:
             if event.angleDelta().y() < 0:
                 self._cbz_index = (self._cbz_index + 1) % len(self._cbz_images)
@@ -352,10 +381,17 @@ class LinkPreviewPopup(QFrame):
                 self._show_cbz_page(self._cbz_index)
             event.accept()
             return
+        if self._pptx_total > 0:
+            if event.angleDelta().y() < 0:
+                self._navigate_pptx(1)
+            elif event.angleDelta().y() > 0:
+                self._navigate_pptx(-1)
+            event.accept()
+            return
         super().wheelEvent(event)
 
     def keyPressEvent(self, event) -> None:
-        """Navigate CBZ pages with Left/Right arrow keys."""
+        """Navigate CBZ/PPTX pages with Left/Right arrow keys."""
         if self._cbz_images:
             if event.key() == Qt.Key.Key_Right:
                 self._cbz_index = (self._cbz_index + 1) % len(self._cbz_images)
@@ -364,7 +400,39 @@ class LinkPreviewPopup(QFrame):
                 self._cbz_index = (self._cbz_index - 1) % len(self._cbz_images)
                 self._show_cbz_page(self._cbz_index)
             return
+        if self._pptx_total > 0:
+            if event.key() == Qt.Key.Key_Right:
+                self._navigate_pptx(1)
+            elif event.key() == Qt.Key.Key_Left:
+                self._navigate_pptx(-1)
+            return
         super().keyPressEvent(event)
+
+    def eventFilter(self, obj, event) -> bool:
+        """Intercept events from the editor (and its viewport) for CBZ/PPTX navigation."""
+        if obj is self._editor or obj is self._editor.viewport():
+            if event.type() == QEvent.Type.MouseButtonPress:
+                if self._pptx_total > 0:
+                    _LOG.debug("eventFilter MousePress: pptx_total=%d", self._pptx_total)
+                    self.mousePressEvent(event)
+                    return True
+            elif event.type() == QEvent.Type.Wheel:
+                _LOG.debug("eventFilter Wheel: cbz=%d pptx_total=%d",
+                            len(self._cbz_images), self._pptx_total)
+                if self._cbz_images or self._pptx_total > 0:
+                    self.wheelEvent(event)
+                    return True
+            elif event.type() == QEvent.Type.KeyPress:
+                key = event.key()
+                _LOG.debug("eventFilter KeyPress: key=%d cbz=%d pptx_total=%d",
+                            key, len(self._cbz_images), self._pptx_total)
+                if self._cbz_images and key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+                    self.keyPressEvent(event)
+                    return True
+                if self._pptx_total > 0 and key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+                    self.keyPressEvent(event)
+                    return True
+        return super().eventFilter(obj, event)
 
     def _show_epub(self, path: Path) -> None:
         self._image_label.hide()
@@ -395,6 +463,79 @@ class LinkPreviewPopup(QFrame):
 
         self._editor.setHtml(html)
         self._editor.verticalScrollBar().setValue(0)
+
+    def _show_docx(self, path: Path) -> None:
+        self._image_label.hide()
+        self._editor.show()
+        self._editor.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self._editor.setWordWrapMode(QTextOption.WrapMode.WordWrap)
+        if self._highlighter is not None:
+            self._highlighter.setDocument(None)
+
+        try:
+            html = docx_to_html(path, "")
+        except ImportError:
+            html = f"<p>{self.tr('[Package python-docx required for .docx preview]')}</p>"
+        except Exception:
+            html = f"<p>{self.tr('[Cannot read: {}]').format(path.name)}</p>"
+
+        self._editor.setHtml(html)
+        self._editor.verticalScrollBar().setValue(0)
+
+    def _show_pptx(self, path: Path) -> None:
+        self._image_label.hide()
+        self._editor.show()
+        self._editor.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self._editor.setWordWrapMode(QTextOption.WrapMode.WordWrap)
+        self._editor.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+        if self._highlighter is not None:
+            self._highlighter.setDocument(None)
+
+        try:
+            from pptx import Presentation
+            prs = Presentation(str(path))
+            self._pptx_total = len(list(prs.slides))
+            self._pptx_index = 0
+            _LOG.debug("_show_pptx: %s total=%d", path.name, self._pptx_total)
+            html = pptx_to_html(path, "", slide_index=0)
+            self._update_pptx_header()
+        except ImportError:
+            _LOG.debug("_show_pptx: ImportError python-pptx")
+            html = f"<p>{self.tr('[Package python-pptx required for .pptx preview]')}</p>"
+            self._pptx_total = 0
+        except Exception as exc:
+            _LOG.debug("_show_pptx: %s", exc)
+            html = f"<p>{self.tr('[Cannot read: {}]').format(path.name)}</p>"
+            self._pptx_total = 0
+
+        self._editor.setHtml(html)
+        self._editor.verticalScrollBar().setValue(0)
+
+    def _update_pptx_header(self) -> None:
+        if self._pptx_total > 0:
+            self._header.setText(
+                f"\u25c0  {self._path.name}  [{self._pptx_index + 1}/{self._pptx_total}]  \u25b6"
+            )
+            _LOG.debug("_update_pptx_header: index=%d total=%d",
+                        self._pptx_index, self._pptx_total)
+
+    def _navigate_pptx(self, delta: int) -> None:
+        if self._pptx_total <= 0:
+            _LOG.debug("_navigate_pptx: no slides")
+            return
+        new_index = (self._pptx_index + delta) % self._pptx_total
+        if new_index == self._pptx_index:
+            return
+        self._pptx_index = new_index
+        _LOG.debug("_navigate_pptx: delta=%d new_index=%d total=%d",
+                    delta, self._pptx_index, self._pptx_total)
+        try:
+            html = pptx_to_html(self._path, "", slide_index=self._pptx_index)
+            self._editor.setHtml(html)
+            self._editor.verticalScrollBar().setValue(0)
+            self._update_pptx_header()
+        except Exception as exc:
+            _LOG.debug("_navigate_pptx error: %s", exc)
 
     # ------------------------------------------------------------------
     # Delayed hide

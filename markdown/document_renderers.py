@@ -72,60 +72,103 @@ def xlsx_to_html(path: Path, css: str, sheet_names: list[str] | None = None) -> 
 # DOCX  ->  HTML (headings, paragraphs, tables)
 # ---------------------------------------------------------------------------
 
+def _guess_mime_from_blob(data: bytes) -> str:
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'image/png'
+    if data[:2] == b'\xff\xd8':
+        return 'image/jpeg'
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return 'image/gif'
+    if data[:2] == b'BM':
+        return 'image/bmp'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return 'image/webp'
+    return 'image/png'
+
+
+_DOCX_NS = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+_DOCX_A_NS = '{http://schemas.openxmlformats.org/drawingml/2006/main}'
+_DOCX_R_NS = '{http://schemas.openxmlformats.org/officeDocument/2006/relationships}'
+
+
 def docx_to_html(path: Path, css: str) -> str:
-    """Convert a DOCX document to HTML paragraphs."""
+    """Convert a DOCX document to HTML paragraphs with embedded images."""
     from docx import Document
+    import base64
 
     doc = Document(str(path))
-    parts: list[str] = []
 
+    image_map: dict[str, bytes] = {}
+    try:
+        for rel in doc.part.rels.values():
+            if "image" in rel.reltype:
+                try:
+                    image_map[rel.rId] = rel.target_part.blob
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    parts: list[str] = []
     for el in doc.element.body:
         tag = el.tag.split('}')[-1] if '}' in el.tag else el.tag
         if tag == 'p':
-            text = _docx_paragraph_text(el)
-            if not text:
-                continue
-            p_style = el.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pPr')
-            style_val = None
-            if p_style is not None:
-                p_style_el = p_style.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pStyle')
-                if p_style_el is not None:
-                    style_val = p_style_el.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
-
-            if style_val and style_val.startswith('Heading'):
-                level = style_val.replace('Heading', '')
-                if level.isdigit() and 1 <= int(level) <= 6:
-                    parts.append(f'<h{level}>{escape(text)}</h{level}>')
-                    continue
-            parts.append(f'<p>{escape(text)}</p>')
+            html = _docx_paragraph_to_html(el, image_map)
+            if html:
+                parts.append(html)
         elif tag == 'tbl':
-            parts.append(_docx_table_to_html(el))
+            parts.append(_docx_table_to_html(el, image_map))
 
     return _wrap_html('\n'.join(parts), css)
 
 
-def _docx_paragraph_text(p_el) -> str:
-    ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
-    texts = []
-    for r in p_el.iter(f'{ns}r'):
-        t_el = r.find(f'{ns}t')
+def _docx_paragraph_to_html(p_el, image_map: dict[str, bytes]) -> str:
+    import base64
+    parts = []
+    for r in p_el.iter(f'{_DOCX_NS}r'):
+        t_el = r.find(f'{_DOCX_NS}t')
         if t_el is not None and t_el.text:
-            texts.append(t_el.text)
-    return ''.join(texts).strip()
+            parts.append(escape(t_el.text))
+        for drawing in r.iter(f'{_DOCX_NS}drawing'):
+            blip = drawing.find(f'.//{_DOCX_A_NS}blip')
+            if blip is not None:
+                embed = blip.get(f'{{{_DOCX_R_NS}}}embed')
+                if embed and embed in image_map:
+                    data = image_map[embed]
+                    mime = _guess_mime_from_blob(data)
+                    b64 = base64.b64encode(data).decode('ascii')
+                    parts.append(f'<img src="data:{mime};base64,{b64}" style="max-width:100%" />')
+
+    text = ''.join(parts).strip()
+    if not text:
+        return ''
+
+    p_style = p_el.find(f'{_DOCX_NS}pPr')
+    style_val = None
+    if p_style is not None:
+        p_style_el = p_style.find(f'{_DOCX_NS}pStyle')
+        if p_style_el is not None:
+            style_val = p_style_el.get(f'{_DOCX_NS}val')
+
+    if style_val and style_val.startswith('Heading'):
+        level = style_val.replace('Heading', '')
+        if level.isdigit() and 1 <= int(level) <= 6:
+            return f'<h{level}>{text}</h{level}>'
+
+    return f'<p>{text}</p>'
 
 
-def _docx_table_to_html(tbl_el) -> str:
-    ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+def _docx_table_to_html(tbl_el, image_map: dict[str, bytes]) -> str:
     rows_html = []
-    for row_el in tbl_el.iter(f'{ns}tr'):
+    for row_el in tbl_el.iter(f'{_DOCX_NS}tr'):
         cells = []
-        for cell_el in row_el.iter(f'{ns}tc'):
-            text = ''
-            for p in cell_el.iter(f'{ns}p'):
-                t = _docx_paragraph_text(p)
-                if t:
-                    text += t + ' '
-            cells.append(f'<td>{escape(text.strip())}</td>')
+        for cell_el in row_el.iter(f'{_DOCX_NS}tc'):
+            cell_html = []
+            for p in cell_el.iter(f'{_DOCX_NS}p'):
+                html = _docx_paragraph_to_html(p, image_map)
+                if html:
+                    cell_html.append(html)
+            cells.append(f'<td>{"".join(cell_html)}</td>')
         rows_html.append('<tr>' + ''.join(cells) + '</tr>')
     return '<table>' + '\n'.join(rows_html) + '</table>'
 
@@ -134,21 +177,38 @@ def _docx_table_to_html(tbl_el) -> str:
 # PPTX  ->  HTML (slides with text)
 # ---------------------------------------------------------------------------
 
-def pptx_to_html(path: Path, css: str) -> str:
-    """Convert a PPTX presentation to HTML -- text from each slide."""
+def pptx_to_html(path: Path, css: str, slide_index: int | None = None) -> str:
+    """Convert a PPTX presentation to HTML."""
     from pptx import Presentation
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    import base64
 
     prs = Presentation(str(path))
     parts: list[str] = []
-    for i, slide in enumerate(prs.slides):
-        parts.append(f'<h3>Slide {i + 1}</h3>')
+    slides = list(prs.slides)
+
+    if slide_index is not None:
+        if 0 <= slide_index < len(slides):
+            slides = [slides[slide_index]]
+        else:
+            return _wrap_html("<p>[Slide not found]</p>", css)
+
+    for slide in slides:
         for shape in slide.shapes:
             if shape.has_text_frame:
                 for para in shape.text_frame.paragraphs:
                     text = para.text.strip()
                     if text:
                         parts.append(f'<p>{escape(text)}</p>')
+            if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                try:
+                    img = shape.image
+                    b64 = base64.b64encode(img.blob).decode('ascii')
+                    parts.append(f'<p><img src="data:{img.content_type};base64,{b64}" style="max-width:100%" /></p>')
+                except Exception:
+                    pass
         parts.append('<hr>')
+
     return _wrap_html('\n'.join(parts), css)
 
 
