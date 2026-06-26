@@ -16,6 +16,8 @@ CI is configured via `.github/workflows/release.yml` — auto-builds AppImage + 
 
 Never commit changes without asking for confirmation first.
 
+When working on a numbered issue, include `Fixes #<number>` in the commit message body (second line of the message) so GitHub automatically closes the issue on merge.
+
 ## Package boundaries
 
 - `markdown/` — pure Markdown processing, **no Qt imports**. Used by `ui/`.
