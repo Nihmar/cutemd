@@ -37,18 +37,26 @@ class PreviewWidget(QWidget):
     def set_plain_text(self, text: str) -> None:
         raise NotImplementedError
 
-    def scroll_to_anchor(self, anchor: str) -> None:
-        raise NotImplementedError
-
     def content_width(self) -> int:
         raise NotImplementedError
 
+    def content_height(self) -> int:
+        raise NotImplementedError
+
+    def get_anchor_positions(self) -> dict[str, int]:
+        raise NotImplementedError
+
+    def scroll_to_anchor(self, anchor: str) -> None:
+        raise NotImplementedError
+
     def anchor_at_viewport_top(self) -> str | None:
-        """Return the anchor name (e.g. ``'b3'``) visible at the top of the viewport, or ``None``."""
         raise NotImplementedError
 
     def scroll_position(self) -> int:
         raise NotImplementedError
 
     def max_scroll(self) -> int:
+        raise NotImplementedError
+
+    def set_scroll_position(self, value: int) -> None:
         raise NotImplementedError

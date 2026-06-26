@@ -100,19 +100,23 @@ class TextBrowserPreview(PreviewWidget):
     def set_plain_text(self, text: str) -> None:
         self._browser.setPlainText(text)
 
-    def scroll_to_anchor(self, anchor: str) -> None:
-        self._browser.scrollToAnchor(anchor)
-
     def content_width(self) -> int:
         return self._browser.width()
 
+    def scroll_to_anchor(self, anchor: str) -> None:
+        self._browser.scrollToAnchor(anchor)
+
     def anchor_at_viewport_top(self) -> str | None:
-        doc = self._browser.document()
-        cursor = self._browser.cursorForPosition(QPoint(2, 2))
+        cursor = self._browser.cursorForPosition(QPoint(0, 0))
         block = cursor.block()
+        doc = self._browser.document()
         for _ in range(5):
             if not block.isValid():
                 break
+            names = block.charFormat().anchorNames()
+            for name in names:
+                if name.startswith("b"):
+                    return name
             block_pos = block.position()
             for offset in range(10):
                 check_pos = block_pos + offset
@@ -131,6 +135,37 @@ class TextBrowserPreview(PreviewWidget):
 
     def max_scroll(self) -> int:
         return self._browser.verticalScrollBar().maximum()
+
+    def set_scroll_position(self, value: int) -> None:
+        self._browser.verticalScrollBar().setValue(value)
+
+    def content_height(self) -> int:
+        return self._browser.document().size().height()
+
+    def get_anchor_positions(self) -> dict[str, int]:
+        """Return {anchor_name: y_pixel} for every <a name="bN"> in the document."""
+        doc = self._browser.document()
+        positions: dict[str, int] = {}
+        block = doc.firstBlock()
+        while block.isValid():
+            # Check block-level anchor names (headings, etc.)
+            for name in block.charFormat().anchorNames():
+                if name.startswith("b"):
+                    positions[name] = int(block.layout().position().y())
+            # Check character-level anchors (paragraphs, fences, etc.)
+            block_pos = block.position()
+            block_len = block.length()
+            for offset in range(block_len):
+                pos = block_pos + offset
+                if pos >= doc.characterCount():
+                    break
+                cursor = QTextCursor(doc)
+                cursor.setPosition(pos)
+                for name in cursor.charFormat().anchorNames():
+                    if name.startswith("b") and name not in positions:
+                        positions[name] = int(block.layout().position().y())
+            block = block.next()
+        return positions
 
     # -- Internal link routing ----------------------------------------------
 

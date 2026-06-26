@@ -1,5 +1,6 @@
 """Single editor+preview tab for the tabbed interface."""
 
+
 import re
 from pathlib import Path
 from typing import Any
@@ -39,7 +40,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.animation_speed import animation_duration_ms
 from core.logging import setup_logging
+from core.services.anchor_map import build_line_anchor_map
+from core.services.file_io import read_file_with_encoding
+from core.services.link_resolver import resolve_link_target
 from markdown.document_renderers import (
     cbz_to_html,
     docx_to_html,
@@ -52,10 +57,6 @@ from markdown.html_builder import (
     preprocess_wikilinks,
     strip_frontmatter,
 )
-from core.animation_speed import animation_duration_ms
-from core.services.anchor_map import build_line_anchor_map
-from core.services.file_io import read_file_with_encoding
-from core.services.link_resolver import resolve_link_target
 from ui.find_bar import FindBar
 from ui.image_viewer import ImageViewer
 from ui.link_preview_popup import LinkPreviewPopup
@@ -68,8 +69,6 @@ from ui.syntax_highlighter import MarkdownHighlighter
 _LARGE_FILE_THRESHOLD = 1_048_576  # 1 MB
 
 _LOG = setup_logging("cutemd.editor_tab")
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -796,6 +795,11 @@ class EditorTab(QWidget):
             line_map[current_line] if current_line < len(line_map) else 0
         )
         self._last_anchor = f"b{current_anchor_idx}"
+        _LOG.debug(
+            "_update_preview: first_visible_line=%d anchor=%s",
+            current_line,
+            self._last_anchor,
+        )
 
         base_dir = self._file_path.parent if self._file_path else Path.cwd()
         self.preview.set_base_dir(base_dir)
@@ -865,6 +869,11 @@ class EditorTab(QWidget):
         if not self._preview_pending:
             self._last_rendered_hash = self._pending_render_hash
 
+        _LOG.debug(
+            "_on_preview_ready: last_anchor=%s max_scroll=%d",
+            self._last_anchor,
+            self.preview.max_scroll(),
+        )
         self._pending_sync_anchor = self._last_anchor
         self._sync_retries = 0
         self._sync_preview_scroll()
@@ -875,14 +884,14 @@ class EditorTab(QWidget):
             self._preview_busy = True
             self._preview_worker.render_requested.emit(params)
 
+    # ------------------------------------------------------------------
+    # Scroll sync
+    # ------------------------------------------------------------------
+
     def _build_line_anchor_map(self, text: str) -> list[int]:
         """Build a mapping from editor line numbers to preview heading anchors.
         Delegates to pure ``build_line_anchor_map`` in core.services."""
         return build_line_anchor_map(self._md, text)
-
-    # ------------------------------------------------------------------
-    # Scroll sync
-    # ------------------------------------------------------------------
 
     def _sync_preview_scroll(self) -> None:
         if self._syncing_scroll > 0:
@@ -891,9 +900,18 @@ class EditorTab(QWidget):
         if not anchor:
             return
         if self.preview.max_scroll() > 0:
+            _LOG.debug(
+                "_sync_preview_scroll: scrolling to %s (max=%d)",
+                anchor,
+                self.preview.max_scroll(),
+            )
             self._syncing_scroll += 1
             self.preview.scroll_to_anchor(anchor)
             self._syncing_scroll -= 1
+            _LOG.debug(
+                "_sync_preview_scroll: after scroll pos=%d",
+                self.preview.scroll_position(),
+            )
             self._pending_sync_anchor = ""
         else:
             if self._sync_retries < 10:
@@ -915,20 +933,25 @@ class EditorTab(QWidget):
             or self._is_binary_preview
         ):
             return
+
         line_map = self._line_anchor_map
         if not line_map:
             return
+
         first_block = self.editor.firstVisibleBlock()
-        current_line = first_block.blockNumber()
+        current_line = min(first_block.blockNumber(), len(line_map) - 1)
         anchor_idx = line_map[current_line]
-        anchor = f"b{anchor_idx}"
-        if anchor == self._last_anchor:
+        anchor_name = f"b{anchor_idx}"
+
+        if anchor_name == self._last_anchor:
             return
-        self._last_anchor = anchor
+        self._last_anchor = anchor_name
+
         if self.preview.max_scroll() <= 0:
             return
+
         self._syncing_scroll += 1
-        self.preview.scroll_to_anchor(anchor)
+        self.preview.scroll_to_anchor(anchor_name)
         self._syncing_scroll -= 1
 
     def _on_preview_scrolled(self, _value: int = 0) -> None:
@@ -941,21 +964,19 @@ class EditorTab(QWidget):
             self._syncing_scroll = 0
 
     def _do_preview_scrolled(self) -> None:
-        """Reverse scroll sync: map the preview's scroll position back to an editor line.
-
-        Uses ``_build_line_anchor_map()`` to convert the current anchor to
-        a line number. Falls back to a ratio-based estimate using the
-        ``scrollRatio`` callback if no anchor mapping is available.
-        """
         if (
             self._syncing_scroll > 0
             or not self._preview_visible
             or self._is_binary_preview
         ):
+            _LOG.debug(
+                "_do_preview_scrolled: skipped (syncing=%d)", self._syncing_scroll
+            )
             return
 
         anchor_name = self.preview.anchor_at_viewport_top()
         if not anchor_name:
+            _LOG.debug("_do_preview_scrolled: no anchor at viewport top")
             return
         anchor_idx = int(anchor_name[1:])
 
@@ -971,13 +992,19 @@ class EditorTab(QWidget):
             return
 
         # Scroll editor so that line is near the top.
-        # Use a ratio-based approach: line / total_lines.
         editor_sb = self.editor.verticalScrollBar()
         max_ed = editor_sb.maximum()
         if max_ed <= 0:
             return
         total_lines = self.editor.document().blockCount()
         ratio = target_line / max(total_lines - 1, 1)
+        _LOG.debug(
+            "_do_preview_scrolled: anchor=%s idx=%d target_line=%d ratio=%.3f",
+            anchor_name,
+            anchor_idx,
+            target_line,
+            ratio,
+        )
         self._syncing_scroll += 1
         editor_sb.setValue(int(ratio * max_ed))
         self._syncing_scroll -= 1
@@ -1107,6 +1134,7 @@ class EditorTab(QWidget):
             global_pos = QPoint(cx, y)
         else:
             from PySide6.QtGui import QCursor
+
             c = QCursor.pos()
             y = c.y() - popup_h - gap
             if y < 0:
@@ -1129,7 +1157,10 @@ class EditorTab(QWidget):
         """Resolve a link/wikilink target — delegates to pure ``resolve_link_target``."""
         source_dir = self._file_path.parent if self._file_path else Path.cwd()
         return resolve_link_target(
-            target, source_dir, self._attachments_dir, quick=quick,
+            target,
+            source_dir,
+            self._attachments_dir,
+            quick=quick,
         )
 
     def _refresh_link_highlights(self) -> None:
