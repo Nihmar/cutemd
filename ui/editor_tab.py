@@ -28,6 +28,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QLabel,
     QMessageBox,
     QPlainTextEdit,
@@ -699,7 +700,15 @@ class EditorTab(QWidget):
             if self._file_path:
                 self._write_file(self._file_path)
             else:
-                return False
+                path, _ = QFileDialog.getSaveFileName(
+                    self,
+                    self.tr("Save Markdown file"),
+                    "",
+                    self.tr("Markdown files (*.md *.markdown);;All files (*)"),
+                )
+                if not path:
+                    return False
+                self._write_file(Path(path))
             return not self.is_modified
         return ret != QMessageBox.StandardButton.Cancel
 
