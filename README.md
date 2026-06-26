@@ -8,12 +8,15 @@ A non-WYSIWYG Markdown editor with live preview, syntax highlighting, folder-bas
 
 ## Installation
 
-### Requirements
+### Pre-built packages (no dependencies required)
 
+Pre-built binaries for Linux (AppImage, .deb, .rpm, Arch) and Windows (.exe, installer) are available on the [releases page](https://github.com/Nihmar/cutemd/releases). These are self-contained — no Python, Qt, or other runtime dependencies needed.
+
+### From source
+
+Requirements:
 - Python ≥ 3.11
 - [uv](https://docs.astral.sh/uv/) — package manager
-
-### Quick start (from source)
 
 ```bash
 git clone https://github.com/Nihmar/cutemd.git
@@ -21,10 +24,6 @@ cd cutemd
 uv sync
 uv run main.py
 ```
-
-### Pre-built packages
-
-Pre-built binaries for Linux (AppImage, .deb, .rpm, Arch) and Windows (.exe, installer) are available on the [releases page](https://github.com/Nihmar/cutemd/releases).
 
 ## Features
 
