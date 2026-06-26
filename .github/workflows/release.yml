@@ -14,6 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          cache-suffix: ${{ github.job }}
       - run: uv sync --dev
       - name: Download appimagetool
         run: |
@@ -35,6 +37,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          cache-suffix: ${{ github.job }}
       - run: uv sync --dev
       - name: Install Inno Setup
         run: choco install innosetup --no-progress
@@ -53,6 +57,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          cache-suffix: ${{ github.job }}
       - run: uv sync --dev
       - name: Build .deb
         run: bash scripts/build_deb.sh
@@ -66,6 +72,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          cache-suffix: ${{ github.job }}
       - run: uv sync --dev
       - name: Install rpm-build
         run: sudo apt-get update -qq && sudo apt-get install -y -qq rpm
