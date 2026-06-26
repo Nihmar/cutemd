@@ -48,19 +48,20 @@ from PySide6.QtWidgets import (
 )
 
 from ui import theme
-from ui.animation_speed import animation_duration_ms
+from core.animation_speed import animation_duration_ms
+from core.services.link_resolver import resolve_link_target
 from ui.editor_context_menu import show_editor_context_menu
 from ui.editor_tab import EditorTab
 from ui.editor_toolbar import EditorToolbar
 from ui.file_tree_panel import FileTreePanel
-from ui.folder_settings import FolderSettings
+from core.folder_settings import FolderSettings
 from ui.search_panel import SearchPanel
 from ui.settings_manager import AppSettings
 from ui.shortcut_manager import ShortcutManager
 from ui.theme_manager import ThemeManager
 from ui.themes import get_theme, system_theme
 from ui.toc_panel import TocPanel
-from ui.webdav_sync import sync_folder
+from core.webdav.sync import sync_folder
 
 # ---------------------------------------------------------------------------
 # Paths (supports PyInstaller one-file bundles)
@@ -1299,7 +1300,8 @@ class MainWindow(QMainWindow):
         user = cfg.get("username", "")
         pwd = cfg.get("password", "")
 
-        from ui.webdav_sync import SyncResult, SyncThread
+        from core.webdav.sync import SyncResult
+        from ui.webdav_sync import SyncThread
 
         if not webdav_url:
             if not auto_triggered:
@@ -1800,27 +1802,13 @@ class MainWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl(url))
             return
 
-        path = self._resolve_link_target(target, source_tab.file_path)
-        if path is None and self._folder_path is not None:
-            # Try the configured attachments_dir first (fast).
-            if self._folder_settings is not None:
-                candidate = self._folder_settings.attachments_dir() / Path(target).name
-                if candidate.is_file():
-                    path = candidate.resolve()
-            # Fall back to rglob in the folder.
-            if path is None:
-                from markdown.image_utils import _IMG_EXTS_RE
-
-                stem = Path(target).stem.lower()
-                is_img = bool(_IMG_EXTS_RE.search(target))
-                for p in self._folder_path.rglob("*"):
-                    if p.is_file() and p.stem.lower() == stem:
-                        if is_img and _IMG_EXTS_RE.search(p.name):
-                            path = p.resolve()
-                            break
-                        if not is_img and p.suffix.lower() in (".md", ".markdown"):
-                            path = p.resolve()
-                            break
+        source_dir = source_tab.file_path.parent if source_tab.file_path else Path.cwd()
+        attachments_dir = (
+            self._folder_settings.attachments_dir()
+            if self._folder_settings is not None
+            else None
+        )
+        path = resolve_link_target(target, source_dir, attachments_dir)
         if path is None:
             return
 
@@ -1833,30 +1821,6 @@ class MainWindow(QMainWindow):
         tab.load_file(path)
         self._refresh_tab_title(tab)
         self._update_window_title()
-
-    @staticmethod
-    def _resolve_link_target(target: str, source: Path | None) -> Path | None:
-        """Resolve a link/wikilink target to an absolute ``Path``, or ``None``."""
-        target_path = Path(target)
-        if target_path.is_absolute():
-            return target_path if target_path.exists() else None
-
-        # Resolve relative to the source file's directory, if known
-        if source is not None:
-            base = source.parent
-        else:
-            base = Path.cwd()
-
-        candidates = [base / target_path]
-        if target_path.suffix.lower() not in (".md", ".markdown"):
-            candidates.append(base / (target + ".md"))
-            candidates.append(base / (target + ".markdown"))
-
-        for p in candidates:
-            if p.is_file():
-                return p.resolve()
-
-        return None
 
     def _on_autosave(self) -> None:
         """Autosave: silently save all modified tabs with a file path."""

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtGui import QAction, QKeySequence
 
 if TYPE_CHECKING:
-    from ui.folder_settings import FolderSettings
+    from core.folder_settings import FolderSettings
 
 
 DEFAULT_SHORTCUTS: dict[str, str] = {

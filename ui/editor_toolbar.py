@@ -8,7 +8,7 @@ from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QMenu, QToolButton, QWidget
 
-from ui.markdown_actions import HEADING_PREFIXES, TOOLBAR_ITEMS
+from core.markdown_actions import HEADING_PREFIXES, TOOLBAR_ITEMS
 
 
 class EditorToolbar(QWidget):

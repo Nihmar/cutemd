@@ -8,7 +8,7 @@ from PySide6.QtCore import QPoint
 from PySide6.QtGui import QColor, QIcon, QKeySequence, QTextCursor
 from PySide6.QtWidgets import QMenu, QPlainTextEdit, QWidget
 
-from ui.markdown_actions import CONTEXT_MENU_ITEMS
+from core.markdown_actions import CONTEXT_MENU_ITEMS
 
 
 def show_editor_context_menu(

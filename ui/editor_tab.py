@@ -52,7 +52,8 @@ from markdown.html_builder import (
     preprocess_wikilinks,
     strip_frontmatter,
 )
-from ui.animation_speed import animation_duration_ms
+from core.animation_speed import animation_duration_ms
+from core.services.link_resolver import resolve_link_target
 from ui.find_bar import FindBar
 from ui.image_viewer import ImageViewer
 from ui.link_preview_popup import LinkPreviewPopup
@@ -1205,90 +1206,11 @@ class EditorTab(QWidget):
         self._link_preview_popup.show_for_path(path, global_pos, editor_font)
 
     def _resolve_link_target(self, target: str, quick: bool = False) -> Path | None:
-        """Resolve a link/wikilink target to an absolute Path, or None.
-        If *quick* is True, skip the full rglob search (used for link
-        highlighting — the click handler still does the full search)."""
-        _LOG.debug("_resolve_link_target: %s", target)
-        target_path = Path(target)
-        if target_path.is_absolute():
-            exists = target_path.exists()
-            return target_path if exists else None
-
-        base = self._file_path.parent if self._file_path else Path.cwd()
-        vault_root = (
-            self._attachments_dir.parent.resolve()
-            if self._attachments_dir is not None
-            else None
+        """Resolve a link/wikilink target — delegates to pure ``resolve_link_target``."""
+        source_dir = self._file_path.parent if self._file_path else Path.cwd()
+        return resolve_link_target(
+            target, source_dir, self._attachments_dir, quick=quick,
         )
-
-        # 1. Same directory as the source file.
-        candidates = [base / target_path]
-        if target_path.suffix.lower() not in (".md", ".markdown"):
-            candidates.append(base / (target + ".md"))
-            candidates.append(base / (target + ".markdown"))
-        for p in candidates:
-            if p.is_file():
-                return p.resolve()
-
-        # 2. Attachments directory (by filename).
-        if self._attachments_dir is not None:
-            candidate = self._attachments_dir / target_path.name
-            if candidate.is_file():
-                return candidate.resolve()
-
-        # 3. Proximity search: walk up the directory tree (max 5 levels).
-        if vault_root is not None:
-            check_dir = base.resolve()
-            for _ in range(5):
-                if check_dir == vault_root or check_dir.parent == check_dir:
-                    break
-                check_dir = check_dir.parent
-                pc = check_dir / target_path
-                if pc.is_file():
-                    return pc.resolve()
-                if target_path.suffix.lower() not in (".md", ".markdown"):
-                    for ext in (".md", ".markdown"):
-                        p2 = check_dir / (target + ext)
-                        if p2.is_file():
-                            return p2.resolve()
-                    for ext in self._IMG_EXTS | self._PDF_EXTS:
-                        p2 = check_dir / (target + ext)
-                        if p2.is_file():
-                            return p2.resolve()
-
-        # 4. Extension fallback in the base + attachments dir.
-        if target_path.suffix.lower() not in self._IMG_EXTS | self._PDF_EXTS:
-            for ext in self._IMG_EXTS | self._PDF_EXTS:
-                p = base / (target + ext)
-                if p.is_file():
-                    return p.resolve()
-                if self._attachments_dir is not None:
-                    p2 = self._attachments_dir / (target_path.name + ext)
-                    if p2.is_file():
-                        return p2.resolve()
-
-        # 5. Full recursive search of the vault root (skipped for quick checks).
-        if quick:
-            return None
-
-        search_root = vault_root if vault_root is not None else base
-        target_name = target_path.name.lower()
-        try:
-            for p in search_root.rglob("*"):
-                if p.is_file() and p.name.lower() == target_name:
-                    try:
-                        if any(
-                            part.startswith(".")
-                            for part in p.relative_to(search_root).parts
-                        ):
-                            continue
-                    except ValueError:
-                        pass
-                    return p.resolve()
-        except PermissionError:
-            pass
-
-        return None
 
     def _refresh_link_highlights(self) -> None:
         """Mark unresolved links in red using extra selections.

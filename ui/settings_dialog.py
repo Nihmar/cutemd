@@ -36,7 +36,7 @@ from ui.markdown_completer import DEFAULT_SMART_EDITING
 from ui.shortcut_manager import DEFAULT_SHORTCUTS
 from ui.themes import ALL_THEMES, get_theme
 from ui.translations import LANGUAGES
-from ui.webdav_sync import WebDAVClient
+from core.webdav.sync import WebDAVClient
 from ui.widgets import CuteListWidget
 
 _FONT_FAMILIES: list[str] | None = None
