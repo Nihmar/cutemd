@@ -726,7 +726,7 @@ class MainWindow(QMainWindow):
         tab.status_changed.connect(self._on_tab_status)
         tab.title_changed.connect(lambda: self._refresh_tab_title(tab))
         tab.file_link_clicked.connect(
-            lambda target, t=tab: self._on_file_link_clicked(t, target)
+            lambda target, display, t=tab: self._on_file_link_clicked(t, target, display)
         )
         tab.encoding_changed.connect(self._on_tab_encoding_changed)
 
@@ -1893,8 +1893,14 @@ class MainWindow(QMainWindow):
         for i in reversed(to_close):
             self._on_tab_close_requested(i)
 
-    def _on_file_link_clicked(self, source_tab: EditorTab, target: str) -> None:
-        """Click on a link/wikilink — open URL in browser or file in a tab."""
+    def _on_file_link_clicked(
+        self, source_tab: EditorTab, target: str, display: str = ""
+    ) -> None:
+        """Click on a link/wikilink — open URL in browser or file in a tab.
+
+        If the target markdown file does not exist and a folder is open,
+        create it (with an optional heading derived from the display text).
+        """
         # URLs → open in browser
         if target.startswith(("http://", "https://", "www.")):
             from PySide6.QtCore import QUrl
@@ -1911,8 +1917,17 @@ class MainWindow(QMainWindow):
             else None
         )
         path = resolve_link_target(target, source_dir, attachments_dir)
+
+        # File not found → create it (only in folder mode).
         if path is None:
-            return
+            if self._folder_path is None:
+                return
+            path = self._folder_path / (target + ".md")
+            # Avoid overwriting an existing file (race condition).
+            if not path.exists():
+                heading = _heading_from_display(display, target)
+                path.write_text(f"{heading}\n", encoding="utf-8")
+                _LOG.debug("created missing link target: %s", path)
 
         idx = self._find_tab_for_file(path)
         if idx >= 0:
@@ -1923,6 +1938,14 @@ class MainWindow(QMainWindow):
         tab.load_file(path)
         self._refresh_tab_title(tab)
         self._update_window_title()
+
+
+def _heading_from_display(display: str, target: str) -> str:
+    """Build an ``# `` heading for a newly created link target."""
+    text = display or target
+    text = text.strip().lstrip("#").strip()
+    return f"# {text}" if text else ""
+
 
     def _on_autosave(self) -> None:
         """Autosave: silently save all modified tabs with a file path."""

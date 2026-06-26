@@ -186,7 +186,7 @@ class EditorTab(QWidget):
     modified_changed = Signal(bool)
     status_changed = Signal(str, str)
     title_changed = Signal()
-    file_link_clicked = Signal(str)
+    file_link_clicked = Signal(str, str)  # target, display_text
     encoding_changed = Signal(str)
 
     _MD_EXTS = frozenset({".md", ".markdown"})
@@ -299,7 +299,7 @@ class EditorTab(QWidget):
         self.preview.setOpenLinks(False)
         self.preview.setOpenExternalLinks(False)
         self.preview.file_link_clicked.connect(
-            lambda target: self.file_link_clicked.emit(target)
+            lambda target: self.file_link_clicked.emit(target, "")
         )
         if self._attachments_dir is not None:
             self.preview.set_attachments_dir(self._attachments_dir)
@@ -1016,15 +1016,17 @@ class EditorTab(QWidget):
     @classmethod
     def _link_range_at(
         cls, pos_in_block: int, text: str
-    ) -> tuple[str, int, int] | None:
+    ) -> tuple[str, str, int, int] | None:
         for m in cls._WIKILINK_RE.finditer(text):
             if m.start() <= pos_in_block < m.end():
                 inner = m.group(1).strip()
-                target = inner.split("|")[-1].strip() if "|" in inner else inner
-                return (target, m.start(), m.end())
+                if "|" in inner:
+                    display, _, target = inner.partition("|")
+                    return (target.strip(), display.strip(), m.start(), m.end())
+                return (inner, inner, m.start(), m.end())
         for m in cls._LINK_RE.finditer(text):
             if m.start() <= pos_in_block < m.end():
-                return (m.group(2).strip(), m.start(), m.end())
+                return (m.group(2).strip(), m.group(1).strip(), m.start(), m.end())
         return None
 
     def _on_mouse_move(self, event: QMouseEvent) -> None:
@@ -1037,7 +1039,7 @@ class EditorTab(QWidget):
 
         if link:
             _LOG.debug("_on_mouse_move: url link detected")
-            target, start, end = link
+            target, display, start, end = link
             new_key = (block.blockNumber(), start, end)
             if new_key != self._hover_link_key:
                 self._hover_link_key = new_key
@@ -1098,7 +1100,7 @@ class EditorTab(QWidget):
             self._link_preview_popup.hide()
             self._hovered_link_target = None
             self._link_preview_show_timer.stop()
-            self.file_link_clicked.emit(link[0])
+            self.file_link_clicked.emit(link[0], link[1])
             return True
         # Hide popup on any click not on a link.
         self._link_preview_popup.hide()
