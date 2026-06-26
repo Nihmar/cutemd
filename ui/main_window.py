@@ -49,7 +49,9 @@ from PySide6.QtWidgets import (
 
 from ui import theme
 from core.animation_speed import animation_duration_ms
+from core.services.folder_setup import default_folder_config
 from core.services.link_resolver import resolve_link_target
+from core.services.recent_folders import update_recent_folders
 from ui.editor_context_menu import show_editor_context_menu
 from ui.editor_tab import EditorTab
 from ui.editor_toolbar import EditorToolbar
@@ -1482,14 +1484,13 @@ class MainWindow(QMainWindow):
         self._folder_settings = FolderSettings(path)
         # Seed with global defaults if .cutemd/settings.json doesn't exist yet
         if not self._folder_settings.config_path.is_file():
-            global_cfg = {
-                "theme": self._s.theme(),
-                "editor_font_family": self._editor_font_family,
-                "editor_font_size": self._editor_font_size,
-                "preview_font_family": self._preview_font_family,
-                "preview_font_size": self._preview_font_size,
-                "attachments_dir": "images",
-            }
+            global_cfg = default_folder_config(
+                global_theme=self._s.theme(),
+                editor_font_family=self._editor_font_family,
+                editor_font_size=self._editor_font_size,
+                preview_font_family=self._preview_font_family,
+                preview_font_size=self._preview_font_size,
+            )
             self._folder_settings.save(global_cfg)
         self._folder_settings.load()
 
@@ -1619,10 +1620,9 @@ class MainWindow(QMainWindow):
 
     def _add_recent_folder(self, path: Path) -> None:
         recent = self._s.recent_folders()
-        sp = str(path.resolve())
-        recent = [p for p in recent if p != sp]
-        recent.insert(0, sp)
-        self._s.set_recent_folders(recent[:10])
+        self._s.set_recent_folders(
+            update_recent_folders(recent, str(path.resolve()))
+        )
 
     def _save_session(self) -> None:
         """Save the list of open tab file paths and current folder to settings."""
