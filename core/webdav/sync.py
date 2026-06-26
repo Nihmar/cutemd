@@ -75,10 +75,11 @@ class WebDAVClient:
         self._timeout = timeout
 
     def test_connection(self) -> tuple[bool, str]:
+        url = self._base + "/"
         try:
             resp = self._session.request(
                 "PROPFIND",
-                self._base,
+                url,
                 data=_PROP_FIND_BODY,
                 headers={"Depth": "0"},
                 timeout=self._timeout,
