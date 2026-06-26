@@ -187,7 +187,7 @@ class MarkdownAutoCompleter(QObject):
         if open_char == "[":
             if link_style == "wiki":
                 # [[ → [[|]]  cursor between double brackets
-                cursor.insertText("[[ ]]")
+                cursor.insertText("[[]]")
                 cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, 2)
             else:
                 # [ → []()  cursor between brackets
