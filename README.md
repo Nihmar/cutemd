@@ -6,6 +6,26 @@ A non-WYSIWYG Markdown editor with live preview, syntax highlighting, folder-bas
 
 > **Disclaimer:** This project is vibecoded. Although it has been tested and works for my use cases, it may contain bugs, edge cases, or unexpected behavior. **I am not responsible for any loss of data or other damages that may occur from using this software.** Use at your own risk and keep backups of your files.
 
+## Installation
+
+### Requirements
+
+- Python ≥ 3.11
+- [uv](https://docs.astral.sh/uv/) — package manager
+
+### Quick start (from source)
+
+```bash
+git clone https://github.com/Nihmar/cutemd.git
+cd cutemd
+uv sync
+uv run main.py
+```
+
+### Pre-built packages
+
+Pre-built binaries for Linux (AppImage, .deb, .rpm, Arch) and Windows (.exe, installer) are available on the [releases page](https://github.com/Nihmar/cutemd/releases).
+
 ## Features
 
 - **Split editor + live preview** with exact anchor-based scroll sync
@@ -21,26 +41,71 @@ A non-WYSIWYG Markdown editor with live preview, syntax highlighting, folder-bas
 - **Keyboard shortcuts** for all common actions
 - **Persistent state** — last folder, theme choice, window size remembered via QSettings
 
-## Requirements
+### Keyboard shortcuts
 
-- Python ≥ 3.11
-- [uv](https://docs.astral.sh/uv/) — package manager
+| Key | Action |
+|---|---|
+| `Ctrl+O` | Open folder |
+| `Ctrl+Shift+O` | Close folder |
+| `Ctrl+N` | New file |
+| `Ctrl+S` | Save |
+| `Ctrl+Shift+S` | Save as |
+| `Ctrl+Alt+S` | WebDAV Sync Now |
+| `Ctrl+W` | Close tab |
+| `Ctrl+Q` | Quit |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Shift+Z` | Redo |
+| `Ctrl+F` | Find in editor |
+| `Ctrl+Shift+F` | Find in files |
+| `Ctrl+Shift+H` | Replace in files |
+| `Ctrl+B` | Toggle file tree |
+| `Ctrl+P` | Toggle preview |
+| `Ctrl+Shift+P` | Toggle split |
+| `Ctrl+Shift+B` | Toggle status bar |
+| `Ctrl+,` | Settings |
+| `Ctrl+/` | Keyboard shortcuts reference |
+| `Ctrl+=` | Zoom in (editor) |
+| `Ctrl+-` | Zoom out (editor) |
+| `Ctrl+0` | Reset zoom |
+| `Ctrl+Shift+=` | Zoom in (preview) |
+| `Ctrl+Shift+-` | Zoom out (preview) |
 
-## Quick start
+### Themes
 
-```bash
-# Clone and enter the project
-git clone https://github.com/Nihmar/cutemd.git
-cd cutemd
+Settings → Settings… opens the theme picker. Choose from:
 
-# Install dependencies
-uv sync
+| Theme | Type |
+|---|---|
+| System | Follows OS light/dark |
+| Nord | Dark |
+| Gruvbox Dark | Dark |
+| Catppuccin Mocha | Dark |
+| Catppuccin Latte | Light |
+| Tokyo Night | Dark |
+| Dracula | Dark |
+| Solarized Dark | Dark |
+| Everforest | Dark |
 
-# Run
-uv run main.py
-```
+### WebDAV Sync
 
-## Project structure
+CuteMD can synchronise a folder with any WebDAV server (Nextcloud, OpenMediaVault, Synology, Apache, Nginx…).
+
+**Setup:**
+1. Open a folder, then Settings → Sync
+2. Enter the WebDAV URL (`https://server.com/dav/notes`), username, and password
+3. Click **Test Connection** to verify
+4. Save with OK — credentials are saved in `.cutemd/webdav.json`
+
+**Usage:**
+- `Ctrl+Alt+S` or File → Sync Now to synchronise
+- All files in the folder (excluding `.cutemd/`, `.git/`) are synced
+- Sync is bidirectional: new local files are uploaded, new remote files are downloaded
+- If a file was modified on both sides, the newest version wins
+- A `.cutemd/sync_state.json` keeps track of last-synced timestamps to avoid redundant transfers
+
+## How to develop
+
+### Project structure
 
 ```
 cutemd/
@@ -88,11 +153,21 @@ cutemd/
 └── uv.lock
 ```
 
-## Building for distribution
+### Dev commands
+
+```bash
+uv run main.py              # run the app
+uv sync                     # install/update dependencies
+uv run pyinstaller <args>   # use PyInstaller (must be in dev deps)
+```
+
+There are **no tests, no linter, no type checker** configured.
+
+### Building for distribution
 
 All build scripts produce a self-contained bundle — no Python, Qt, or other runtime dependencies are needed on the target system.
 
-### Linux — AppImage
+#### Linux — AppImage
 
 ```bash
 # 1. Install PyInstaller
@@ -113,7 +188,7 @@ sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
 
 The AppImage is self-contained — no dependencies needed on the target system. It registers `text/markdown` MIME type so `.md` files open in CuteMD.
 
-### Linux — Debian / Ubuntu (.deb)
+#### Linux — Debian / Ubuntu (.deb)
 
 ```bash
 # Prerequisites: dpkg-deb (included in dpkg, standard on Debian/Ubuntu)
@@ -136,7 +211,7 @@ sudo apt remove cutemd       # remove the package
 sudo apt purge cutemd        # also remove config files
 ```
 
-### Linux — Arch (.pkg.tar.zst)
+#### Linux — Arch (.pkg.tar.zst)
 
 ```bash
 # Prerequisites: makepkg, base-devel (standard on Arch), uv
@@ -157,7 +232,7 @@ To uninstall:
 sudo pacman -R cutemd
 ```
 
-#### Using the PKGBUILD directly
+##### Using the PKGBUILD directly
 
 If you prefer to build from source with `makepkg` manually (e.g. for AUR submission or customisation), use the provided `scripts/PKGBUILD` template:
 
@@ -174,7 +249,7 @@ makepkg -si
 # -s installs missing dependencies, -i installs the package after building
 ```
 
-### Windows
+#### Windows
 
 ```bash
 # On Windows (Git Bash, WSL, or PowerShell)
@@ -210,36 +285,7 @@ To register file types without the installer, run:
 powershell -ExecutionPolicy Bypass -File scripts\register_windows.ps1 -ExePath "dist\cutemd\cutemd.exe"
 ```
 
-## Keyboard shortcuts
-
-| Key | Action |
-|---|---|
-| `Ctrl+O` | Open folder |
-| `Ctrl+Shift+O` | Close folder |
-| `Ctrl+N` | New file |
-| `Ctrl+S` | Save |
-| `Ctrl+Shift+S` | Save as |
-| `Ctrl+Alt+S` | WebDAV Sync Now |
-| `Ctrl+W` | Close tab |
-| `Ctrl+Q` | Quit |
-| `Ctrl+Z` | Undo |
-| `Ctrl+Shift+Z` | Redo |
-| `Ctrl+F` | Find in editor |
-| `Ctrl+Shift+F` | Find in files |
-| `Ctrl+Shift+H` | Replace in files |
-| `Ctrl+B` | Toggle file tree |
-| `Ctrl+P` | Toggle preview |
-| `Ctrl+Shift+P` | Toggle split |
-| `Ctrl+Shift+B` | Toggle status bar |
-| `Ctrl+,` | Settings |
-| `Ctrl+/` | Keyboard shortcuts reference |
-| `Ctrl+=` | Zoom in (editor) |
-| `Ctrl+-` | Zoom out (editor) |
-| `Ctrl+0` | Reset zoom |
-| `Ctrl+Shift+=` | Zoom in (preview) |
-| `Ctrl+Shift+-` | Zoom out (preview) |
-
-## Versioning
+### Versioning
 
 The version is stored in four places — update all of them in sync:
 
@@ -249,39 +295,6 @@ The version is stored in four places — update all of them in sync:
 | `main.py` | `__version__ = "1.0.0"` | Runtime version string (all platforms) |
 | `scripts/file_version_info.txt` | `filevers`, `prodvers`, etc. | Windows EXE metadata (via `--version-file`) |
 | `scripts/cutemd_setup.iss` | `#define MyAppVersion "x.y.z"` | Inno Setup installer (Windows)
-
-## Themes
-
-Settings → Settings… opens the theme picker. Choose from:
-
-| Theme | Type |
-|---|---|
-| System | Follows OS light/dark |
-| Nord | Dark |
-| Gruvbox Dark | Dark |
-| Catppuccin Mocha | Dark |
-| Catppuccin Latte | Light |
-| Tokyo Night | Dark |
-| Dracula | Dark |
-| Solarized Dark | Dark |
-| Everforest | Dark |
-
-## WebDAV Sync
-
-CuteMD can synchronise a folder with any WebDAV server (Nextcloud, OpenMediaVault, Synology, Apache, Nginx…).
-
-**Setup:**
-1. Open a folder, then Settings → Sync
-2. Enter the WebDAV URL (`https://server.com/dav/notes`), username, and password
-3. Click **Test Connection** to verify
-4. Save with OK — credentials are saved in `.cutemd/webdav.json`
-
-**Usage:**
-- `Ctrl+Alt+S` or File → Sync Now to synchronise
-- All files in the folder (excluding `.cutemd/`, `.git/`) are synced
-- Sync is bidirectional: new local files are uploaded, new remote files are downloaded
-- If a file was modified on both sides, the newest version wins
-- A `.cutemd/sync_state.json` keeps track of last-synced timestamps to avoid redundant transfers
 
 ## License
 
