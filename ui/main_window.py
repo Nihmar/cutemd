@@ -5,8 +5,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from core.logging import setup_logging
-
 from PySide6.QtCore import (
     QEasingCurve,
     QEvent,
@@ -47,23 +45,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui import theme
 from core.animation_speed import animation_duration_ms
+from core.folder_settings import FolderSettings
+from core.logging import setup_logging
 from core.services.folder_setup import default_folder_config
 from core.services.link_resolver import resolve_link_target
 from core.services.recent_folders import update_recent_folders
+from core.webdav.sync import sync_folder
+from ui import theme
 from ui.editor_context_menu import show_editor_context_menu
 from ui.editor_tab import EditorTab
 from ui.editor_toolbar import EditorToolbar
 from ui.file_tree_panel import FileTreePanel
-from core.folder_settings import FolderSettings
 from ui.search_panel import SearchPanel
 from ui.settings_manager import AppSettings
 from ui.shortcut_manager import ShortcutManager
 from ui.theme_manager import ThemeManager
 from ui.themes import get_theme, system_theme
 from ui.toc_panel import TocPanel
-from core.webdav.sync import sync_folder
 
 # ---------------------------------------------------------------------------
 # Paths (supports PyInstaller one-file bundles)
@@ -76,6 +75,7 @@ _CSS_PATH = _ROOT / "ui" / "preview_styles.css"
 _ICONS_DIR = _ROOT / "ui" / "icons"
 
 _LOG = setup_logging("cutemd.main_window")
+
 
 # ---------------------------------------------------------------------------
 # MainWindow
@@ -103,7 +103,13 @@ class MainWindow(QMainWindow):
         self._editor_font_size = self._s.editor_font_size(13)
         self._preview_font_family = self._s.preview_font_family("System")
         self._preview_font_size = self._s.preview_font_size(13)
-        _LOG.debug("__init__: editor_font=%s %d preview_font=%s %d", self._editor_font_family, self._editor_font_size, self._preview_font_family, self._preview_font_size)
+        _LOG.debug(
+            "__init__: editor_font=%s %d preview_font=%s %d",
+            self._editor_font_family,
+            self._editor_font_size,
+            self._preview_font_family,
+            self._preview_font_size,
+        )
 
         # Other settings
         self._language = self._s.language()
@@ -463,7 +469,9 @@ class MainWindow(QMainWindow):
         # --- File tree panel ---
         self._tree_panel = FileTreePanel()
         self._tree_panel.file_activated.connect(self._on_tree_file_activated)
-        self._tree_panel.file_double_activated.connect(self._on_tree_file_double_activated)
+        self._tree_panel.file_double_activated.connect(
+            self._on_tree_file_double_activated
+        )
         self._tree_panel.file_open_new_tab.connect(self._on_tree_file_new_tab)
         self._tree_panel.file_renamed.connect(self._on_tree_file_renamed)
         self._tree_panel.file_deleted.connect(self._on_tree_file_deleted)
@@ -586,7 +594,10 @@ class MainWindow(QMainWindow):
             self._tree_anim.stop()
         start = self._splitter.sizes()[0]
 
-        self._splitter.setUpdatesEnabled(False)
+        if start == left_width:
+            if on_finish:
+                on_finish()
+            return
 
         self._tree_anim = QVariantAnimation(self)
         self._tree_anim.setDuration(animation_duration_ms(150))
@@ -601,7 +612,6 @@ class MainWindow(QMainWindow):
         self._tree_anim.valueChanged.connect(_step)
 
         def _done() -> None:
-            self._splitter.setUpdatesEnabled(True)
             self._reset_save_timer()
             if on_finish:
                 on_finish()
@@ -618,6 +628,10 @@ class MainWindow(QMainWindow):
             self._splitter.setSizes([left, total - left])
         self._reset_save_timer()
 
+    def _is_left_panel_open(self) -> bool:
+        """Return True if the left panel is currently visible with non-zero width."""
+        return self._left_stack.isVisible() and self._splitter.sizes()[0] > 0
+
     def _on_side_tree_toggled(self, checked: bool) -> None:
         if checked:
             self._side_search_btn.blockSignals(True)
@@ -627,7 +641,8 @@ class MainWindow(QMainWindow):
             self._side_toc_btn.setChecked(False)
             self._side_toc_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(0)
-            self._show_left_panel()
+            if not self._is_left_panel_open():
+                self._show_left_panel()
         else:
             self._hide_left_panel()
 
@@ -640,7 +655,8 @@ class MainWindow(QMainWindow):
             self._side_toc_btn.setChecked(False)
             self._side_toc_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(1)
-            self._show_left_panel()
+            if not self._is_left_panel_open():
+                self._show_left_panel()
             self._search_panel._search_input.setFocus()
         else:
             self._hide_left_panel()
@@ -654,7 +670,8 @@ class MainWindow(QMainWindow):
             self._side_search_btn.setChecked(False)
             self._side_search_btn.blockSignals(False)
             self._left_stack.setCurrentIndex(2)
-            self._show_left_panel()
+            if not self._is_left_panel_open():
+                self._show_left_panel()
             self._rebuild_toc()
         else:
             self._hide_left_panel()
@@ -1336,7 +1353,9 @@ class MainWindow(QMainWindow):
             if r.unchanged:
                 parts.append(self.tr("{} unchanged").format(len(r.unchanged)))
             if r.conflicts_skipped:
-                parts.append(self.tr("{} conflicts skipped").format(len(r.conflicts_skipped)))
+                parts.append(
+                    self.tr("{} conflicts skipped").format(len(r.conflicts_skipped))
+                )
             status = ", ".join(parts) if parts else self.tr("Sync completed")
             if r.errors:
                 status += " \u2014 " + self.tr("{} errors").format(len(r.errors))
@@ -1621,9 +1640,7 @@ class MainWindow(QMainWindow):
 
     def _add_recent_folder(self, path: Path) -> None:
         recent = self._s.recent_folders()
-        self._s.set_recent_folders(
-            update_recent_folders(recent, str(path.resolve()))
-        )
+        self._s.set_recent_folders(update_recent_folders(recent, str(path.resolve())))
 
     def _save_session(self) -> None:
         """Save the list of open tab file paths and current folder to settings."""
@@ -1962,7 +1979,9 @@ class MainWindow(QMainWindow):
             self._save_session()
         self._s.set_window_geometry(self.saveGeometry())
         left = self._splitter.sizes()[0]
-        _LOG.debug("closeEvent: splitter sizes=%s saving left=%d", self._splitter.sizes(), left)
+        _LOG.debug(
+            "closeEvent: splitter sizes=%s saving left=%d", self._splitter.sizes(), left
+        )
         if left > 0:
             self._s.set_left_panel_width(left)
             self._s._s.sync()
