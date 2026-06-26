@@ -12,6 +12,10 @@ There are **no tests, no linter, no type checker** configured. Don't run command
 
 CI is configured via `.github/workflows/release.yml` — auto-builds AppImage + Windows .exe/installer on `git tag v*`.
 
+## Committing
+
+Never commit changes without asking for confirmation first.
+
 ## Package boundaries
 
 - `markdown/` — pure Markdown processing, **no Qt imports**. Used by `ui/`.
