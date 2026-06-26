@@ -380,6 +380,20 @@ class SettingsDialog(QDialog):
                 self._auto_update_toggle,
             )
         )
+
+        # Interface section
+        card_lay.addWidget(self._separator())
+        card_lay.addWidget(self._section_label(self.tr("INTERFACE")))
+        self._menu_bar_toggle = _ToggleSwitch(
+            self._app_settings.menu_bar_visible() if self._app_settings else True
+        )
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Show menu bar"),
+                self._menu_bar_toggle,
+                self.tr("Press Ctrl+P for command palette"),
+            )
+        )
         gen_lay.addWidget(card)
 
         gen_lay.addStretch()
@@ -1087,6 +1101,9 @@ class SettingsDialog(QDialog):
 
     def selected_auto_update_check(self) -> bool:
         return self._auto_update_toggle.isChecked()
+
+    def selected_menu_bar_visible(self) -> bool:
+        return self._menu_bar_toggle.isChecked()
 
     def selected_auto_sync_enabled(self) -> bool:
         if hasattr(self, "_auto_sync_toggle"):

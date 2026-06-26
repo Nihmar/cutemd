@@ -41,6 +41,8 @@ _SHORTCUT_CATEGORIES: dict[str, str] = {
     "act_zoom_preview_in": "View",
     "act_zoom_preview_out": "View",
     "act_webdav_sync": "File",
+    "act_check_update": "Help",
+    "act_command_palette": "Help",
     "act_settings": "Settings",
     "act_shortcuts": "Help",
 }

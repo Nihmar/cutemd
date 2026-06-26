@@ -209,6 +209,7 @@ class MainWindow(QMainWindow):
             "act_settings": self.act_settings,
             "act_shortcuts": self.act_shortcuts,
             "act_check_update": self.act_check_update,
+            "act_command_palette": self.act_command_palette,
             "act_webdav_sync": self.act_webdav_sync,
             "act_zoom_in": self.act_zoom_in,
             "act_zoom_out": self.act_zoom_out,
@@ -222,6 +223,9 @@ class MainWindow(QMainWindow):
         self._setup_statusbar()
         self._setup_central()
         self._apply_theme()
+
+        # Menu bar visibility
+        self._apply_menu_bar_visibility()
 
         # Restore last folder (or prompt on first run)
         QTimer.singleShot(0, self._restore_last_folder)
@@ -342,6 +346,9 @@ class MainWindow(QMainWindow):
         self.act_check_update = QAction(self.tr("Check for &Updates…"), self)
         self.act_check_update.triggered.connect(lambda: self._check_for_updates(silent=False))
 
+        self.act_command_palette = QAction(self.tr("&Command Palette…"), self)
+        self.act_command_palette.triggered.connect(self._on_command_palette)
+
         self.act_webdav_sync = QAction(self.tr("&Sync Now"), self)
         self.act_webdav_sync.setShortcut(QKeySequence("Ctrl+Alt+S"))
         self.act_webdav_sync.triggered.connect(self._on_webdav_sync)
@@ -397,7 +404,7 @@ class MainWindow(QMainWindow):
 
         self._view_menu = mb.addMenu(self.tr("&View"))
         self._view_menu.addAction(self.act_toggle_preview)
-        self._view_menu.addAction(self.act_toggle_split)
+        # act_toggle_split is deprecated — kept for backward compat, hidden from menu.
         self._view_menu.addSeparator()
         self._view_menu.addAction(self.act_toggle_tree)
         self._view_menu.addAction(self.act_toggle_statusbar)
@@ -413,9 +420,25 @@ class MainWindow(QMainWindow):
         self._settings_menu.addAction(self.act_settings)
 
         self._help_menu = mb.addMenu(self.tr("&Help"))
+        self._help_menu.addAction(self.act_command_palette)
+        self._help_menu.addSeparator()
         self._help_menu.addAction(self.act_check_update)
         self._help_menu.addSeparator()
         self._help_menu.addAction(self.act_shortcuts)
+
+    def _apply_menu_bar_visibility(self) -> None:
+        visible = self._s.menu_bar_visible()
+        self.menuBar().setVisible(visible)
+        # QShortcut is processed independently of QMenuBar — on Windows
+        # hiding the menu bar disables QAction shortcut processing, so we
+        # install a dedicated shortcut as a safety net.
+        try:
+            self._palette_shortcut.deleteLater()
+        except AttributeError:
+            pass
+        from PySide6.QtGui import QShortcut
+        self._palette_shortcut = QShortcut(QKeySequence("Ctrl+P"), self)
+        self._palette_shortcut.activated.connect(self._on_command_palette)
 
     # ------------------------------------------------------------------
     # Central widget
@@ -1224,6 +1247,12 @@ class MainWindow(QMainWindow):
         # --- Auto-update ---
         self._s.set_auto_update_check(dlg.selected_auto_update_check())
 
+        # --- Menu bar ---
+        new_mbv = dlg.selected_menu_bar_visible()
+        if new_mbv != self._s.menu_bar_visible():
+            self._s.set_menu_bar_visible(new_mbv)
+            self.menuBar().setVisible(new_mbv)
+
         # --- Per-folder settings (shortcuts, images, WebDAV, appearance) ---
         if self._folder_settings is not None:
             new_sc = dlg.selected_shortcuts()
@@ -1427,10 +1456,44 @@ class MainWindow(QMainWindow):
             "act_zoom_preview_in": self.act_zoom_preview_in,
             "act_zoom_preview_out": self.act_zoom_preview_out,
             "act_webdav_sync": self.act_webdav_sync,
+            "act_check_update": self.act_check_update,
+            "act_command_palette": self.act_command_palette,
             "act_settings": self.act_settings,
             "act_shortcuts": self.act_shortcuts,
         }
         dlg = ShortcutsDialog(actions, self)
+        dlg.exec()
+
+    def _on_command_palette(self) -> None:
+        from ui.command_palette import CommandPalette
+
+        actions = {
+            "act_open_folder": self.act_open_folder,
+            "act_close_folder": self.act_close_folder,
+            "act_new": self.act_new,
+            "act_save": self.act_save,
+            "act_save_as": self.act_save_as,
+            "act_close_tab": self.act_close_tab,
+            "act_exit": self.act_exit,
+            "act_undo": self.act_undo,
+            "act_redo": self.act_redo,
+            "act_find": self.act_find,
+            "act_find_files": self.act_find_files,
+            "act_replace_files": self.act_replace_files,
+            "act_toggle_preview": self.act_toggle_preview,
+            "act_toggle_tree": self.act_toggle_tree,
+            "act_toggle_statusbar": self.act_toggle_statusbar,
+            "act_zoom_in": self.act_zoom_in,
+            "act_zoom_out": self.act_zoom_out,
+            "act_zoom_reset": self.act_zoom_reset,
+            "act_zoom_preview_in": self.act_zoom_preview_in,
+            "act_zoom_preview_out": self.act_zoom_preview_out,
+            "act_webdav_sync": self.act_webdav_sync,
+            "act_check_update": self.act_check_update,
+            "act_settings": self.act_settings,
+            "act_shortcuts": self.act_shortcuts,
+        }
+        dlg = CommandPalette(actions, self)
         dlg.exec()
 
     def _check_for_updates(self, silent: bool = False) -> None:
@@ -2056,6 +2119,7 @@ class MainWindow(QMainWindow):
         self.act_settings.setText(self.tr("&Settings…"))
         self.act_shortcuts.setText(self.tr("&Keyboard Shortcuts…"))
         self.act_check_update.setText(self.tr("Check for &Updates…"))
+        self.act_command_palette.setText(self.tr("&Command Palette…"))
         self.act_webdav_sync.setText(self.tr("&Sync Now"))
         self.act_zoom_in.setText(self.tr("Zoom &In (Editor)"))
         self.act_zoom_out.setText(self.tr("Zoom &Out (Editor)"))

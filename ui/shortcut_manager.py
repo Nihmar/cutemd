@@ -2,6 +2,7 @@
 
 from typing import TYPE_CHECKING
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence
 
 if TYPE_CHECKING:
@@ -21,10 +22,10 @@ DEFAULT_SHORTCUTS: dict[str, str] = {
     "act_find": "Ctrl+F",
     "act_find_files": "Ctrl+Shift+F",
     "act_replace_files": "Ctrl+Shift+H",
-    "act_toggle_preview": "Ctrl+P",
-    "act_toggle_split": "Ctrl+Shift+P",
+    "act_toggle_preview": "Ctrl+Shift+P",
     "act_toggle_tree": "Ctrl+B",
     "act_toggle_statusbar": "Ctrl+Shift+B",
+    "act_command_palette": "Ctrl+P",
     "act_settings": "Ctrl+,",
     "act_shortcuts": "Ctrl+/",
     "act_webdav_sync": "Ctrl+Alt+S",
@@ -52,3 +53,5 @@ class ShortcutManager:
                 action.setShortcut(QKeySequence(shortcut))
             else:
                 action.setShortcut(QKeySequence())
+            # ApplicationShortcut so shortcuts work even with hidden menu bar.
+            action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)

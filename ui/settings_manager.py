@@ -230,6 +230,16 @@ class AppSettings(QObject):
         self._s.setValue("show_hidden_files", value)
 
     # ------------------------------------------------------------------
+    # Menu bar
+    # ------------------------------------------------------------------
+    def menu_bar_visible(self, default: bool = True) -> bool:
+        val = self._s.value("menu_bar_visible", default)
+        return str(val).lower() == "true" if isinstance(val, str) else bool(val)
+
+    def set_menu_bar_visible(self, value: bool) -> None:
+        self._s.setValue("menu_bar_visible", value)
+
+    # ------------------------------------------------------------------
     # Raw access (for backward compat / complex values)
     # ------------------------------------------------------------------
     def raw_value(self, key: str, default: Any = None) -> Any:
