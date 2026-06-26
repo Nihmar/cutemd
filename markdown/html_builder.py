@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import re
+from html import unescape as _unescape_html
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -60,12 +61,12 @@ def _inject_copy_buttons(html: str) -> str:
         inner = m.group(2)
         close_tag = m.group(3)
 
-        # Strip HTML tags to recover the raw source code.
-        raw = _TAG_STRIP_RE.sub("", inner)
+        # Strip HTML tags and decode entities to recover raw source.
+        raw = _unescape_html(_TAG_STRIP_RE.sub("", inner))
         encoded = base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
 
         copy_link = (
-            '<p style="text-align:right;margin:4px 2px 2px;font-size:13px;">'
+            '<p style="text-align:right;margin:2px 0;font-size:12px;">'
             f'<a href="http://cutemd-copy/{encoded}" '
             'style="text-decoration:none;">📋 Copy</a></p>'
         )
