@@ -6,7 +6,6 @@ from typing import Any
 from PySide6.QtCore import QRectF, QSize, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QFontDatabase, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -321,7 +320,7 @@ class SettingsDialog(QDialog):
 
         _icons = ["🌐", "🎨", "✏️", "👁️", "💾", "⌨️", "🔄"]
         _names = [
-            self.tr("Language"),
+            self.tr("General"),
             self.tr("Theme"),
             self.tr("Editor"),
             self.tr("Preview Font"),
@@ -345,12 +344,15 @@ class SettingsDialog(QDialog):
 
         self._stack = QStackedWidget()
 
-        # ---- Page 0: Language ----
-        lang_scroll, lang_lay = self._build_page(
-            self.tr("Language"),
-            self.tr("Choose the interface language"),
+        # ---- Page 0: General ----
+        gen_scroll, gen_lay = self._build_page(
+            self.tr("General"),
+            self.tr("Interface language, update preferences, and other general settings"),
         )
         card, card_lay = self._make_card()
+
+        # Language section
+        card_lay.addWidget(self._section_label(self.tr("LANGUAGE")))
         self._lang_combo = QComboBox()
         match_lang = "system" if not current_language else current_language
         for i, (code, name) in enumerate(LANGUAGES):
@@ -364,9 +366,23 @@ class SettingsDialog(QDialog):
                 self.tr("Requires restart to apply"),
             )
         )
-        lang_lay.addWidget(card)
-        lang_lay.addStretch()
-        self._stack.addWidget(lang_scroll)
+
+        # Auto-update section
+        card_lay.addWidget(self._separator())
+        card_lay.addWidget(self._section_label(self.tr("UPDATES")))
+        self._auto_update_toggle = _ToggleSwitch(
+            self._app_settings.auto_update_check() if self._app_settings else True
+        )
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Check for updates automatically on startup"),
+                self._auto_update_toggle,
+            )
+        )
+        gen_lay.addWidget(card)
+
+        gen_lay.addStretch()
+        self._stack.addWidget(gen_scroll)
 
         # ---- Page 1: Theme ----
         theme_scroll, theme_lay = self._build_page(
@@ -1066,6 +1082,9 @@ class SettingsDialog(QDialog):
 
     def selected_autosave_interval(self) -> int:
         return self._autosave_spin.value()
+
+    def selected_auto_update_check(self) -> bool:
+        return self._auto_update_toggle.isChecked()
 
     def selected_auto_sync_enabled(self) -> bool:
         if hasattr(self, "_auto_sync_toggle"):

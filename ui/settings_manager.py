@@ -179,6 +179,28 @@ class AppSettings(QObject):
         self._s.setValue("sync_on_save", value)
 
     # ------------------------------------------------------------------
+    # Auto-update
+    # ------------------------------------------------------------------
+    def auto_update_check(self, default: bool = True) -> bool:
+        val = self._s.value("auto_update_check", default)
+        return str(val).lower() == "true" if isinstance(val, str) else bool(val)
+
+    def set_auto_update_check(self, value: bool) -> None:
+        self._s.setValue("auto_update_check", value)
+
+    def last_update_check(self) -> str:
+        return str(self._s.value("last_update_check", ""))
+
+    def set_last_update_check(self, value: str) -> None:
+        self._s.setValue("last_update_check", value)
+
+    def ignored_update_version(self) -> str:
+        return str(self._s.value("ignored_update_version", ""))
+
+    def set_ignored_update_version(self, value: str) -> None:
+        self._s.setValue("ignored_update_version", value)
+
+    # ------------------------------------------------------------------
     # Session restore
     # ------------------------------------------------------------------
     def session_restore_enabled(self, default: bool = False) -> bool:

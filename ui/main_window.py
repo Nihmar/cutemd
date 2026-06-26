@@ -63,6 +63,7 @@ from ui.shortcut_manager import ShortcutManager
 from ui.theme_manager import ThemeManager
 from ui.themes import get_theme, system_theme
 from ui.toc_panel import TocPanel
+from ui.update_dialog import UpdateAvailableDialog
 
 # ---------------------------------------------------------------------------
 # Paths (supports PyInstaller one-file bundles)
@@ -192,6 +193,7 @@ class MainWindow(QMainWindow):
             "act_toggle_statusbar": self.act_toggle_statusbar,
             "act_settings": self.act_settings,
             "act_shortcuts": self.act_shortcuts,
+            "act_check_update": self.act_check_update,
             "act_webdav_sync": self.act_webdav_sync,
             "act_zoom_in": self.act_zoom_in,
             "act_zoom_out": self.act_zoom_out,
@@ -208,6 +210,8 @@ class MainWindow(QMainWindow):
 
         # Restore last folder (or prompt on first run)
         QTimer.singleShot(0, self._restore_last_folder)
+        # Check for updates a few seconds after startup (if enabled)
+        QTimer.singleShot(4000, lambda: self._check_for_updates(silent=True))
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -320,6 +324,9 @@ class MainWindow(QMainWindow):
         self.act_shortcuts.setShortcut(QKeySequence("Ctrl+/"))
         self.act_shortcuts.triggered.connect(self._on_show_shortcuts)
 
+        self.act_check_update = QAction(self.tr("Check for &Updates…"), self)
+        self.act_check_update.triggered.connect(lambda: self._check_for_updates(silent=False))
+
         self.act_webdav_sync = QAction(self.tr("&Sync Now"), self)
         self.act_webdav_sync.setShortcut(QKeySequence("Ctrl+Alt+S"))
         self.act_webdav_sync.triggered.connect(self._on_webdav_sync)
@@ -391,6 +398,8 @@ class MainWindow(QMainWindow):
         self._settings_menu.addAction(self.act_settings)
 
         self._help_menu = mb.addMenu(self.tr("&Help"))
+        self._help_menu.addAction(self.act_check_update)
+        self._help_menu.addSeparator()
         self._help_menu.addAction(self.act_shortcuts)
 
     # ------------------------------------------------------------------
@@ -1197,6 +1206,9 @@ class MainWindow(QMainWindow):
             self._autosave_interval = max(1, new_asi) * 1000
             self._autosave_timer.setInterval(self._autosave_interval)
 
+        # --- Auto-update ---
+        self._s.set_auto_update_check(dlg.selected_auto_update_check())
+
         # --- Per-folder settings (shortcuts, images, WebDAV, appearance) ---
         if self._folder_settings is not None:
             new_sc = dlg.selected_shortcuts()
@@ -1405,6 +1417,77 @@ class MainWindow(QMainWindow):
         }
         dlg = ShortcutsDialog(actions, self)
         dlg.exec()
+
+    def _check_for_updates(self, silent: bool = False) -> None:
+        """Check GitHub for a newer release.
+
+        If *silent* is True only a notification dialog is shown when an
+        update is actually available.  Non-silent (menu action) also
+        shows a "you're up to date" message.
+        """
+        from datetime import date
+
+        from core.updater import check_for_update
+
+        today = date.today().isoformat()
+        if silent:
+            last = self._s.last_update_check()
+            if last == today:
+                return
+            if not self._s.auto_update_check():
+                return
+
+        info = check_for_update(__import__("main").__version__)
+        self._s.set_last_update_check(today)
+
+        if info is None:
+            if not silent:
+                QMessageBox.information(
+                    self,
+                    self.tr("No Update"),
+                    self.tr("You are already running the latest version."),
+                )
+            return
+
+        # Check if the user skipped this version
+        if silent and info.latest_tag == self._s.ignored_update_version():
+            return
+
+        dlg = UpdateAvailableDialog(info, self)
+        result = dlg.exec()
+
+        if dlg.ignore_version():
+            self._s.set_ignored_update_version(info.latest_tag)
+
+        if result != QDialog.DialogCode.Accepted:
+            return
+
+        path = dlg.downloaded_path()
+        if path is None:
+            return
+
+        if info.platform_key == "windows":
+            ret = QMessageBox.question(
+                self,
+                self.tr("Install Update"),
+                self.tr(
+                    "The installer has been downloaded to:\n{}\n\n"
+                    "Start the installer now? The application will close."
+                ).format(str(path)),
+            )
+            if ret == QMessageBox.StandardButton.Yes:
+                import subprocess
+                subprocess.Popen([str(path)])
+                self.close()
+        else:
+            QMessageBox.information(
+                self,
+                self.tr("Download Complete"),
+                self.tr(
+                    "The file has been saved to:\n{}\n\n"
+                    "You can run it or install it at your convenience."
+                ).format(str(path)),
+            )
 
     def _on_toggle_tree(self, visible: bool) -> None:
         if visible:
@@ -1942,6 +2025,7 @@ class MainWindow(QMainWindow):
         self.act_toggle_statusbar.setText(self.tr("Toggle Status &Bar"))
         self.act_settings.setText(self.tr("&Settings…"))
         self.act_shortcuts.setText(self.tr("&Keyboard Shortcuts…"))
+        self.act_check_update.setText(self.tr("Check for &Updates…"))
         self.act_webdav_sync.setText(self.tr("&Sync Now"))
         self.act_zoom_in.setText(self.tr("Zoom &In (Editor)"))
         self.act_zoom_out.setText(self.tr("Zoom &Out (Editor)"))
