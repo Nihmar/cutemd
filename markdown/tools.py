@@ -4,7 +4,7 @@ import re
 
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
-from pygments.lexers import get_lexer_by_name, guess_lexer
+from pygments.lexers import get_all_lexers, get_lexer_by_name, guess_lexer
 from pygments.util import ClassNotFound
 
 # ---------------------------------------------------------------------------
@@ -16,6 +16,11 @@ _PYGMENTS_STYLE: str = "default"
 def set_pygments_style(style: str) -> None:
     global _PYGMENTS_STYLE
     _PYGMENTS_STYLE = style
+
+
+def get_supported_languages() -> list[str]:
+    """Return sorted Pygments language aliases for use in UI language pickers."""
+    return sorted({alias for _, aliases, _, _ in get_all_lexers() for alias in aliases})
 
 # ---------------------------------------------------------------------------
 # Token types that start a visible block-level element in the rendered HTML.
