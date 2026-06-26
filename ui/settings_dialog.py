@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpinBox,
     QStackedWidget,
+    QStyledItemDelegate,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -39,6 +40,22 @@ from core.webdav.sync import WebDAVClient
 from ui.widgets import CuteListWidget
 
 _FONT_FAMILIES: list[str] | None = None
+
+
+# ======================================================================
+# Font preview delegate — creates QFont lazily for visible items only
+# ======================================================================
+
+
+class _FontPreviewDelegate(QStyledItemDelegate):
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        data = index.data(Qt.ItemDataRole.UserRole)
+        if data and data != "System":
+            font = QFont(index.data(Qt.ItemDataRole.DisplayRole))
+            font.setPointSize(option.font.pointSize())
+            option.font = font
+
 
 # ======================================================================
 # Toggle switch
@@ -178,6 +195,7 @@ class _FontPicker(QWidget):
         self._list = CuteListWidget()
         self._list.setFrameShape(CuteListWidget.Shape.NoFrame)
         self._list.setFixedHeight(self._LIST_HEIGHT)
+        self._list.setItemDelegate(_FontPreviewDelegate(self._list))
         lay.addWidget(self._list)
 
         edit_h = self._edit.sizeHint().height()
@@ -440,7 +458,8 @@ class SettingsDialog(QDialog):
         editor_lay.addWidget(self._section_label(self.tr("FONT")))
         card, card_lay = self._make_card()
         self._editor_font_combo = _FontPicker()
-        self._populate_font_picker(self._editor_font_combo, current_editor_font)
+        self._editor_font_current = current_editor_font
+        self._editor_font_populated = False
         f_row = QFormLayout()
         f_row.setLabelAlignment(Qt.AlignmentFlag.AlignTop)
         f_row.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -605,7 +624,8 @@ class SettingsDialog(QDialog):
         )
         card, card_lay = self._make_card()
         self._preview_font_combo = _FontPicker()
-        self._populate_font_picker(self._preview_font_combo, current_preview_font)
+        self._preview_font_current = current_preview_font
+        self._preview_font_populated = False
         f_row = QFormLayout()
         f_row.setLabelAlignment(Qt.AlignmentFlag.AlignTop)
         f_row.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
@@ -931,13 +951,13 @@ class SettingsDialog(QDialog):
 
     def _populate_font_picker(self, picker: _FontPicker, current: str) -> None:
         global _FONT_FAMILIES
+        picker._list.clear()
         picker._edit.setPlaceholderText(self.tr("Type to filter\u2026"))
         picker.add_item(self.tr("System"), "System")
         if _FONT_FAMILIES is None:
             _FONT_FAMILIES = sorted(QFontDatabase().families())
         for family in _FONT_FAMILIES:
-            item = picker.add_item(family, family)
-            item.setFont(QFont(family))
+            picker.add_item(family, family)
         picker.select_by_data(current if current else "System")
 
     # ==================================================================
@@ -946,6 +966,12 @@ class SettingsDialog(QDialog):
 
     def _on_page_changed(self, index: int) -> None:
         self._stack.setCurrentIndex(index)
+        if index == 2 and not self._editor_font_populated:
+            self._editor_font_populated = True
+            self._populate_font_picker(self._editor_font_combo, self._editor_font_current)
+        elif index == 3 and not self._preview_font_populated:
+            self._preview_font_populated = True
+            self._populate_font_picker(self._preview_font_combo, self._preview_font_current)
         # Reset scroll position to top
         scroll = self._stack.widget(index)
         if isinstance(scroll, QScrollArea):
@@ -995,12 +1021,18 @@ class SettingsDialog(QDialog):
                 self._select_theme(tid)
                 break
         # Editor font
+        if not self._editor_font_populated:
+            self._editor_font_populated = True
+            self._populate_font_picker(self._editor_font_combo, self._editor_font_current)
         self._editor_font_combo.select_first()
         self._editor_font_size.setValue(11)
         self._line_number_combo.setCurrentIndex(1)
         self._cursor_width.setValue(2)
         self._link_style_combo.setCurrentIndex(0)
         # Preview font
+        if not self._preview_font_populated:
+            self._preview_font_populated = True
+            self._populate_font_picker(self._preview_font_combo, self._preview_font_current)
         self._preview_font_combo.select_first()
         self._preview_font_size.setValue(16)
         # Toggles
@@ -1045,12 +1077,16 @@ class SettingsDialog(QDialog):
         return self._selected_theme_id
 
     def selected_editor_font(self) -> str:
+        if not self._editor_font_populated:
+            return self._editor_font_current
         return self._editor_font_combo.current_data()
 
     def selected_editor_font_size(self) -> int:
         return self._editor_font_size.value()
 
     def selected_preview_font(self) -> str:
+        if not self._preview_font_populated:
+            return self._preview_font_current
         return self._preview_font_combo.current_data()
 
     def selected_preview_font_size(self) -> int:

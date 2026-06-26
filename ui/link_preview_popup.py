@@ -53,9 +53,8 @@ class LinkPreviewPopup(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setWindowFlags(
-            Qt.WindowType.Tool
+            Qt.WindowType.Popup
             | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
@@ -68,8 +67,9 @@ class LinkPreviewPopup(QFrame):
         self._hide_timer.timeout.connect(self._maybe_hide)
         self._mouse_over = False
 
-        # CBZ gallery state
-        self._cbz_images: list[tuple[bytes, str]] = []
+        # CBZ gallery state — stores only image names, data loaded on demand
+        self._cbz_path: Path | None = None
+        self._cbz_names: list[str] = []
         self._cbz_index: int = 0
 
         # PPTX slide state
@@ -145,7 +145,8 @@ class LinkPreviewPopup(QFrame):
         if was_visible:
             self.hide()
 
-        self._cbz_images = []
+        self._cbz_path = None
+        self._cbz_names = []
         self._pptx_total = 0
         self._pptx_index = 0
         self._editor.viewport().setCursor(Qt.CursorShape.ArrowCursor)
@@ -191,6 +192,8 @@ class LinkPreviewPopup(QFrame):
     # Internal preview methods
     # ------------------------------------------------------------------
 
+    _MAX_PREVIEW_LINES = 500
+
     def _show_text(self, path: Path, editor_font: QFont | None) -> None:
         self._image_label.hide()
         self._editor.show()
@@ -201,6 +204,11 @@ class LinkPreviewPopup(QFrame):
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             text = self.tr("[Cannot read file: {}]").format(path.name)
+
+        # Truncate very large files to avoid excessive memory / rendering cost.
+        lines = text.split("\n")
+        if len(lines) > self._MAX_PREVIEW_LINES:
+            text = "\n".join(lines[: self._MAX_PREVIEW_LINES]) + "\n… (truncated)"
 
         self._editor.setPlainText(text)
 
@@ -300,21 +308,18 @@ class LinkPreviewPopup(QFrame):
         if self._highlighter is not None:
             self._highlighter.setDocument(None)
 
-        self._cbz_images = []
-        self._cbz_index = 0
-
-        self._cbz_images = []
+        self._cbz_path = None
+        self._cbz_names = []
         self._cbz_index = 0
 
         try:
             with zipfile.ZipFile(path) as zf:
-                for name in sorted(zf.namelist()):
-                    ext = Path(name).suffix.lower()
-                    if ext in self._IMG_EXTS:
-                        data = zf.read(name)
-                        pm = QPixmap()
-                        if pm.loadFromData(data) and not pm.isNull():
-                            self._cbz_images.append((data, name))
+                names = sorted(zf.namelist())
+                self._cbz_names = [
+                    n for n in names
+                    if Path(n).suffix.lower() in self._IMG_EXTS
+                ]
+            self._cbz_path = path
         except (zipfile.BadZipFile, FileNotFoundError):
             self._image_label.setText(self.tr("[Cannot read: file is corrupted]"))
             self._image_label.show()
@@ -323,7 +328,7 @@ class LinkPreviewPopup(QFrame):
         except Exception:
             pass
 
-        if not self._cbz_images:
+        if not self._cbz_names:
             self._image_label.setText(self.tr("[Cannot display: {}]").format(path.name))
             self._image_label.show()
             return
@@ -331,15 +336,26 @@ class LinkPreviewPopup(QFrame):
         self._show_cbz_page(0)
 
     def _show_cbz_page(self, index: int) -> None:
-        """Show the *index*-th image from the CBZ archive."""
-        data, name = self._cbz_images[index]
+        """Show the *index*-th image from the CBZ archive (loaded on demand)."""
+        name = self._cbz_names[index]
+        try:
+            with zipfile.ZipFile(self._cbz_path) as zf:
+                data = zf.read(name)
+        except Exception:
+            self._image_label.setText(
+                self.tr("[Cannot display page: {}]").format(Path(name).name)
+            )
+            self._image_label.show()
+            return
         pixmap = QPixmap()
         if not pixmap.loadFromData(data) or pixmap.isNull():
-            self._image_label.setText(self.tr("[Cannot display page: {}]").format(Path(name).name))
+            self._image_label.setText(
+                self.tr("[Cannot display page: {}]").format(Path(name).name)
+            )
             self._image_label.show()
             return
 
-        total = len(self._cbz_images)
+        total = len(self._cbz_names)
         self._header.setText(f"\u25c0  {self._path.name}  [{index + 1}/{total}]  \u25b6")
         self._image_label.setCursor(Qt.CursorShape.PointingHandCursor)
         scaled = pixmap.scaled(
@@ -354,12 +370,12 @@ class LinkPreviewPopup(QFrame):
     def mousePressEvent(self, event) -> None:
         """Navigate CBZ/PPTX pages with mouse clicks (left half=prev, right half=next)."""
         if event.button() == Qt.MouseButton.LeftButton:
-            if self._cbz_images:
+            if self._cbz_names:
                 w = self._image_label.width()
                 if w > 0 and event.position().x() > w / 2:
-                    self._cbz_index = (self._cbz_index + 1) % len(self._cbz_images)
+                    self._cbz_index = (self._cbz_index + 1) % len(self._cbz_names)
                 else:
-                    self._cbz_index = (self._cbz_index - 1) % len(self._cbz_images)
+                    self._cbz_index = (self._cbz_index - 1) % len(self._cbz_names)
                 self._show_cbz_page(self._cbz_index)
                 return
             if self._pptx_total > 0:
@@ -373,12 +389,12 @@ class LinkPreviewPopup(QFrame):
 
     def wheelEvent(self, event) -> None:
         """Navigate CBZ/PPTX pages with the mouse wheel."""
-        if self._cbz_images:
+        if self._cbz_names:
             if event.angleDelta().y() < 0:
-                self._cbz_index = (self._cbz_index + 1) % len(self._cbz_images)
+                self._cbz_index = (self._cbz_index + 1) % len(self._cbz_names)
                 self._show_cbz_page(self._cbz_index)
             elif event.angleDelta().y() > 0:
-                self._cbz_index = (self._cbz_index - 1) % len(self._cbz_images)
+                self._cbz_index = (self._cbz_index - 1) % len(self._cbz_names)
                 self._show_cbz_page(self._cbz_index)
             event.accept()
             return
@@ -393,12 +409,12 @@ class LinkPreviewPopup(QFrame):
 
     def keyPressEvent(self, event) -> None:
         """Navigate CBZ/PPTX pages with Left/Right arrow keys."""
-        if self._cbz_images:
+        if self._cbz_names:
             if event.key() == Qt.Key.Key_Right:
-                self._cbz_index = (self._cbz_index + 1) % len(self._cbz_images)
+                self._cbz_index = (self._cbz_index + 1) % len(self._cbz_names)
                 self._show_cbz_page(self._cbz_index)
             elif event.key() == Qt.Key.Key_Left:
-                self._cbz_index = (self._cbz_index - 1) % len(self._cbz_images)
+                self._cbz_index = (self._cbz_index - 1) % len(self._cbz_names)
                 self._show_cbz_page(self._cbz_index)
             return
         if self._pptx_total > 0:
@@ -419,15 +435,15 @@ class LinkPreviewPopup(QFrame):
                     return True
             elif event.type() == QEvent.Type.Wheel:
                 _LOG.debug("eventFilter Wheel: cbz=%d pptx_total=%d",
-                            len(self._cbz_images), self._pptx_total)
-                if self._cbz_images or self._pptx_total > 0:
+                            len(self._cbz_names), self._pptx_total)
+                if self._cbz_names or self._pptx_total > 0:
                     self.wheelEvent(event)
                     return True
             elif event.type() == QEvent.Type.KeyPress:
                 key = event.key()
                 _LOG.debug("eventFilter KeyPress: key=%d cbz=%d pptx_total=%d",
-                            key, len(self._cbz_images), self._pptx_total)
-                if self._cbz_images and key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+                            key, len(self._cbz_names), self._pptx_total)
+                if self._cbz_names and key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
                     self.keyPressEvent(event)
                     return True
                 if self._pptx_total > 0 and key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
@@ -547,7 +563,7 @@ class LinkPreviewPopup(QFrame):
             self.hide()
 
     def _move_within_screen(self, pos) -> None:
-        """Move to *pos*, nudging the popup back on-screen if needed."""
+        """Move to *pos* (screen coords), nudging the popup back on-screen if needed."""
         from PySide6.QtGui import QScreen
         from PySide6.QtWidgets import QApplication
 
@@ -556,9 +572,9 @@ class LinkPreviewPopup(QFrame):
             self.move(pos)
             return
 
-        sz = self.size()
         x = pos.x()
         y = pos.y()
+        sz = self.size()
 
         screen: QScreen | None = app.screenAt(QPoint(x, y))
         if screen is None:
@@ -580,6 +596,8 @@ class LinkPreviewPopup(QFrame):
 
         _LOG.debug("_move_within_screen: pos=%s final=(%d,%d) sz=%s geo=%s",
                     pos, x, y, sz, (geo.x(), geo.y(), geo.width(), geo.height()))
+
+        # Popup windows use screen coordinates for move().
         self.move(x, y)
         _LOG.debug("_move_within_screen: actual pos=%s actual global=%s",
                     self.pos(), self.mapToGlobal(QPoint(0, 0)))

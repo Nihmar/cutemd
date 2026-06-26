@@ -8,7 +8,7 @@ from html import unescape as _unescape_html
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from markdown.image_utils import SizeProvider, add_img_dimensions, fix_image_paragraphs
+from markdown.image_utils import SizeProvider, add_img_dimensions, build_file_index, fix_image_paragraphs
 from markdown.tools import BLOCK_OPEN_TYPES, add_heading_ids
 
 if TYPE_CHECKING:
@@ -144,8 +144,13 @@ def build_html(
             + "</pre>"
         )
 
+    # Build a file index once for the vault root so image resolution
+    # doesn't do a full rglob per unresolved image.
+    vault_root = attachments_dir.parent if attachments_dir is not None else base_dir
+    file_index = build_file_index(vault_root)
+
     body_html = add_img_dimensions(
-        body_html, base_dir, max_width, get_image_size, attachments_dir
+        body_html, base_dir, max_width, get_image_size, attachments_dir, file_index
     )
     body_html = fix_image_paragraphs(body_html)
 

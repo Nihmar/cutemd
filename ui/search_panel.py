@@ -41,6 +41,7 @@ class SearchPanel(QWidget):
         self._generator: object = None
         self._query: str = ""
         self._flags: int = 0
+        self._compiled_pattern: re.Pattern[str] | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -117,6 +118,7 @@ class SearchPanel(QWidget):
             return
 
         self._flags = re.IGNORECASE if not self._search_case_cb.isChecked() else 0
+        self._compiled_pattern = re.compile(re.escape(text), self._flags)
         self._generator = self._folder_path.rglob("*.md")
         self._timer.start()
 
@@ -137,7 +139,7 @@ class SearchPanel(QWidget):
             self._timer.stop()
             return
 
-        flags = self._flags
+        pattern = self._compiled_pattern
         results = self._search_results
 
         for _ in range(_CHUNK_SIZE):
@@ -156,7 +158,7 @@ class SearchPanel(QWidget):
                 continue
 
             for line_num, line in enumerate(content.splitlines(), 1):
-                if re.search(re.escape(query), line, flags):
+                if pattern.search(line):
                     rel = md_path.relative_to(self._folder_path)  # type: ignore[arg-type]
                     item_text = f"{rel}:{line_num}: {line.strip()[:120]}"
                     item = QListWidgetItem(item_text)

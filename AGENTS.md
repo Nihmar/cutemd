@@ -109,7 +109,15 @@ Every setting stored to QSettings must have a visible UI control. Every shortcut
   3. Attachments dir (`.cutemd` setting)
   4. Extension fallback: try `_IMG_EXTS` + `_PDF_EXTS`
   5. Tree walk: up to 5 ancestor dirs + immediate subdirs
-- Popup: `Qt.Tool | FramelessWindowHint | WindowStaysOnTopHint`, `WA_ShowWithoutActivating`.
+- Popup window type: **`Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint`** (NOT `Tool`).
+  `Popup` uses **screen coordinates** for `move()`. `Tool` uses parent-relative coords —
+  this caused positioning regressions multiple times. Do NOT change to `Tool`.
+- Positioning: cursor at the popup's **bottom-left corner** — `x = cx`, `y = cy - popup_h - gap`.
+  `_move_within_screen()` clamps to screen bounds, then calls `self.move(x, y)` with screen coords.
+- Auto-hide: `Popup` steals mouse events from the editor viewport, so `_on_mouse_move` stops
+  firing while the popup is visible. We poll cursor position with `_popup_cursor_timer` (100ms)
+  in `EditorTab._check_popup_cursor()`: maps `QCursor.pos()` to the editor viewport, checks if
+  the cursor is still over a link via `_link_range_at()`. If not, hides the popup.
 
 ## WebDAV
 

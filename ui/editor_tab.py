@@ -248,12 +248,27 @@ class EditorTab(QWidget):
         self._hover_cursor_pos: QPoint | None = None
         self._broken_link_selections: list[QTextEdit.ExtraSelection] = []
 
+        # Cached plain text — invalidated only when document changes.
+        self._cached_text: str = ""
+        self._cached_text_hash: int = 0
+        self._cached_words: str = "0 words"
+
+        # Cache for link resolution during a render cycle.
+        self._link_resolve_cache: dict[tuple[str, bool], Path | None] = {}
+
         # --- Link preview popup ---
         self._link_preview_popup = LinkPreviewPopup(self)
         self._link_preview_show_timer = QTimer(self)
         self._link_preview_show_timer.setSingleShot(True)
         self._link_preview_show_timer.setInterval(400)
         self._link_preview_show_timer.timeout.connect(self._on_link_preview_show)
+
+        # Cursor-tracking timer: polls cursor position while popup is visible
+        # to detect mouse-leave-link (Popup windows grab the mouse from the
+        # editor viewport, so _on_mouse_move stops firing).
+        self._popup_cursor_timer = QTimer(self)
+        self._popup_cursor_timer.setInterval(100)
+        self._popup_cursor_timer.timeout.connect(self._check_popup_cursor)
 
         self._editor_font_family = editor_font_family
         self._editor_font_size = editor_font_size
@@ -276,6 +291,8 @@ class EditorTab(QWidget):
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.editor.setCursorWidth(cursor_width)
         self.editor.textChanged.connect(self._on_text_changed)
+        self.editor.textChanged.connect(self._invalidate_text_cache)
+        self.editor.textChanged.connect(self._update_word_count)
         self.editor.cursorPositionChanged.connect(self._emit_status)
 
         self._highlighter = MarkdownHighlighter(self.editor.document())
@@ -730,17 +747,28 @@ class EditorTab(QWidget):
         extra.extend(self._broken_link_selections)
         self.editor.setExtraSelections(extra)
 
+    def _invalidate_text_cache(self) -> None:
+        """Rebuild the cached plain text after document content changes."""
+        self._cached_text = self.editor.toPlainText()
+        self._cached_text_hash = hash(self._cached_text)
+        self._link_resolve_cache.clear()
+
     def _emit_status(self) -> None:
         cursor = self.editor.textCursor()
         line = cursor.blockNumber() + 1
         col = cursor.columnNumber() + 1
+        self.status_changed.emit(f"{line}:{col}", self._cached_words)
+
+    def _update_word_count(self) -> None:
+        """Recompute word count from cached text (only on textChanged)."""
         if self._large_file:
-            words = self.tr("{} words (large file)").format(
-                len(self.editor.toPlainText().split())
+            self._cached_words = self.tr("{} words (large file)").format(
+                len(self._cached_text.split())
             )
         else:
-            words = self.tr("{} words").format(len(self.editor.toPlainText().split()))
-        self.status_changed.emit(f"{line}:{col}", words)
+            self._cached_words = self.tr("{} words").format(
+                len(self._cached_text.split())
+            )
 
     def _on_text_changed(self) -> None:
         _LOG.debug("_on_text_changed")
@@ -780,7 +808,7 @@ class EditorTab(QWidget):
         """
         if not self._preview_visible or self._is_binary_preview or self._large_file:
             return
-        raw_text = self.editor.toPlainText()
+        raw_text = self._cached_text
         text = strip_frontmatter(raw_text)
         text = preprocess_wikilinks(preprocess_wikilink_images(text))
         text_hash = hash(text)
@@ -1122,23 +1150,20 @@ class EditorTab(QWidget):
         if path is None:
             return
 
-        # Compute screen position: above the cursor (tooltip-style).
+        # Position so the cursor sits at the popup's bottom-left corner.
         gap = 6
         popup_h = 380  # LinkPreviewPopup._MAX_H
         if self._hover_cursor_pos is not None:
             cx, cy = self._hover_cursor_pos.x(), self._hover_cursor_pos.y()
-            y = cy - popup_h - gap
-            # If no room above, place below the cursor.
-            if y < 0:
-                y = cy + gap
-            global_pos = QPoint(cx, y)
         else:
             from PySide6.QtGui import QCursor
             c = QCursor.pos()
-            y = c.y() - popup_h - gap
-            if y < 0:
-                y = c.y() + gap
-            global_pos = QPoint(c.x(), y)
+            cx, cy = c.x(), c.y()
+        x = cx
+        y = cy - popup_h - gap
+        if y < 0:
+            y = cy + gap
+        global_pos = QPoint(x, y)
         _LOG.debug(
             "popup target=%s pos=%s cursor=%s viewport.tl=%s",
             target,
@@ -1151,19 +1176,56 @@ class EditorTab(QWidget):
         editor_font = self.editor.font()
 
         self._link_preview_popup.show_for_path(path, global_pos, editor_font)
+        # Start polling cursor position to detect mouse-leave-link.
+        self._popup_cursor_timer.start()
+
+    def _check_popup_cursor(self) -> None:
+        """Poll cursor position while popup is visible.
+
+        With Popup window type the editor viewport stops receiving mouse
+        events, so we poll QCursor.pos() and check whether the cursor is
+        still over a link in the editor.  If not, dismiss the popup.
+        """
+        if not self._link_preview_popup.isVisible():
+            self._popup_cursor_timer.stop()
+            return
+        from PySide6.QtGui import QCursor
+        vp = self.editor.viewport()
+        local_pos = vp.mapFromGlobal(QCursor.pos())
+        if not vp.rect().contains(local_pos):
+            # Cursor is outside the editor viewport entirely — keep popup
+            # visible (user may be moving towards it).
+            return
+        cursor = self.editor.cursorForPosition(local_pos)
+        block = cursor.block()
+        pos = cursor.positionInBlock()
+        link = self._link_range_at(pos, block.text())
+        if link is None:
+            self._link_preview_popup.hide()
+            self._popup_cursor_timer.stop()
+            self._hovered_link_target = None
+            self._hover_cursor_pos = None
+            self.editor.setExtraSelections([])
+            self._viewport.setCursor(Qt.CursorShape.IBeamCursor)
 
     def _resolve_link_target(self, target: str, quick: bool = False) -> Path | None:
         """Resolve a link/wikilink target — delegates to pure ``resolve_link_target``."""
+        key = (target, quick)
+        cached = self._link_resolve_cache.get(key)
+        if cached is not None or key in self._link_resolve_cache:
+            return cached
         source_dir = self._file_path.parent if self._file_path else Path.cwd()
-        return resolve_link_target(
+        result = resolve_link_target(
             target, source_dir, self._attachments_dir, quick=quick,
         )
+        self._link_resolve_cache[key] = result
+        return result
 
     def _refresh_link_highlights(self) -> None:
         """Mark unresolved links in red using extra selections.
         Skips large files (>2000 lines) for performance."""
         editor = self.editor
-        text = editor.toPlainText()
+        text = self._cached_text
         lines = text.count("\n") + 1
         if lines > 2000:
             self._broken_link_selections = []

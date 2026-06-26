@@ -11,11 +11,15 @@ from pygments.util import ClassNotFound
 # Pygments theme — set by the UI layer before rendering.
 # ---------------------------------------------------------------------------
 _PYGMENTS_STYLE: str = "default"
+_cached_formatter: HtmlFormatter | None = None
+_cached_style: str = ""
 
 
 def set_pygments_style(style: str) -> None:
-    global _PYGMENTS_STYLE
+    global _PYGMENTS_STYLE, _cached_formatter, _cached_style
     _PYGMENTS_STYLE = style
+    _cached_formatter = None  # invalidate cache on style change
+    _cached_style = ""
 
 
 def get_supported_languages() -> list[str]:
@@ -58,10 +62,13 @@ def highlight_code(code: str, lang: str, _attrs: str) -> str:
         except ClassNotFound:
             lexer = get_lexer_by_name("text", stripall=True)
 
-    formatter = HtmlFormatter(
-        style=_PYGMENTS_STYLE, noclasses=True, nowrap=True
-    )
-    return highlight(code, lexer, formatter)
+    global _cached_formatter, _cached_style
+    if _cached_formatter is None or _cached_style != _PYGMENTS_STYLE:
+        _cached_formatter = HtmlFormatter(
+            style=_PYGMENTS_STYLE, noclasses=True, nowrap=True
+        )
+        _cached_style = _PYGMENTS_STYLE
+    return highlight(code, lexer, _cached_formatter)
 
 
 def _slugify(text: str) -> str:

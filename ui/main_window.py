@@ -150,6 +150,12 @@ class MainWindow(QMainWindow):
         self._auto_sync_interval = max(10, self._s.auto_sync_interval()) * 1000
         self._auto_sync_timer.setInterval(self._auto_sync_interval)
 
+        # --- TOC rebuild debounce timer ---
+        self._toc_timer = QTimer(self)
+        self._toc_timer.setSingleShot(True)
+        self._toc_timer.setInterval(300)
+        self._toc_timer.timeout.connect(self._rebuild_toc)
+
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
 
@@ -436,9 +442,12 @@ class MainWindow(QMainWindow):
             self._palette_shortcut.deleteLater()
         except AttributeError:
             pass
-        from PySide6.QtGui import QShortcut
-        self._palette_shortcut = QShortcut(QKeySequence("Ctrl+P"), self)
-        self._palette_shortcut.activated.connect(self._on_command_palette)
+        if not visible:
+            from PySide6.QtGui import QShortcut
+            self._palette_shortcut = QShortcut(QKeySequence("Ctrl+P"), self)
+            self._palette_shortcut.activated.connect(self._on_command_palette)
+        else:
+            self._palette_shortcut = None
 
     # ------------------------------------------------------------------
     # Central widget
@@ -721,6 +730,7 @@ class MainWindow(QMainWindow):
                 self._show_left_panel()
             self._rebuild_toc()
         else:
+            self._toc_timer.stop()
             self._hide_left_panel()
 
     def _rebuild_toc(self) -> None:
@@ -838,9 +848,9 @@ class MainWindow(QMainWindow):
                 self._rebuild_toc()
 
     def _on_editor_text_changed(self) -> None:
-        """Rebuild TOC when editor content changes (only if TOC is open)."""
+        """Debounce TOC rebuild when editor content changes (only if TOC is open)."""
         if self._side_toc_btn.isChecked():
-            self._rebuild_toc()
+            self._toc_timer.start()
 
     def _on_tab_modified(self, modified: bool) -> None:
         tab = self.sender()

@@ -20,12 +20,40 @@ def needs_loading(src: str) -> bool:
     return bool(_IMG_EXTS_RE.search(src))
 
 
-def _rglob_search(filename: str, root: Path) -> Path | None:
-    """Full recursive search for *filename* under *root*."""
+def build_file_index(root: Path) -> dict[str, list[Path]]:
+    """Build a filename → [resolved_path] index for a vault root.
+
+    Skips hidden directories (like .cutemd). Call once per render and
+    pass the result to ``resolve_image_path`` to avoid repeated full
+    directory walks.
+    """
+    index: dict[str, list[Path]] = {}
+    for p in root.rglob("*"):
+        if not p.is_file():
+            continue
+        try:
+            rel = p.relative_to(root)
+        except ValueError:
+            continue
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        key = p.name.lower()
+        index.setdefault(key, []).append(p.resolve())
+    return index
+
+
+def _rglob_search(
+    filename: str, root: Path, file_index: dict[str, list[Path]] | None = None
+) -> Path | None:
+    """Search for *filename* under *root* using the pre-built index."""
     target = filename.lower()
+    if file_index is not None:
+        for p in file_index.get(target, []):
+            return p
+        return None
+    # Fallback: full recursive search (should rarely be used now).
     for p in root.rglob("*"):
         if p.is_file() and p.name.lower() == target:
-            # Skip hidden directories (like .cutemd)
             try:
                 if any(part.startswith(".") for part in p.relative_to(root).parts):
                     continue
@@ -36,7 +64,10 @@ def _rglob_search(filename: str, root: Path) -> Path | None:
 
 
 def resolve_image_path(
-    src: str, base_dir: Path, attachments_dir: Path | None = None
+    src: str,
+    base_dir: Path,
+    attachments_dir: Path | None = None,
+    file_index: dict[str, list[Path]] | None = None,
 ) -> Path | None:
     src = unquote(src)
     p = Path(src)
@@ -54,10 +85,9 @@ def resolve_image_path(
         if resolved.is_file():
             return resolved
 
-    # 3. Full recursive search of the vault root.
-    #    If attachments_dir is known, its parent is the vault root.
+    # 3. Vault-wide search using the pre-built index.
     vault_root = attachments_dir.parent if attachments_dir is not None else base_dir
-    return _rglob_search(p.name, vault_root)
+    return _rglob_search(p.name, vault_root, file_index)
 
 
 # Signature: (path_str, max_width) -> (width, height) or None
@@ -70,6 +100,7 @@ def add_img_dimensions(
     max_width: int,
     get_size: SizeProvider,
     attachments_dir: Path | None = None,
+    file_index: dict[str, list[Path]] | None = None,
 ) -> str:
     """Resolve local image paths to file:// URLs and add width/height."""
 
@@ -80,7 +111,7 @@ def add_img_dimensions(
         # Leave external/existing absolute URLs alone.
         if not needs_loading(src) or Path(src).is_absolute():
             return m.group(0)
-        resolved = resolve_image_path(src, base_dir, attachments_dir)
+        resolved = resolve_image_path(src, base_dir, attachments_dir, file_index)
         if resolved is None:
             return m.group(0)
         # Embed an absolute file:// URL so Qt never needs to resolve it.
