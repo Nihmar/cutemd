@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QRectF, QSize, Qt, QThread, Signal
-from PySide6.QtGui import QColor, QFontDatabase, QKeySequence, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -190,10 +190,11 @@ class _FontPicker(QWidget):
 
         self._edit.textChanged.connect(self._apply_filter)
 
-    def add_item(self, text: str, data: str) -> None:
+    def add_item(self, text: str, data: str) -> QListWidgetItem:
         item = QListWidgetItem(text)
         item.setData(Qt.ItemDataRole.UserRole, data)
         self._list.addItem(item)
+        return item
 
     def select_by_data(self, data: str) -> None:
         for i in range(self._list.count()):
@@ -921,7 +922,8 @@ class SettingsDialog(QDialog):
         if _FONT_FAMILIES is None:
             _FONT_FAMILIES = sorted(QFontDatabase().families())
         for family in _FONT_FAMILIES:
-            picker.add_item(family, family)
+            item = picker.add_item(family, family)
+            item.setFont(QFont(family))
         picker.select_by_data(current if current else "System")
 
     # ==================================================================
