@@ -141,6 +141,81 @@ QWebEngineView percent-encodes HTML into a data URL. Large documents may exceed 
 ### 6. `content_width()` timing
 `width()` may return 0 before first layout. Same risk as before — not introduced by abstraction.
 
+## Bug: anchor_at_viewport_top() returns None
+
+### Problem
+
+`anchor_at_viewport_top()` always returns `None` for documents with multiple
+anchors. Debugging shows `QTextCharFormat.anchorNames()` only finds anchors
+at positions 0-1 (the first `<a name="b0">` in the document). All subsequent
+anchors (`b1`..`bN`) are invisible to `anchorNames()`.
+
+### Root cause
+
+QTextBrowser's rich text model stores `<a name="...">` anchor names in the
+`QTextCharFormat` of the **character at the anchor position**. However, when
+multiple empty `<a name="..."></a>` tags are inserted by `render_with_anchors()`,
+only the first one survives with its name in the format. Subsequent anchors
+lose their names during HTML-to-QTextDocument conversion.
+
+This was NOT a problem in the old code because `_do_preview_scrolled` was
+inline in `editor_tab.py` and was called **only when the preview scrollbar
+actually changed**. The old code had the exact same `anchorNames()` logic,
+but it happened to work because:
+
+1. `scrollToAnchor("bN")` moved the viewport to the correct heading.
+2. The anchor `<a name="bN">` was always at the **first character of a block**
+   containing the heading text.
+3. `cursorForPosition(QPoint(2, 2))` landed on that first character.
+4. `anchorNames()` returned the name because the anchor's position matched.
+
+But in `TextBrowserPreview`, the same logic fails because the anchors are
+now inside a nested QTextBrowser (`_browser`) wrapped in a `QVBoxLayout`.
+The key difference: **the wrapper adds layout overhead** that shifts
+coordinates by a few pixels, causing `cursorForPosition(QPoint(2, 2))` to
+land on a slightly different position where `anchorNames()` returns empty.
+
+### Why it worked before
+
+In the old code, `self.preview` WAS the QTextBrowser directly (no wrapper).
+`cursorForPosition(QPoint(2, 2))` returned a cursor at the exact top-left
+of the QTextBrowser's viewport. Now the QTextBrowser is a child of a
+`QVBoxLayout` inside `TextBrowserPreview(QWidget)`. Even with
+`setContentsMargins(0, 0, 0, 0)`, the internal rendering geometry may differ
+by a few pixels, enough to miss the anchor character position.
+
+### Proposed fix
+
+Instead of relying on `anchorNames()` (which is fragile), use the scroll
+position ratio to estimate which anchor is visible:
+
+```python
+def anchor_at_viewport_top(self) -> str | None:
+    sb = self._browser.verticalScrollBar()
+    if sb.maximum() <= 0:
+        return None
+    ratio = sb.value() / sb.maximum()
+    # Map ratio → anchor index using known anchor positions from the HTML
+    # (stored in a list populated during set_html)
+    ...
+```
+
+Alternatively, fix the coordinate issue by using `(0, 0)` instead of `(2, 2)`
+and scanning more characters per block.
+
+### Test results
+
+```
+Simple doc (1 anchor):
+  pos=0 anchorNames=['b0']   ← works
+  pos=1 anchorNames=['b0']   ← works
+
+Tall doc (50 sections, scrolled to b20):
+  cursor lands on block 40 ("Section 20")  ← correct block
+  anchorNames() returns [] for all scanned positions  ← BROKEN
+  Searching entire doc: only b0 found (positions 0-1)
+```
+
 ## Verification
 
 Run `uv run main.py` and verify:

@@ -61,7 +61,7 @@ from ui.image_viewer import ImageViewer
 from ui.link_preview_popup import LinkPreviewPopup
 from ui.markdown_completer import MarkdownAutoCompleter
 from ui.pdf_viewer import PdfViewer
-from ui.preview_browser import PreviewTextBrowser, get_image_size
+from ui.preview_text_browser import TextBrowserPreview, get_image_size
 from ui.preview_worker import PreviewWorker
 from ui.syntax_highlighter import MarkdownHighlighter
 
@@ -294,10 +294,10 @@ class EditorTab(QWidget):
         self._link_style = (smart_editing or {}).get("link_style", "md")
 
         # --- Preview stack ---
-        self.preview = PreviewTextBrowser()
-        self.preview.setReadOnly(True)
-        self.preview.setOpenLinks(False)
-        self.preview.setOpenExternalLinks(False)
+        self.preview = TextBrowserPreview()
+        self.preview.set_read_only(True)
+        self.preview.set_open_links(False)
+        self.preview.set_open_external_links(False)
         self.preview.file_link_clicked.connect(
             lambda target: self.file_link_clicked.emit(target, "")
         )
@@ -326,7 +326,7 @@ class EditorTab(QWidget):
 
         # --- Scroll sync ---
         self.editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
-        self.preview.verticalScrollBar().valueChanged.connect(self._on_preview_scrolled)
+        self.preview.scroll_changed.connect(self._on_preview_scrolled)
 
         # --- Async preview worker ---
         self._preview_thread = QThread(self)
@@ -607,14 +607,14 @@ class EditorTab(QWidget):
             elif ext == ".epub":
                 html = epub_to_html(path, self._preview_css)
             else:
-                self.preview.setPlainText(self.tr("[Unsupported document format]"))
+                self.preview.set_plain_text(self.tr("[Unsupported document format]"))
                 self._preview_stack.setCurrentIndex(0)
                 return
-            self.preview.setHtml(html)
+            self.preview.set_html(html)
             self._preview_stack.setCurrentIndex(0)
         except Exception as e:
             _LOG.debug("_load_document: error rendering %s: %s", label, e)
-            self.preview.setPlainText(self.tr("[Error rendering {}]").format(label))
+            self.preview.set_plain_text(self.tr("[Error rendering {}]").format(label))
             self._preview_stack.setCurrentIndex(0)
             return
 
@@ -801,7 +801,7 @@ class EditorTab(QWidget):
         self.preview.set_base_dir(base_dir)
 
         # Skip render if nothing meaningful changed.
-        pw = self.preview.width()
+        pw = self.preview.content_width()
         params_hash = hash(
             (
                 text,
@@ -858,7 +858,7 @@ class EditorTab(QWidget):
 
         self._syncing_scroll += 1
         self._preview_stack.setCurrentIndex(0)  # back to preview
-        self.preview.setHtml(html)
+        self.preview.set_html(html)
         self._syncing_scroll -= 1
 
         # Track rendered state to skip redundant future renders.
@@ -890,10 +890,9 @@ class EditorTab(QWidget):
         anchor = self._pending_sync_anchor
         if not anchor:
             return
-        preview_sb = self.preview.verticalScrollBar()
-        if preview_sb.maximum() > 0:
+        if self.preview.max_scroll() > 0:
             self._syncing_scroll += 1
-            self.preview.scrollToAnchor(anchor)
+            self.preview.scroll_to_anchor(anchor)
             self._syncing_scroll -= 1
             self._pending_sync_anchor = ""
         else:
@@ -926,11 +925,10 @@ class EditorTab(QWidget):
         if anchor == self._last_anchor:
             return
         self._last_anchor = anchor
-        preview_sb = self.preview.verticalScrollBar()
-        if preview_sb.maximum() <= 0:
+        if self.preview.max_scroll() <= 0:
             return
         self._syncing_scroll += 1
-        self.preview.scrollToAnchor(anchor)
+        self.preview.scroll_to_anchor(anchor)
         self._syncing_scroll -= 1
 
     def _on_preview_scrolled(self, _value: int = 0) -> None:
@@ -956,32 +954,7 @@ class EditorTab(QWidget):
         ):
             return
 
-        # Find which anchor is at the top of the preview viewport.
-        # Scan the first few characters of every block starting from the
-        # one at the viewport top and moving backward.
-        doc = self.preview.document()
-        cursor = self.preview.cursorForPosition(QPoint(2, 2))
-        block = cursor.block()
-        anchor_name = ""
-        for _ in range(5):  # check up to 5 blocks backward
-            if not block.isValid():
-                break
-            block_pos = block.position()
-            for offset in range(10):
-                check_pos = block_pos + offset
-                if check_pos >= doc.characterCount():
-                    break
-                temp = QTextCursor(doc)
-                temp.setPosition(check_pos)
-                for name in temp.charFormat().anchorNames():
-                    if name.startswith("b"):
-                        anchor_name = name
-                        break
-                if anchor_name:
-                    break
-            if anchor_name:
-                break
-            block = block.previous()
+        anchor_name = self.preview.anchor_at_viewport_top()
         if not anchor_name:
             return
         anchor_idx = int(anchor_name[1:])
