@@ -4,6 +4,8 @@ A non-WYSIWYG Markdown editor with live preview, syntax highlighting, folder-bas
 
 ![theme](resources/cutemd.svg)
 
+> **Disclaimer:** This project is vibecoded. Although it has been tested and works for my use cases, it may contain bugs, edge cases, or unexpected behavior. **I am not responsible for any loss of data or other damages that may occur from using this software.** Use at your own risk and keep backups of your files.
+
 ## Features
 
 - **Split editor + live preview** with exact anchor-based scroll sync
