@@ -13,13 +13,13 @@ On startup, in ``main.py``::
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSettings, QTranslator
+from PySide6.QtCore import QLocale, QSettings, QTranslator
 from PySide6.QtWidgets import QApplication
 
 # (code, display_name) pairs for the language selector.
-#   ""  →  no translation file (the built-in English fallback).
 LANGUAGES: list[tuple[str, str]] = [
-    ("", "System default"),
+    ("system", "System default"),
+    ("en", "English"),
     ("it", "Italiano"),
 ]
 
@@ -31,10 +31,17 @@ def _translations_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "resources" / "translations"
 
 
+def _resolve_lang_code(lang_code: str) -> str:
+    """Resolve ``"system"`` (or empty string) to the OS locale code."""
+    if not lang_code or lang_code == "system":
+        return QLocale.system().name()[:2]
+    return lang_code
+
+
 def load_translator(lang_code: str) -> QTranslator | None:
     """Load a ``.qm`` translation file for *lang_code*.
 
-    Returns ``None`` when *lang_code* is empty or the file is missing.
+    Returns ``None`` when the code is empty or the file is missing.
     """
     if not lang_code:
         return None
@@ -53,15 +60,18 @@ def _current_translator(app: QApplication) -> QTranslator | None:
 def apply_language(app: QApplication, lang_code: str) -> None:
     """Install (or remove) a translator for *lang_code* **immediately**.
 
+    ``"system"`` (or empty) is resolved to the OS locale.
     Sends a ``LanguageChange`` event to every top-level widget so
     they can refresh their displayed strings.
     """
+    resolved = _resolve_lang_code(lang_code)
+
     old = _current_translator(app)
     if old is not None:
         app.removeTranslator(old)
         app._cutemd_translator = None  # type: ignore[attr-defined]
 
-    translator = load_translator(lang_code)
+    translator = load_translator(resolved)
     if translator is not None:
         app.installTranslator(translator)
         app._cutemd_translator = translator  # type: ignore[attr-defined]
@@ -81,5 +91,5 @@ def setup_translation(app: QApplication) -> None:
     that ``QSettings`` finds the correct storage.
     """
     settings = QSettings("cutemd", "cutemd")
-    lang_code = str(settings.value("language", ""))
+    lang_code = str(settings.value("language", "system"))
     apply_language(app, lang_code)

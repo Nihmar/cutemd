@@ -205,9 +205,11 @@ class SettingsDialog(QDialog):
         lang_page_layout = lang_page.layout()
         lang_form = QFormLayout()
         self._lang_combo = QComboBox()
+        # Normalise empty string (old saved value) to "system"
+        match_lang = "system" if not current_language else current_language
         for i, (code, name) in enumerate(LANGUAGES):
             self._lang_combo.addItem(self.tr(name), code)
-            if code == current_language:
+            if code == match_lang:
                 self._lang_combo.setCurrentIndex(i)
         lang_form.addRow(self.tr("Language:"), self._lang_combo)
         lang_page_layout.addLayout(lang_form)

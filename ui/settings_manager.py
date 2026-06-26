@@ -100,7 +100,7 @@ class AppSettings(QObject):
     # ------------------------------------------------------------------
     # Language
     # ------------------------------------------------------------------
-    def language(self, default: str = "en") -> str:
+    def language(self, default: str = "system") -> str:
         return str(self._s.value("language", default))
 
     def set_language(self, value: str) -> None:
