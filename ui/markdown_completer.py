@@ -18,13 +18,13 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
-    QListWidget,
     QListWidgetItem,
     QPlainTextEdit,
     QVBoxLayout,
 )
 
 from core.logging import setup_logging
+from ui.widgets import CuteListWidget
 
 _LOG = setup_logging("cutemd.completer")
 
@@ -77,7 +77,7 @@ class MarkdownAutoCompleter(QObject):
         # Tag autocomplete state
         self._tag_list: list[str] = []
         self._tag_popup: QFrame | None = None
-        self._tag_list_widget: QListWidget | None = None
+        self._tag_list_widget: CuteListWidget | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -403,11 +403,18 @@ class MarkdownAutoCompleter(QObject):
             Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint,
         )
         self._tag_popup.setObjectName("tagPopup")
+        self._tag_popup.setStyleSheet(
+            "#tagPopup {"
+            "  background: palette(window);"
+            "  border: 1px solid palette(mid);"
+            "  border-radius: 8px;"
+            "}"
+        )
         layout = QVBoxLayout(self._tag_popup)
         layout.setContentsMargins(2, 2, 2, 2)
         layout.setSpacing(0)
 
-        self._tag_list_widget = QListWidget(self._tag_popup)
+        self._tag_list_widget = CuteListWidget(self._tag_popup)
         self._tag_list_widget.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
         )
