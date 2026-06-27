@@ -280,6 +280,12 @@ class AppSettings(QObject):
     def set_right_dock_width(self, width: int) -> None:
         self._s.setValue("right_dock_width", width)
 
+    def right_panel_width(self, default: int = 220) -> int:
+        return int(self._s.value("right_panel_width", default))
+
+    def set_right_panel_width(self, width: int) -> None:
+        self._s.setValue("right_panel_width", width)
+
     # ------------------------------------------------------------------
     # Clear last folder + recent folders
     # ------------------------------------------------------------------

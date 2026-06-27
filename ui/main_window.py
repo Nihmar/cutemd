@@ -230,22 +230,32 @@ class MainWindow(QMainWindow):
         if not getattr(self, "_panel_restored", False):
             self._panel_restored = True
             self._side_panel._reset_save_timer()
-            # Restore right dock splitter sizes on first show
-            if hasattr(self, "_right_dock_splitter"):
+            # Restore right splitter sizes on first show
+            if hasattr(self, "_right_splitter"):
                 saved = self._s.right_dock_sizes()
                 if saved and all(s > 0 for s in saved):
-                    self._right_dock_splitter.setSizes(saved)
+                    self._right_splitter.setSizes(saved)
+            # Restore right panel width
+            rw = self._s.right_panel_width()
+            if rw > 0 and hasattr(self, "_splitter"):
+                sizes = self._splitter.sizes()
+                if len(sizes) >= 3:
+                    total = sum(sizes)
+                    left = sizes[0]
+                    mid = max(total - left - rw, 100)
+                    self._splitter.setSizes([left, mid, rw])
 
     def _on_splitter_moved(self, pos: int, index: int) -> None:
-        """Save left panel width when user drags the outer splitter."""
+        """Save left and right panel widths when user drags the splitter."""
         if not self._side_panel._save_allowed:
             return
         sizes = self._splitter.sizes()
         left = sizes[0] if len(sizes) > 0 else 0
-        if left <= 0:
-            return
-        _LOG.debug("splitterMoved save: left=%d", left)
-        self._s.set_left_panel_width(left)
+        right = sizes[2] if len(sizes) > 2 else 0
+        if left > 0:
+            self._s.set_left_panel_width(left)
+        if right > 0:
+            self._s.set_right_panel_width(right)
 
     def _on_right_dock_splitter_moved(self, pos: int, index: int) -> None:
         """Save right splitter sizes when user drags."""
@@ -1945,7 +1955,8 @@ class MainWindow(QMainWindow):
                 self._splitter.sizes()[1] if len(self._splitter.sizes()) > 1 else 0,
             ),
             left_splitter_sizes=self._left_splitter.sizes() if hasattr(self, "_left_splitter") else [],
-            right_dock_sizes=self._right_dock_splitter.sizes() if hasattr(self, "_right_dock_splitter") else [],
+            right_dock_sizes=self._right_splitter.sizes() if hasattr(self, "_right_splitter") else [],
+            right_panel_width=self._splitter.sizes()[2] if len(self._splitter.sizes()) > 2 else 0,
             window_geometry=self.saveGeometry(),
         )
         event.accept()
