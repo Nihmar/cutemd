@@ -1279,7 +1279,7 @@ class MainWindow(QMainWindow):
         if self._files_to_open:
             for fp in self._files_to_open:
                 tab = self._current_tab()
-                if tab is not None and not tab.is_modified:
+                if tab is not None and tab.file_path is None and not tab.is_modified:
                     tab.load_file(fp)
                     self._refresh_tab_title(tab)
                 else:
@@ -1403,6 +1403,16 @@ class MainWindow(QMainWindow):
             self._tree_panel.select_file(p)
             return
 
+        # Replace an untitled, unmodified tab instead of creating a new one.
+        tab = self._current_tab()
+        if tab is not None and tab.file_path is None and not tab.is_modified:
+            tab.load_file(p)
+            self._preview_tab = tab
+            self._refresh_tab_title(tab)
+            self._update_window_title()
+            self._tree_panel.select_file(p)
+            return
+
         tab = self._add_tab()
         tab.load_file(p)
         self._preview_tab = tab
@@ -1429,6 +1439,14 @@ class MainWindow(QMainWindow):
         tab = self._current_tab()
         if tab is self._preview_tab:
             self._preview_tab = None
+            tab.load_file(p)
+            self._refresh_tab_title(tab)
+            self._update_window_title()
+            self._tree_panel.select_file(p)
+            return
+
+        # Replace an untitled, unmodified tab instead of creating a new one.
+        if tab is not None and tab.file_path is None and not tab.is_modified:
             tab.load_file(p)
             self._refresh_tab_title(tab)
             self._update_window_title()
@@ -1544,6 +1562,10 @@ class MainWindow(QMainWindow):
             self._on_webdav_sync(auto_triggered=True)
 
     def _on_new(self) -> None:
+        tab = self._current_tab()
+        if tab is not None and tab.file_path is None and not tab.is_modified:
+            self._tabs.setCurrentIndex(self._tabs.indexOf(tab))
+            return
         self._add_tab()
         self._update_window_title()
 
