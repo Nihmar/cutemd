@@ -1239,37 +1239,57 @@ class MainWindow(QMainWindow):
         self._sync_busy = True
         self._status_sync.setText(self.tr("Syncing..."))
 
-        # If backup dir configured, run backup first, then sync
-        if backup_dir:
-            backup_dir_path = Path(backup_dir)
-            if not backup_dir_path.is_dir():
-                self._sync_busy = False
+        # Backup is mandatory — block sync if not configured
+        if not backup_dir:
+            if not auto_triggered:
+                QMessageBox.warning(
+                    self,
+                    self.tr("Sync"),
+                    self.tr(
+                        "No backup directory configured.\n"
+                        "Set it in Settings \u2192 Sync before syncing."
+                    ),
+                )
+            else:
+                self._status_sync.setText(self.tr("Backup dir not configured"))
+            return
+
+        backup_dir_path = Path(backup_dir)
+        if not backup_dir_path.is_dir():
+            if not auto_triggered:
+                QMessageBox.warning(
+                    self,
+                    self.tr("Sync"),
+                    self.tr("Backup directory not found:\n{}").format(backup_dir),
+                )
+            else:
                 self._status_sync.setText(
                     self.tr("Backup dir not found: {}").format(backup_dir)
                 )
+            return
+
+        self._status_sync.setText(self.tr("Backing up..."))
+        self._backup_thread = BackupThread(self._folder_path, backup_dir)
+
+        def _on_backup_done(result_path):
+            if result_path is None:
+                self._sync_busy = False
+                self._status_sync.setText(self.tr("Backup failed"))
                 return
-            self._status_sync.setText(self.tr("Backing up..."))
-            self._backup_thread = BackupThread(self._folder_path, backup_dir)
-
-            def _on_backup_done(result_path):
-                self._status_sync.setText(self.tr("Syncing..."))
-                self._start_webdav_sync(webdav_url, user, pwd, auto_triggered)
-
-            def _on_backup_progress(msg):
-                self._status_sync.setText(self.tr("Backup: {}").format(msg))
-
-            self._backup_thread.progress.connect(_on_backup_progress)
-            self._backup_thread.finished.connect(_on_backup_done)
-            self._backup_thread.start()
-        else:
+            self._status_sync.setText(self.tr("Syncing..."))
             self._start_webdav_sync(webdav_url, user, pwd, auto_triggered)
+
+        def _on_backup_progress(msg):
+            self._status_sync.setText(self.tr("Backup: {}").format(msg))
+
+        self._backup_thread.progress.connect(_on_backup_progress)
+        self._backup_thread.finished.connect(_on_backup_done)
+        self._backup_thread.start()
 
     def _start_webdav_sync(
         self, url: str, user: str, pwd: str, auto_triggered: bool = False
     ) -> None:
         """Launch the WebDAV sync thread."""
-        from ui.webdav_sync import SyncThread
-
         self._sync_thread = SyncThread(self._folder_path, url, user, pwd)
 
         def _on_progress(msg: str) -> None:

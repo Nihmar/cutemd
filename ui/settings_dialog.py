@@ -591,7 +591,7 @@ class SettingsDialog(QDialog):
             card_lay.addSpacing(8)
             self._webdav_backup_edit = QLineEdit()
             self._webdav_backup_edit.setPlaceholderText(
-                self.tr("/path/to/backup (optional)")
+                self.tr("/path/to/backup (required for sync)")
             )
             self._webdav_backup_edit.setText(current_webdav_backup_dir)
             lbl_backup = QLabel(self.tr("Backup directory"))
