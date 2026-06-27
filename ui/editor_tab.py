@@ -252,12 +252,12 @@ class EditorTab(QWidget):
         self._find_bar.closed.connect(
             lambda: (self._clear_highlights(), self.editor.setFocus())
         )
-        layout.addWidget(self._find_bar)
+        layout.addWidget(self._find_bar, 0)
 
         # Slot for external toolbar (inserted by MainWindow)
         self._toolbar_slot = layout
 
-        layout.addWidget(splitter)
+        layout.addWidget(splitter, 1)  # stretch 1 = take all remaining space
 
         _LOG.debug("EditorTab created")
 

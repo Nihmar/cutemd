@@ -6,7 +6,7 @@ from typing import Callable
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
-from PySide6.QtWidgets import QHBoxLayout, QMenu, QToolButton, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QMenu, QSizePolicy, QToolButton, QWidget
 
 from core.markdown_actions import HEADING_PREFIXES, TOOLBAR_ITEMS
 
@@ -25,6 +25,10 @@ class EditorToolbar(QWidget):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("editorToolbar")
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
 
         self._icon_color = icon_color
         self._make_icon = make_icon
