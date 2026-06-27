@@ -120,6 +120,7 @@ class SettingsDialog(QDialog):
         current_sync_on_save: bool = False,
         current_session_restore_enabled: bool = False,
         current_show_hidden_files: bool = False,
+        current_webdav_backup_dir: str = "",
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -588,6 +589,20 @@ class SettingsDialog(QDialog):
             card_lay.addWidget(self._webdav_pass_edit)
 
             card_lay.addSpacing(8)
+            self._webdav_backup_edit = QLineEdit()
+            self._webdav_backup_edit.setPlaceholderText(
+                self.tr("/path/to/backup (optional)")
+            )
+            self._webdav_backup_edit.setText(current_webdav_backup_dir)
+            lbl_backup = QLabel(self.tr("Backup directory"))
+            lbl_backup.setStyleSheet("font-size: 12px; font-weight: bold;")
+            hint = QLabel(self.tr("Vault is copied here before each sync"))
+            hint.setStyleSheet("font-size: 11px;")
+            card_lay.addWidget(lbl_backup)
+            card_lay.addWidget(hint)
+            card_lay.addWidget(self._webdav_backup_edit)
+
+            card_lay.addSpacing(8)
             test_btn = QPushButton(self.tr("Test Connection"))
             test_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             test_btn.clicked.connect(self._on_test_webdav)
@@ -995,6 +1010,11 @@ class SettingsDialog(QDialog):
     def selected_webdav_password(self) -> str:
         if self._webdav_pass_edit is not None:
             return self._webdav_pass_edit.text()
+        return ""
+
+    def selected_webdav_backup_dir(self) -> str:
+        if hasattr(self, "_webdav_backup_edit") and self._webdav_backup_edit is not None:
+            return self._webdav_backup_edit.text().strip()
         return ""
 
     # ==================================================================

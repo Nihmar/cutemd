@@ -179,9 +179,11 @@ class SettingsApplicator:
         new_url = dlg.selected_webdav_url()
         new_user = dlg.selected_webdav_username()
         new_pass = dlg.selected_webdav_password()
+        new_backup = dlg.selected_webdav_backup_dir()
         if new_url or new_user or new_pass:
             fs.save_webdav_config({
                 "url": new_url, "username": new_user, "password": new_pass,
+                "backup_dir": new_backup,
             })
         else:
             fs.clear_webdav_config()

@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, QThread, Signal
 
-from core.webdav.sync import SyncResult, sync_folder
+from core.webdav.sync import SyncResult, backup_vault, sync_folder
 
 
 class SyncThread(QThread):
@@ -37,5 +37,25 @@ class SyncThread(QThread):
             self._password,
             progress_callback=lambda msg: self.progress.emit(msg),
             translate=QCoreApplication.translate,
+        )
+        self.finished.emit(result)
+
+
+class BackupThread(QThread):
+    """QThread that runs ``backup_vault()`` in the background."""
+
+    progress = Signal(str)
+    finished = Signal(object)  # str (backup path) or None
+
+    def __init__(self, vault_path: Path, backup_dir: str) -> None:
+        super().__init__()
+        self._vault_path = vault_path
+        self._backup_dir = backup_dir
+
+    def run(self) -> None:
+        result = backup_vault(
+            self._vault_path,
+            self._backup_dir,
+            progress_callback=lambda msg: self.progress.emit(msg),
         )
         self.finished.emit(result)

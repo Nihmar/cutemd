@@ -615,3 +615,58 @@ def sync_folder(
         progress_callback(translate("WebDAV", "Done."))
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Backup before sync
+# ---------------------------------------------------------------------------
+
+
+def backup_vault(
+    vault_path: Path,
+    backup_dir: str,
+    progress_callback: Callable[[str], None] | None = None,
+) -> str | None:
+    """Copy the entire vault to a timestamped backup directory.
+
+    Returns the backup path on success, or None if the backup directory
+    doesn't exist.
+    """
+    dest_root = Path(backup_dir)
+    if not dest_root.is_dir():
+        _LOG.debug("backup_vault: backup dir does not exist: %s", backup_dir)
+        return None
+
+    ts = datetime.now().strftime("%Y-%m-%dT%H%M%S")
+    dest = dest_root / f"{vault_path.name}_{ts}"
+    _LOG.debug("backup_vault: copying %s → %s", vault_path, dest)
+
+    if progress_callback:
+        progress_callback(f"Backing up to {dest.name}...")
+
+    try:
+        _copy_tree(vault_path, dest)
+    except OSError as e:
+        _LOG.exception("backup_vault: copy failed")
+        if progress_callback:
+            progress_callback(f"Backup failed: {e}")
+        return None
+
+    if progress_callback:
+        progress_callback("Backup complete.")
+    return str(dest)
+
+
+def _copy_tree(src: Path, dst: Path) -> None:
+    """Recursively copy *src* to *dst*, skipping ``.cutemd``."""
+    dst.mkdir(parents=True, exist_ok=True)
+    for item in src.iterdir():
+        if item.name == ".cutemd":
+            continue
+        s = src / item.name
+        d = dst / item.name
+        if item.is_dir():
+            _copy_tree(s, d)
+        else:
+            import shutil
+            shutil.copy2(str(s), str(d))

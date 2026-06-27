@@ -178,6 +178,12 @@ class AppSettings(QObject):
     def set_sync_on_save(self, value: bool) -> None:
         self._s.setValue("sync_on_save", value)
 
+    def webdav_backup_dir(self, default: str = "") -> str:
+        return str(self._s.value("webdav_backup_dir", default))
+
+    def set_webdav_backup_dir(self, value: str) -> None:
+        self._s.setValue("webdav_backup_dir", value)
+
     # ------------------------------------------------------------------
     # Auto-update
     # ------------------------------------------------------------------
