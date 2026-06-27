@@ -4,7 +4,7 @@ import csv
 import zipfile
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QFont, QPixmap, QTextOption
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import (
@@ -30,7 +30,45 @@ _LOG = setup_logging("cutemd.link_preview_popup")
 from ui.syntax_highlighter import MarkdownHighlighter
 
 
+# ---------------------------------------------------------------------------
+# Async preview worker — renders heavy formats in a background thread
+# ---------------------------------------------------------------------------
+
+
+class _PreviewRenderThread(QThread):
+    """Renders a document to HTML in a background thread."""
+    result = Signal(str)
+
+    def __init__(self, path: Path, ext: str, css: str, parent=None):
+        super().__init__(parent)
+        self._path = path
+        self._ext = ext
+        self._css = css
+
+    def run(self) -> None:
+        try:
+            if self._ext in (".xlsx",):
+                html = xlsx_to_html(self._path, self._css)
+            elif self._ext in (".docx",):
+                html = docx_to_html(self._path, self._css)
+            elif self._ext in (".pptx",):
+                html = pptx_to_html(self._path, self._css)
+            elif self._ext in (".epub",):
+                html = epub_to_html(self._path, self._css)
+            else:
+                html = f"<p>[Unsupported format: {self._ext}]</p>"
+        except Exception as e:
+            html = f"<p>[Error rendering: {e}]</p>"
+        self.result.emit(html)
+
+
+# ---------------------------------------------------------------------------
+# LinkPreviewPopup
+# ---------------------------------------------------------------------------
+
+
 class LinkPreviewPopup(QFrame):
+# ---------------------------------------------------------------------------
     """Popup window that shows a live preview of a linked file.
 
     Appears near the mouse cursor when hovering over a link in the editor.
@@ -129,7 +167,12 @@ class LinkPreviewPopup(QFrame):
     def show_for_path(
         self, path: Path, screen_pos, editor_font: QFont | None = None
     ) -> None:
-        """Load *path* and show the popup at *screen_pos*."""
+        """Load *path* and show the popup at *screen_pos*.
+
+        Heavy formats (XLSX, DOCX, PPTX, EPUB) are rendered in a
+        background thread so the popup appears instantly with a
+        loading indicator.
+        """
         if path == self._path and self.isVisible():
             self._move_within_screen(screen_pos)
             return
@@ -137,6 +180,12 @@ class LinkPreviewPopup(QFrame):
         self._path = path
         self._hide_timer.stop()
         self._mouse_over = True
+
+        # Cancel any pending render thread.
+        if hasattr(self, "_render_thread") and self._render_thread.isRunning():
+            self._render_thread.result.disconnect()
+            self._render_thread.quit()
+            self._render_thread.wait(500)
 
         # Force-hide if visible so the WM accepts the new position
         # (Wayland/GNOME ignores move() on visible windows).
@@ -155,6 +204,23 @@ class LinkPreviewPopup(QFrame):
 
         ext = path.suffix.lower()
 
+        # Heavy formats — show popup immediately with loading indicator,
+        # then render in background thread.
+        if ext in self._DOCX_EXTS | self._PPTX_EXTS | self._XLSX_EXTS | self._EPUB_EXTS:
+            self._image_label.hide()
+            self._editor.show()
+            self._editor.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+            self._editor.setWordWrapMode(QTextOption.WrapMode.WordWrap)
+            if self._highlighter is not None:
+                self._highlighter.setDocument(None)
+            self._editor.setPlainText(self.tr("Loading\u2026"))
+            self._move_within_screen(screen_pos)
+            self.setVisible(True)
+            self.raise_()
+            self._start_async_render(path, ext)
+            return
+
+        # Light formats — render synchronously.
         if ext in self._IMG_EXTS:
             self._show_image(path)
         elif ext in self._CBZ_EXTS:
@@ -163,19 +229,22 @@ class LinkPreviewPopup(QFrame):
             self._show_pdf(path)
         elif ext in self._CSV_EXTS:
             self._show_csv(path)
-        elif ext in self._DOCX_EXTS:
-            self._show_docx(path)
-        elif ext in self._PPTX_EXTS:
-            self._show_pptx(path)
-        elif ext in self._XLSX_EXTS:
-            self._show_xlsx(path)
-        elif ext in self._EPUB_EXTS:
-            self._show_epub(path)
         else:
             self._show_text(path, editor_font)
         self._move_within_screen(screen_pos)
         self.setVisible(True)
         self.raise_()
+
+    def _start_async_render(self, path: Path, ext: str) -> None:
+        """Launch background rendering for a heavy document format."""
+        self._render_thread = _PreviewRenderThread(path, ext, "", self)
+        self._render_thread.result.connect(self._on_async_render_done)
+        self._render_thread.start()
+
+    def _on_async_render_done(self, html: str) -> None:
+        """Called when the background render finishes."""
+        self._editor.setHtml(html)
+        self._editor.verticalScrollBar().setValue(0)
 
     def hide_popup(self) -> None:
         """Schedule hide after a short delay (to avoid flicker)."""
