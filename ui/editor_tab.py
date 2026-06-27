@@ -254,6 +254,9 @@ class EditorTab(QWidget):
         )
         layout.addWidget(self._find_bar)
 
+        # Slot for external toolbar (inserted by MainWindow)
+        self._toolbar_slot = layout
+
         layout.addWidget(splitter)
 
         _LOG.debug("EditorTab created")
@@ -666,6 +669,10 @@ class EditorTab(QWidget):
         self._attachments_dir = d
         self.preview.set_attachments_dir(d)
         self._refresh_link_highlights()
+
+    def insert_toolbar(self, toolbar: QWidget) -> None:
+        """Insert *toolbar* between find bar and the editor/preview splitter."""
+        self._toolbar_slot.insertWidget(1, toolbar)
 
     # ------------------------------------------------------------------
     # Preview rendering
