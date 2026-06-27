@@ -600,7 +600,14 @@ class SettingsDialog(QDialog):
             hint.setStyleSheet("font-size: 11px;")
             card_lay.addWidget(lbl_backup)
             card_lay.addWidget(hint)
-            card_lay.addWidget(self._webdav_backup_edit)
+            backup_row = QHBoxLayout()
+            backup_row.addWidget(self._webdav_backup_edit)
+            browse_btn = QPushButton("...")
+            browse_btn.setFixedWidth(40)
+            browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            browse_btn.clicked.connect(self._on_browse_backup_dir)
+            backup_row.addWidget(browse_btn)
+            card_lay.addLayout(backup_row)
 
             card_lay.addSpacing(8)
             test_btn = QPushButton(self.tr("Test Connection"))
@@ -1053,6 +1060,16 @@ class SettingsDialog(QDialog):
     # ==================================================================
     # Sync helpers
     # ==================================================================
+
+    def _on_browse_backup_dir(self) -> None:
+        """Open a directory picker for the backup directory."""
+        from PySide6.QtWidgets import QFileDialog
+        path = QFileDialog.getExistingDirectory(
+            self, self.tr("Select backup directory"),
+            self._webdav_backup_edit.text() or str(Path.home()),
+        )
+        if path:
+            self._webdav_backup_edit.setText(path)
 
     def _on_test_webdav(self) -> None:
         url = self._webdav_url_edit.text().strip() if self._webdav_url_edit else ""
