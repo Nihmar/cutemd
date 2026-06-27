@@ -36,8 +36,10 @@ from ui.markdown_completer import DEFAULT_SMART_EDITING
 from ui.shortcut_manager import DEFAULT_SHORTCUTS
 from ui.themes import ALL_THEMES, get_theme
 from ui.translations import LANGUAGES
-from core.webdav.sync import WebDAVClient
 from ui.widgets import CuteListWidget
+from ui.widgets.font_picker import FontPicker, FontPreviewDelegate
+from ui.widgets.toggle_switch import ToggleSwitch
+from core.webdav.sync import WebDAVClient
 
 _FONT_FAMILIES: list[str] | None = None
 
@@ -47,215 +49,10 @@ _FONT_FAMILIES: list[str] | None = None
 # ======================================================================
 
 
-class _FontPreviewDelegate(QStyledItemDelegate):
-    def initStyleOption(self, option, index):
-        super().initStyleOption(option, index)
-        data = index.data(Qt.ItemDataRole.UserRole)
-        if data and data != "System":
-            font = QFont(index.data(Qt.ItemDataRole.DisplayRole))
-            font.setPointSize(option.font.pointSize())
-            option.font = font
-
 
 # ======================================================================
-# Toggle switch
+# WebDAV test worker
 # ======================================================================
-
-
-class _ToggleSwitch(QWidget):
-    """Toggle switch styled after KDE Plasma / Breeze.
-
-    The track is a narrow pill ("rail") and the thumb circle is taller,
-    overflowing above and below — exactly like the Breeze toggle.
-
-    OFF  — outlined rail, bordered thumb on left.
-    ON   — filled rail (highlight colour), white thumb on right.
-    """
-
-    toggled = Signal(bool)
-
-    _W = 44  # total widget width
-    _H = 22  # total widget height  (fits the thumb)
-    _TRACK_H = 12  # narrow rail height
-    _THUMB = 20  # thumb diameter  (> _TRACK_H → overflows)
-    _BORDER = 1.5
-    _MARGIN = 1  # gap between thumb edge and widget edge
-
-    def __init__(self, checked: bool = False, parent=None) -> None:
-        super().__init__(parent)
-        self._checked = checked
-        self.setFixedSize(self._W, self._H)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-
-    # --- public API (QCheckBox-compatible) ---
-
-    def isChecked(self) -> bool:
-        return self._checked
-
-    def setChecked(self, checked: bool) -> None:
-        if self._checked != checked:
-            self._checked = checked
-            self.update()
-            self.toggled.emit(self._checked)
-
-    def setEnabled(self, enabled: bool) -> None:
-        super().setEnabled(enabled)
-        if enabled:
-            self.setCursor(Qt.CursorShape.PointingHandCursor)
-        else:
-            self.unsetCursor()
-        self.update()
-
-    # --- events ---
-
-    def mousePressEvent(self, event) -> None:
-        if self.isEnabled():
-            self._checked = not self._checked
-            self.update()
-            self.toggled.emit(self._checked)
-
-    def paintEvent(self, event) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        pal = self.palette()
-        disabled = not self.isEnabled()
-
-        # Track geometry (narrow rail, vertically centred)
-        track_y = (self._H - self._TRACK_H) / 2.0
-        track_rect = QRectF(0, track_y, self._W, self._TRACK_H)
-        track_r = self._TRACK_H / 2.0
-
-        # Thumb geometry (bigger circle, vertically centred)
-        thumb_y = (self._H - self._THUMB) / 2.0
-        thumb_off_x = self._MARGIN
-        thumb_on_x = self._W - self._THUMB - self._MARGIN
-
-        if self._checked:
-            # ON — filled rail, white thumb on the right
-            fill = pal.highlight().color()
-            if disabled:
-                fill.setAlpha(80)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.setBrush(fill)
-            p.drawRoundedRect(track_rect, track_r, track_r)
-
-            thumb_c = QColor(255, 255, 255)
-            if disabled:
-                thumb_c.setAlpha(100)
-            p.setBrush(thumb_c)
-            p.setPen(Qt.PenStyle.NoPen)
-            p.drawEllipse(QRectF(thumb_on_x, thumb_y, self._THUMB, self._THUMB))
-        else:
-            # OFF — outlined rail, bordered thumb on the left
-            border = pal.mid().color()
-            if disabled:
-                border.setAlpha(60)
-            pen = QPen(border, self._BORDER)
-
-            # Rail outline
-            p.setPen(pen)
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            inset = self._BORDER / 2.0
-            p.drawRoundedRect(
-                track_rect.adjusted(inset, inset, -inset, -inset),
-                track_r,
-                track_r,
-            )
-
-            # Thumb
-            bg = pal.window().color()
-            if disabled:
-                bg.setAlpha(100)
-            p.setBrush(bg)
-            p.setPen(pen)
-            p.drawEllipse(QRectF(thumb_off_x, thumb_y, self._THUMB, self._THUMB))
-
-        p.end()
-
-
-# ======================================================================
-# Font picker (unchanged)
-# ======================================================================
-
-
-class _FontPicker(QWidget):
-    _LIST_HEIGHT = 150
-
-    def __init__(self, parent=None) -> None:
-        super().__init__(parent)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(2)
-
-        self._edit = QLineEdit()
-        self._edit.setClearButtonEnabled(True)
-        lay.addWidget(self._edit)
-
-        self._list = CuteListWidget()
-        self._list.setFrameShape(CuteListWidget.Shape.NoFrame)
-        self._list.setFixedHeight(self._LIST_HEIGHT)
-        self._list.setItemDelegate(_FontPreviewDelegate(self._list))
-        lay.addWidget(self._list)
-
-        edit_h = self._edit.sizeHint().height()
-        total_h = edit_h + lay.spacing() + self._LIST_HEIGHT
-        self.setMaximumHeight(total_h)
-
-        sp = self.sizePolicy()
-        sp.setVerticalPolicy(QSizePolicy.Policy.Fixed)
-        self.setSizePolicy(sp)
-
-        self._edit.textChanged.connect(self._apply_filter)
-
-    def add_item(self, text: str, data: str) -> QListWidgetItem:
-        item = QListWidgetItem(text)
-        item.setData(Qt.ItemDataRole.UserRole, data)
-        self._list.addItem(item)
-        return item
-
-    def select_by_data(self, data: str) -> None:
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            if item.data(Qt.ItemDataRole.UserRole) == data:
-                self._list.setCurrentRow(i)
-                self._list.scrollToItem(item)
-                return
-        if self._list.count():
-            self._list.setCurrentRow(0)
-
-    def select_first(self) -> None:
-        self._edit.clear()
-        if self._list.count():
-            self._list.setCurrentRow(0)
-            self._list.scrollToItem(self._list.item(0))
-
-    def _apply_filter(self, text: str) -> None:
-        ft = text.lower()
-        first_visible = None
-        for i in range(self._list.count()):
-            item = self._list.item(i)
-            visible = (not ft) or (ft in item.text().lower())
-            item.setHidden(not visible)
-            if visible and first_visible is None:
-                first_visible = item
-        cur = self._list.currentItem()
-        if cur is None or cur.isHidden():
-            if first_visible is not None:
-                self._list.setCurrentItem(first_visible)
-                self._list.scrollToItem(first_visible)
-
-    def current_data(self) -> str:
-        item = self._list.currentItem()
-        if item is not None:
-            return item.data(Qt.ItemDataRole.UserRole)
-        return "System"
-
-
-# ======================================================================
-# WebDAV test worker (unchanged)
-# ======================================================================
-
 
 class _WebDAVTestWorker(QThread):
     result = Signal(bool, str)
@@ -389,7 +186,7 @@ class SettingsDialog(QDialog):
         # Auto-update section
         card_lay.addWidget(self._separator())
         card_lay.addWidget(self._section_label(self.tr("UPDATES")))
-        self._auto_update_toggle = _ToggleSwitch(
+        self._auto_update_toggle = ToggleSwitch(
             self._app_settings.auto_update_check() if self._app_settings else True
         )
         card_lay.addLayout(
@@ -402,7 +199,7 @@ class SettingsDialog(QDialog):
         # Interface section
         card_lay.addWidget(self._separator())
         card_lay.addWidget(self._section_label(self.tr("INTERFACE")))
-        self._menu_bar_toggle = _ToggleSwitch(
+        self._menu_bar_toggle = ToggleSwitch(
             self._app_settings.menu_bar_visible() if self._app_settings else True
         )
         card_lay.addLayout(
@@ -456,7 +253,7 @@ class SettingsDialog(QDialog):
         # Section: Font
         editor_lay.addWidget(self._section_label(self.tr("FONT")))
         card, card_lay = self._make_card()
-        self._editor_font_combo = _FontPicker()
+        self._editor_font_combo = FontPicker()
         self._editor_font_current = current_editor_font
         self._editor_font_populated = False
         f_row = QFormLayout()
@@ -508,7 +305,7 @@ class SettingsDialog(QDialog):
         )
         card_lay.addWidget(self._separator())
 
-        self._show_hidden_toggle = _ToggleSwitch(current_show_hidden_files)
+        self._show_hidden_toggle = ToggleSwitch(current_show_hidden_files)
         card_lay.addLayout(
             self._field_row(
                 self.tr("Show hidden files"),
@@ -540,13 +337,13 @@ class SettingsDialog(QDialog):
         editor_lay.addWidget(self._section_label(self.tr("SMART EDITING")))
         card, card_lay = self._make_card()
 
-        self._smart_enabled = _ToggleSwitch(smart["enabled"])
+        self._smart_enabled = ToggleSwitch(smart["enabled"])
         card_lay.addLayout(
             self._field_row(self.tr("Enable smart editing"), self._smart_enabled)
         )
         card_lay.addWidget(self._separator())
 
-        self._auto_pair_toggle = _ToggleSwitch(smart["auto_pair"])
+        self._auto_pair_toggle = ToggleSwitch(smart["auto_pair"])
         card_lay.addLayout(
             self._field_row(
                 self.tr("Auto-pair delimiters"),
@@ -556,7 +353,7 @@ class SettingsDialog(QDialog):
         )
         card_lay.addWidget(self._separator())
 
-        self._auto_brackets_toggle = _ToggleSwitch(smart["auto_pair_brackets"])
+        self._auto_brackets_toggle = ToggleSwitch(smart["auto_pair_brackets"])
         card_lay.addLayout(
             self._field_row(
                 self.tr("Auto-pair brackets"),
@@ -566,7 +363,7 @@ class SettingsDialog(QDialog):
         )
         card_lay.addWidget(self._separator())
 
-        self._continue_lists_toggle = _ToggleSwitch(smart["continue_lists"])
+        self._continue_lists_toggle = ToggleSwitch(smart["continue_lists"])
         card_lay.addLayout(
             self._field_row(
                 self.tr("Continue lists on enter"), self._continue_lists_toggle
@@ -574,7 +371,7 @@ class SettingsDialog(QDialog):
         )
         card_lay.addWidget(self._separator())
 
-        self._backspace_pairs_toggle = _ToggleSwitch(smart["backspace_pairs"])
+        self._backspace_pairs_toggle = ToggleSwitch(smart["backspace_pairs"])
         card_lay.addLayout(
             self._field_row(
                 self.tr("Remove empty pairs on backspace"),
@@ -622,7 +419,7 @@ class SettingsDialog(QDialog):
             self.tr("Typography for the markdown preview pane"),
         )
         card, card_lay = self._make_card()
-        self._preview_font_combo = _FontPicker()
+        self._preview_font_combo = FontPicker()
         self._preview_font_current = current_preview_font
         self._preview_font_populated = False
         f_row = QFormLayout()
@@ -681,7 +478,7 @@ class SettingsDialog(QDialog):
 
         stor_lay.addSpacing(12)
         card, card_lay = self._make_card()
-        self._session_restore_toggle = _ToggleSwitch(current_session_restore_enabled)
+        self._session_restore_toggle = ToggleSwitch(current_session_restore_enabled)
         card_lay.addLayout(
             self._field_row(
                 self.tr("Restore open tabs on startup"),
@@ -794,7 +591,7 @@ class SettingsDialog(QDialog):
             sync_lay.addWidget(self._section_label(self.tr("AUTOMATIC SYNC")))
             card, card_lay = self._make_card()
 
-            self._auto_sync_toggle = _ToggleSwitch(current_auto_sync_enabled)
+            self._auto_sync_toggle = ToggleSwitch(current_auto_sync_enabled)
             card_lay.addLayout(
                 self._field_row(
                     self.tr("Auto-sync periodically"),
@@ -814,7 +611,7 @@ class SettingsDialog(QDialog):
             )
             card_lay.addWidget(self._separator())
 
-            self._sync_on_save_toggle = _ToggleSwitch(current_sync_on_save)
+            self._sync_on_save_toggle = ToggleSwitch(current_sync_on_save)
             card_lay.addLayout(
                 self._field_row(
                     self.tr("Sync on save"),
@@ -948,7 +745,7 @@ class SettingsDialog(QDialog):
         )
         return lbl
 
-    def _populate_font_picker(self, picker: _FontPicker, current: str) -> None:
+    def _populate_font_picker(self, picker: FontPicker, current: str) -> None:
         global _FONT_FAMILIES
         picker._list.clear()
         picker._edit.setPlaceholderText(self.tr("Type to filter\u2026"))
