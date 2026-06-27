@@ -3,8 +3,9 @@
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
+
+from core.paths import resolve_path
 
 _DESKTOP_TEMPLATE = """[Desktop Entry]
 Type=Application
@@ -22,16 +23,6 @@ StartupNotify=true
 def _appimage_path() -> str | None:
     """Return the AppImage file path if running from one, else None."""
     return os.environ.get("APPIMAGE")
-
-
-def _resolve_path_in_bundle(name: str) -> Path | None:
-    """Resolve a data file bundled by PyInstaller."""
-    if getattr(sys, "frozen", False):
-        root = Path(sys._MEIPASS)  # type: ignore[attr-defined]
-    else:
-        root = Path(__file__).resolve().parent.parent
-    candidate = root / name
-    return candidate if candidate.is_file() else None
 
 
 def is_desktop_installed() -> bool:
@@ -58,8 +49,8 @@ def install_desktop() -> str:
     desktop_path.write_text(desktop_content, encoding="utf-8")
 
     # Copy icon from bundle
-    icon_src = _resolve_path_in_bundle("resources/cutemd.svg")
-    if icon_src:
+    icon_src = resolve_path("resources", "cutemd.svg")
+    if icon_src.is_file():
         shutil.copy2(str(icon_src), str(icon_dir / "cutemd.svg"))
 
     # Refresh desktop database

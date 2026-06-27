@@ -1,9 +1,7 @@
 """Theme support: QSS generation from palette colours."""
 
-import sys
-from pathlib import Path
-
 from core.logging import setup_logging
+from core.paths import resolve_path
 
 from PySide6.QtCore import QCoreApplication
 from PySide6.QtGui import QPalette
@@ -13,24 +11,17 @@ _LOG = setup_logging("cutemd.theme")
 _STYLE_TEMPLATE: str | None = None
 
 
-def _resolve_path(relative: str) -> Path:
-    """Resolve a path relative to the ui/ package, supporting PyInstaller."""
-    if getattr(sys, "frozen", False):
-        return Path(sys._MEIPASS) / "ui" / relative  # type: ignore[attr-defined]
-    return Path(__file__).resolve().parent / relative
-
-
 def _load_template() -> str:
     global _STYLE_TEMPLATE
     if _STYLE_TEMPLATE is None:
-        path = _resolve_path("style.qss")
+        path = resolve_path("ui", "style.qss")
         _STYLE_TEMPLATE = path.read_text() if path.exists() else ""
     return _STYLE_TEMPLATE
 
 
 def load_qss(pal: QPalette | None = None) -> str:
     """Return the QSS with palette colours resolved."""
-    _LOG.debug("load_qss: %s", _resolve_path("style.qss"))
+    _LOG.debug("load_qss: %s", resolve_path("ui", "style.qss"))
     if pal is None:
         app = QCoreApplication.instance()
         if app is None:

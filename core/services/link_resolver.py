@@ -4,14 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from core.constants import IMG_EXTS, MD_EXTS, PDF_EXTS
 from core.logging import setup_logging
 
 _LOG = setup_logging("cutemd.link_resolver")
-
-_IMG_EXTS = frozenset(
-    {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"}
-)
-_PDF_EXTS = frozenset({".pdf"})
 
 
 def resolve_link_target(
@@ -44,7 +40,7 @@ def resolve_link_target(
 
     # 1. Same directory as the source file.
     candidates = [base / target_path]
-    if target_path.suffix.lower() not in (".md", ".markdown"):
+    if target_path.suffix.lower() not in MD_EXTS:
         candidates.append(base / (target + ".md"))
         candidates.append(base / (target + ".markdown"))
     for p in candidates:
@@ -73,19 +69,19 @@ def resolve_link_target(
             pc = check_dir / target_path
             if pc.is_file():
                 return pc.resolve()
-            if target_path.suffix.lower() not in (".md", ".markdown"):
-                for ext in (".md", ".markdown"):
+            if target_path.suffix.lower() not in MD_EXTS:
+                for ext in MD_EXTS:
                     p2 = check_dir / (target + ext)
                     if p2.is_file():
                         return p2.resolve()
-                for ext in _IMG_EXTS | _PDF_EXTS:
+                for ext in IMG_EXTS | PDF_EXTS:
                     p2 = check_dir / (target + ext)
                     if p2.is_file():
                         return p2.resolve()
 
     # 4. Extension fallback in the base + attachments dir.
-    if target_path.suffix.lower() not in _IMG_EXTS | _PDF_EXTS:
-        for ext in _IMG_EXTS | _PDF_EXTS:
+    if target_path.suffix.lower() not in IMG_EXTS | PDF_EXTS:
+        for ext in IMG_EXTS | PDF_EXTS:
             p = base / (target + ext)
             if p.is_file():
                 return p.resolve()

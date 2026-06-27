@@ -1,7 +1,6 @@
 """Main window for the Markdown editor."""
 
 import re
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +47,7 @@ from PySide6.QtWidgets import (
 from core.animation_speed import animation_duration_ms
 from core.folder_settings import FolderSettings
 from core.logging import setup_logging
+from core.paths import resolve_path
 from core.services.folder_setup import default_folder_config
 from core.services.link_resolver import resolve_link_target
 from core.services.recent_folders import update_recent_folders
@@ -68,12 +68,8 @@ from ui.update_dialog import UpdateAvailableDialog
 # ---------------------------------------------------------------------------
 # Paths (supports PyInstaller one-file bundles)
 # ---------------------------------------------------------------------------
-if getattr(sys, "frozen", False):
-    _ROOT = Path(sys._MEIPASS)  # type: ignore[attr-defined]
-else:
-    _ROOT = Path(__file__).resolve().parent.parent
-_CSS_PATH = _ROOT / "ui" / "preview_styles.css"
-_ICONS_DIR = _ROOT / "ui" / "icons"
+_CSS_PATH = resolve_path("ui", "preview_styles.css")
+_ICONS_DIR = resolve_path("ui", "icons")
 
 _LOG = setup_logging("cutemd.main_window")
 

@@ -6,6 +6,8 @@ import zipfile
 from pathlib import Path
 from html import escape
 
+from core.constants import IMG_EXTS
+
 
 def _wrap_html(body: str, css: str) -> str:
     return f"""<!DOCTYPE html>
@@ -218,15 +220,12 @@ def pptx_to_html(path: Path, css: str, slide_index: int | None = None) -> str:
 
 def cbz_to_html(path: Path, css: str) -> str:
     """Convert a CBZ (comic book zip) to HTML showing all images."""
-    _IMG_EXTS = frozenset(
-        {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp"}
-    )
     images: list[str] = []
     try:
         with zipfile.ZipFile(path) as zf:
             for name in sorted(zf.namelist()):
                 ext = Path(name).suffix.lower()
-                if ext in _IMG_EXTS:
+                if ext in IMG_EXTS:
                     data = zf.read(name)
                     import base64
                     mime = "image/png" if ext == ".png" else "image/jpeg"

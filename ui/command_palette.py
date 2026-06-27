@@ -11,18 +11,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from ui.shortcuts_dialog import _SHORTCUT_CATEGORIES, _shortcut_text
+from core.constants import CATEGORY_ORDER, SHORTCUT_CATEGORIES
+from ui.shortcuts_dialog import _shortcut_text
 from ui.widgets import CuteListWidget
-
-_CAT_ORDER = {
-    "File": 0,
-    "Edit": 1,
-    "View": 2,
-    "Settings": 3,
-    "Help": 4,
-    "Other": 99,
-}
-
 
 class CommandPalette(QDialog):
     """A fuzzy-search command palette à la VS Code / Obsidian."""
@@ -147,10 +138,10 @@ class CommandPalette(QDialog):
         for name, action in self._actions.items():
             text = action.text().replace("&", "")
             shortcut = _shortcut_text(action)
-            cat = _SHORTCUT_CATEGORIES.get(name, self.tr("Other"))
+            cat = SHORTCUT_CATEGORIES.get(name, self.tr("Other"))
             rows.append((text, shortcut, cat, action))
 
-        rows.sort(key=lambda r: (_CAT_ORDER.get(r[2], 99), r[0]))
+        rows.sort(key=lambda r: (CATEGORY_ORDER.get(r[2], 99), r[0]))
 
         for text, shortcut, cat, action in rows:
             display = text

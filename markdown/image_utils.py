@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Callable
 from urllib.parse import unquote
 
+from core.constants import IMG_EXTS
+
 _IMG_EXTS_RE = re.compile(r"\.(png|jpg|jpeg|gif|bmp|svg|webp|ico)$", re.I)
 _IMG_DIMS_RE = re.compile(r'(<img\s+)(src="([^"]*)")')
 _PARA_IMG_RE = re.compile(r"<p>\s*(<a\b[^>]*></a>)?\s*(<img\b[^>]+>)\s*</p>")
@@ -27,6 +29,7 @@ def build_file_index(root: Path) -> dict[str, list[Path]]:
     pass the result to ``resolve_image_path`` to avoid repeated full
     directory walks.
     """
+    exts = IMG_EXTS
     index: dict[str, list[Path]] = {}
     for p in root.rglob("*"):
         if not p.is_file():
@@ -37,8 +40,9 @@ def build_file_index(root: Path) -> dict[str, list[Path]]:
             continue
         if any(part.startswith(".") for part in rel.parts):
             continue
-        key = p.name.lower()
-        index.setdefault(key, []).append(p.resolve())
+        if p.suffix.lower() in exts:
+            key = p.name.lower()
+            index.setdefault(key, []).append(p.resolve())
     return index
 
 

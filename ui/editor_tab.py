@@ -53,6 +53,7 @@ from markdown.html_builder import (
     strip_frontmatter,
 )
 from core.animation_speed import animation_duration_ms
+from core.constants import BROKEN_LINK_LINE_LIMIT, DOC_EXTS, IMG_EXTS, LARGE_FILE_THRESHOLD, MD_EXTS, PDF_EXTS
 from core.services.anchor_map import build_line_anchor_map
 from core.services.file_io import read_file_with_encoding
 from core.services.link_resolver import resolve_link_target
@@ -64,8 +65,6 @@ from ui.pdf_viewer import PdfViewer
 from ui.preview_browser import PreviewTextBrowser, get_image_size
 from ui.preview_worker import PreviewWorker
 from ui.syntax_highlighter import MarkdownHighlighter
-
-_LARGE_FILE_THRESHOLD = 1_048_576  # 1 MB
 
 _LOG = setup_logging("cutemd.editor_tab")
 
@@ -189,12 +188,10 @@ class EditorTab(QWidget):
     file_link_clicked = Signal(str, str)  # target, display_text
     encoding_changed = Signal(str)
 
-    _MD_EXTS = frozenset({".md", ".markdown"})
-    _IMG_EXTS = frozenset(
-        {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"}
-    )
-    _PDF_EXTS = frozenset({".pdf"})
-    _DOC_EXTS = frozenset({".docx", ".xlsx", ".pptx", ".cbz", ".epub"})
+    _MD_EXTS = MD_EXTS
+    _IMG_EXTS = IMG_EXTS
+    _PDF_EXTS = PDF_EXTS
+    _DOC_EXTS = DOC_EXTS
 
     # -- Link detection in the editor (clickable links + hover underline) --
     _LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
@@ -564,7 +561,7 @@ class EditorTab(QWidget):
             self._highlighter.setDocument(None)
 
         # Detect large file and disable expensive features
-        self._large_file = path.stat().st_size > _LARGE_FILE_THRESHOLD
+        self._large_file = path.stat().st_size > LARGE_FILE_THRESHOLD
         if self._large_file:
             self._highlighter.setDocument(None)
             self._preview_stack.setCurrentIndex(0)
@@ -1227,7 +1224,7 @@ class EditorTab(QWidget):
         editor = self.editor
         text = self._cached_text
         lines = text.count("\n") + 1
-        if lines > 2000:
+        if lines > BROKEN_LINK_LINE_LIMIT:
             self._broken_link_selections = []
             self._apply_all_selections()
             return

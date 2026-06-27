@@ -10,9 +10,9 @@ On startup, in ``main.py``::
 .. codeauthor:: CuteMD Contributors
 """
 
-import sys
 from pathlib import Path
 
+from core.paths import resolve_path
 from PySide6.QtCore import QLocale, QSettings, QTranslator
 from PySide6.QtWidgets import QApplication
 
@@ -31,9 +31,7 @@ LANGUAGES: list[tuple[str, str]] = [
 
 def _translations_dir() -> Path:
     """Return the path to the ``resources/translations/`` directory."""
-    if getattr(sys, "frozen", False):
-        return Path(sys._MEIPASS) / "resources" / "translations"  # type: ignore[attr-defined]
-    return Path(__file__).resolve().parent.parent / "resources" / "translations"
+    return resolve_path("resources", "translations")
 
 
 def _resolve_lang_code(lang_code: str) -> str:

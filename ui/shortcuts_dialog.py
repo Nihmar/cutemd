@@ -12,6 +12,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from core.constants import CATEGORY_ORDER, SHORTCUT_CATEGORIES
+
 
 def _shortcut_text(action: QAction) -> str:
     seq = action.shortcut()
@@ -24,37 +26,6 @@ def _shortcut_text(action: QAction) -> str:
         return val
     return ""
 
-
-_SHORTCUT_CATEGORIES: dict[str, str] = {
-    "act_open_folder": "File",
-    "act_close_folder": "File",
-    "act_new": "File",
-    "act_save": "File",
-    "act_save_as": "File",
-    "act_close_tab": "File",
-    "act_exit": "File",
-    "act_undo": "Edit",
-    "act_redo": "Edit",
-    "act_find": "Edit",
-    "act_find_files": "Edit",
-    "act_replace_files": "Edit",
-    "act_toggle_preview": "View",
-    "act_toggle_split": "View",
-    "act_toggle_tree": "View",
-    "act_toggle_statusbar": "View",
-    "act_zoom_in": "View",
-    "act_zoom_out": "View",
-    "act_zoom_reset": "View",
-    "act_zoom_preview_in": "View",
-    "act_zoom_preview_out": "View",
-    "act_webdav_sync": "File",
-    "act_check_update": "Help",
-    "act_command_palette": "Help",
-    "act_settings": "Settings",
-    "act_shortcuts": "Help",
-}
-
-_CAT_ORDER = {"File": 0, "Edit": 1, "View": 2, "Settings": 3, "Help": 4}
 
 
 class ShortcutsDialog(QDialog):
@@ -86,10 +57,10 @@ class ShortcutsDialog(QDialog):
         for name, action in actions.items():
             text = action.text().replace("&", "")
             shortcut = _shortcut_text(action)
-            cat = _SHORTCUT_CATEGORIES.get(name, self.tr("Other"))
+            cat = SHORTCUT_CATEGORIES.get(name, self.tr("Other"))
             rows.append((text, cat, shortcut))
 
-        rows.sort(key=lambda r: (_CAT_ORDER.get(r[1], 99), r[0]))
+        rows.sort(key=lambda r: (CATEGORY_ORDER.get(r[1], 99), r[0]))
         table.setRowCount(len(rows))
         for i, (text, cat, shortcut) in enumerate(rows):
             table.setItem(i, 0, QTableWidgetItem(text))

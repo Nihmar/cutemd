@@ -20,16 +20,11 @@ from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from core.logging import setup_logging
+from core.paths import resolve_icon_path
 from ui.main_window import MainWindow
 from ui.theme import apply_modern_style
 
 _LOG = setup_logging("cutemd.main")
-
-
-def _resolve_icon() -> str:
-    if getattr(sys, "frozen", False):
-        return str(Path(sys._MEIPASS) / "resources" / "cutemd.svg")  # type: ignore[attr-defined]
-    return str(Path(__file__).resolve().parent / "resources" / "cutemd.svg")
 
 
 def main() -> None:
@@ -39,7 +34,7 @@ def main() -> None:
 
     app.setApplicationName("CuteMD")
     app.setOrganizationName("cutemd")
-    app.setWindowIcon(QIcon(_resolve_icon()))
+    app.setWindowIcon(QIcon(str(resolve_icon_path())))
     _LOG.debug("App name=%s org=%s", app.applicationName(), app.organizationName())
 
     from ui.translations import setup_translation

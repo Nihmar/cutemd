@@ -23,6 +23,7 @@ from markdown.document_renderers import (
     pptx_to_html,
     xlsx_to_html,
 )
+from core.constants import CSV_EXTS, IMG_EXTS, MD_EXTS, PDF_EXTS
 from core.logging import setup_logging
 
 _LOG = setup_logging("cutemd.link_preview_popup")
@@ -35,17 +36,15 @@ class LinkPreviewPopup(QFrame):
     Appears near the mouse cursor when hovering over a link in the editor.
     """
 
-    _MD_EXTS = frozenset({".md", ".markdown"})
-    _IMG_EXTS = frozenset(
-        {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"}
-    )
-    _PDF_EXTS = frozenset({".pdf"})
-    _CSV_EXTS = frozenset({".csv", ".tsv"})
-    _CBZ_EXTS = frozenset({".cbz"})
-    _EPUB_EXTS = frozenset({".epub"})
+    _MD_EXTS = MD_EXTS
+    _IMG_EXTS = IMG_EXTS
+    _PDF_EXTS = PDF_EXTS
+    _CSV_EXTS = CSV_EXTS
     _DOCX_EXTS = frozenset({".docx"})
     _PPTX_EXTS = frozenset({".pptx"})
     _XLSX_EXTS = frozenset({".xlsx"})
+    _CBZ_EXTS = frozenset({".cbz"})
+    _EPUB_EXTS = frozenset({".epub"})
 
     _MAX_W = 520
     _MAX_H = 380
