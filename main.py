@@ -11,7 +11,7 @@ Startup sequence:
 8. Show window and enter event loop
 """
 
-__version__ = "1.0.8.2"
+__version__ = "1.1.0"
 
 import sys
 from pathlib import Path
