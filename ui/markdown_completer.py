@@ -616,11 +616,19 @@ class MarkdownAutoCompleter(QObject):
 
     def _handle_file_filter_key(self, event: QKeyEvent) -> bool:
         if event.key() == Qt.Key.Key_Down:
-            self._file_list_widget.setFocus()
+            row = self._file_list_widget.currentRow()
+            if row < self._file_list_widget.count() - 1:
+                self._file_list_widget.setCurrentRow(row + 1)
+            return True
+        if event.key() == Qt.Key.Key_Up:
+            row = self._file_list_widget.currentRow()
+            if row > 0:
+                self._file_list_widget.setCurrentRow(row - 1)
             return True
         if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
-            if self._file_list_widget.count() > 0:
-                self._on_file_selected(self._file_list_widget.item(0))
+            item = self._file_list_widget.currentItem()
+            if item:
+                self._on_file_selected(item)
             return True
         if event.key() == Qt.Key.Key_Escape:
             self._hide_file_popup()
