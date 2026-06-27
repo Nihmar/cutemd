@@ -498,16 +498,7 @@ class MainWindow(QMainWindow):
         editor_layout = QVBoxLayout(editor_pane)
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(0)
-
-        # Container: tabs + toolbar stacked tightly
-        tab_area = QWidget()
-        tab_layout = QVBoxLayout(tab_area)
-        tab_layout.setContentsMargins(0, 0, 0, 0)
-        tab_layout.setSpacing(0)
-        tab_layout.addWidget(self._tabs)
-        tab_layout.addWidget(editor_toolbar)
-
-        editor_layout.addWidget(tab_area)
+        editor_layout.addWidget(self._tabs)
         editor_layout.addWidget(status_widget)
 
         # Splitter: left | editor | right  (toolbars are outside, always visible)
@@ -755,6 +746,9 @@ class MainWindow(QMainWindow):
         tab.editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         tab.editor.customContextMenuRequested.connect(self._on_editor_context_menu)
 
+        # Insert shared toolbar into this tab
+        tab.insert_toolbar(self._editor_toolbar)
+
         # Live TOC update
         tab.editor.textChanged.connect(self._on_editor_text_changed)
 
@@ -816,6 +810,8 @@ class MainWindow(QMainWindow):
             self._connect_edit_actions(tab)
             tab._emit_status()
             self._update_window_title()
+            # Move toolbar to the newly active tab
+            tab.insert_toolbar(self._editor_toolbar)
             # Rebuild TOC if the panel is visible
             if self._right_toc_btn.isChecked():
                 self._rebuild_toc()
