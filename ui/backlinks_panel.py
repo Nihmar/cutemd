@@ -230,7 +230,7 @@ class BacklinksPanel(QWidget):
         self._cancel_scan()
         self._list.clear()
         self._entries.clear()
-        self._status_label.setText(self.tr("No backlinks"))
+        self._status_label.setText(self.tr("Backlinks: 0"))
 
     # ------------------------------------------------------------------
     # Internal
@@ -250,7 +250,7 @@ class BacklinksPanel(QWidget):
     def _on_backlink_found(self, filepath: str) -> None:
         _LOG.debug("_on_backlink_found: %s", filepath)
         p = Path(filepath)
-        item = QListWidgetItem(p.name)
+        item = QListWidgetItem(p.stem)  # filename without .md
         item.setData(Qt.ItemDataRole.UserRole, filepath)
         item.setToolTip(filepath)
         self._list.addItem(item)
@@ -258,12 +258,7 @@ class BacklinksPanel(QWidget):
 
     def _on_scan_complete(self) -> None:
         count = len(self._entries)
-        if count == 0:
-            self._status_label.setText(self.tr("No backlinks"))
-        elif count == 1:
-            self._status_label.setText(self.tr("1 backlink"))
-        else:
-            self._status_label.setText(self.tr("{} backlinks").format(count))
+        self._status_label.setText(self.tr("Backlinks: {}").format(count))
         _LOG.debug("_on_scan_complete: %d backlinks", count)
         self._scan_thread = None
 

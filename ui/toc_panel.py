@@ -7,7 +7,7 @@ from core.logging import setup_logging
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QListWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QListWidgetItem, QVBoxLayout, QWidget
 
 from ui.widgets import CuteListWidget
 
@@ -27,7 +27,11 @@ class TocPanel(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(2)
+
+        self._header = QLabel(self.tr("Table of Contents"))
+        self._header.setStyleSheet("font-size: 11px; font-weight: bold; padding: 4px;")
+        layout.addWidget(self._header)
 
         self._list = CuteListWidget()
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -60,12 +64,16 @@ class TocPanel(QWidget):
                 self._list.addItem(item)
 
         _LOG.debug("rebuild: %d headings", len(self._entries))
+        self._header.setText(
+            self.tr("Table of Contents ({})").format(len(self._entries))
+        )
 
     def clear(self) -> None:
         """Clear the heading list."""
         _LOG.debug("clear")
         self._list.clear()
         self._entries = []
+        self._header.setText(self.tr("Table of Contents (0)"))
 
     def has_entries(self) -> bool:
         return self._list.count() > 0
