@@ -14,9 +14,15 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QStringListModel, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QTextCursor
-from PySide6.QtWidgets import QCompleter, QPlainTextEdit
+from PySide6.QtWidgets import (
+    QFrame,
+    QListWidget,
+    QListWidgetItem,
+    QPlainTextEdit,
+    QVBoxLayout,
+)
 
 from core.logging import setup_logging
 
@@ -70,12 +76,8 @@ class MarkdownAutoCompleter(QObject):
 
         # Tag autocomplete state
         self._tag_list: list[str] = []
-        self._tag_model = QStringListModel(self)
-        self._tag_completer = QCompleter(self._tag_model, self)
-        self._tag_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self._tag_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-        self._tag_completer.setWidget(self._editor)
-        self._tag_completer.activated.connect(self._on_tag_completed)
+        self._tag_popup: QFrame | None = None
+        self._tag_list_widget: QListWidget | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -87,25 +89,38 @@ class MarkdownAutoCompleter(QObject):
     def set_tag_list(self, tags: list[str]) -> None:
         """Update the tag list used for Ctrl+Space autocomplete."""
         self._tag_list = sorted(set(tags))
-        self._tag_model.setStringList(self._tag_list)
 
     # ------------------------------------------------------------------
     # Event filter
     # ------------------------------------------------------------------
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
-        if obj is not self._editor or event.type() != QEvent.Type.KeyPress:
-            return super().eventFilter(obj, event)
+        if obj is self._editor and event.type() == QEvent.Type.KeyPress:
+            key_event: QKeyEvent = event  # type: ignore[assignment]
 
-        key_event: QKeyEvent = event  # type: ignore[assignment]
+            # Tag autocomplete: Ctrl+Space after #
+            if (key_event.key() == Qt.Key.Key_Space
+                    and key_event.modifiers() == Qt.KeyboardModifier.ControlModifier):
+                _LOG.debug("eventFilter: Ctrl+Space detected")
+                return self._show_tag_completer()
 
-        # Tag autocomplete: Ctrl+Space after #
-        if (key_event.key() == Qt.Key.Key_Space
-                and key_event.modifiers() == Qt.KeyboardModifier.ControlModifier):
-            _LOG.debug("eventFilter: Ctrl+Space detected, calling _show_tag_completer")
-            return self._show_tag_completer()
+            return self._handle_key(key_event)
 
-        return self._handle_key(key_event)
+        # Tag popup list widget keyboard handling
+        if obj is self._tag_list_widget and event.type() == QEvent.Type.KeyPress:
+            key_event: QKeyEvent = event  # type: ignore[assignment]
+            if key_event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                item = self._tag_list_widget.currentItem()
+                if item:
+                    self._on_tag_selected(item)
+                return True
+            if key_event.key() == Qt.Key.Key_Escape:
+                self._hide_tag_popup()
+                self._editor.setFocus()
+                return True
+            return False
+
+        return super().eventFilter(obj, event)
 
     # ------------------------------------------------------------------
     # Key dispatch
@@ -340,20 +355,14 @@ class MarkdownAutoCompleter(QObject):
     # ------------------------------------------------------------------
 
     def _show_tag_completer(self) -> bool:
-        """Show a QCompleter popup with tags matching the partial text
-        after ``#``.
-        """
+        """Show a popup list of matching tags below the cursor."""
         if not self._tag_list:
             _LOG.debug("_show_tag_completer: no tags in list")
             return False
 
         cursor = self._editor.textCursor()
-        pos = cursor.position()
         block_text = cursor.block().text()
         pos_in_block = cursor.positionInBlock()
-
-        _LOG.debug("_show_tag_completer: block_text=%r pos_in_block=%d",
-                   block_text, pos_in_block)
 
         # Walk backwards from cursor to find the #
         hash_pos = -1
@@ -371,59 +380,83 @@ class MarkdownAutoCompleter(QObject):
 
         # Extract partial tag text after #
         partial = block_text[hash_pos + 1:pos_in_block]
-        prefix = "#" + partial
-        _LOG.debug("_show_tag_completer: hash_pos=%d partial=%r prefix=%r",
-                   hash_pos, partial, prefix)
+        _LOG.debug("_show_tag_completer: hash_pos=%d partial=%r",
+                   hash_pos, partial)
 
         # Filter tags matching the partial text
-        matching = [t for t in self._tag_list
-                    if partial.lower() in t.lower()] if partial else list(self._tag_list)
-        _LOG.debug("_show_tag_completer: %d matching tags (out of %d)",
+        matching = ([t for t in self._tag_list
+                     if partial.lower() in t.lower()]
+                    if partial else list(self._tag_list))
+        _LOG.debug("_show_tag_completer: %d matching (out of %d)",
                    len(matching), len(self._tag_list))
         if not matching:
             return False
 
-        self._tag_model.setStringList(matching)
-        self._tag_completer.setCompletionPrefix(prefix)
+        # Store state for insertion
+        self._hash_pos = hash_pos
+        self._pos_in_block = pos_in_block
+        self._hash_block = cursor.block()
 
-        # Show popup — use the viewport to map cursor rect to global coords
-        popup = self._tag_completer.popup()
-        if popup is not None:
-            popup.setMinimumWidth(200)
-            popup.setMaximumHeight(240)
+        # Build popup as a child of the editor viewport
+        self._tag_popup = QFrame(
+            self._editor.viewport(),
+            Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint,
+        )
+        self._tag_popup.setObjectName("tagPopup")
+        layout = QVBoxLayout(self._tag_popup)
+        layout.setContentsMargins(2, 2, 2, 2)
+        layout.setSpacing(0)
 
-        # Get cursor rect in viewport coordinates, map to global
+        self._tag_list_widget = QListWidget(self._tag_popup)
+        self._tag_list_widget.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
+        )
+        for tag in matching:
+            self._tag_list_widget.addItem(QListWidgetItem(tag))
+        self._tag_list_widget.itemClicked.connect(self._on_tag_selected)
+        self._tag_list_widget.installEventFilter(self)
+        layout.addWidget(self._tag_list_widget)
+
+        # Position at cursor (global coords)
         cursor_rect = self._editor.cursorRect(cursor)
         vp = self._editor.viewport()
-        global_pos = vp.mapToGlobal(
-            cursor_rect.bottomLeft() + QPoint(0, 2)
-        )
-        popup_rect = QRect(global_pos.x(), global_pos.y(), 200, 200)
-        _LOG.debug("_show_tag_completer: global rect=%s", popup_rect)
-        self._tag_completer.complete(popup_rect)
+        global_pos = vp.mapToGlobal(cursor_rect.bottomLeft())
+        w = max(160, self._tag_list_widget.sizeHintForColumn(0) + 20)
+        h = min(len(matching) * 22 + 4, 240)
+        self._tag_popup.setGeometry(global_pos.x(), global_pos.y() + 2, w, h)
+        _LOG.debug("_show_tag_completer: popup at (%d,%d) %dx%d",
+                   global_pos.x(), global_pos.y() + 2, w, h)
+        self._tag_popup.show()
+        self._tag_list_widget.setFocus()
+        self._tag_list_widget.setCurrentRow(0)
+        return True
 
-    def _on_tag_completed(self, text: str) -> None:
-        """Replace the partial tag after # with the selected completion."""
-        cursor = self._editor.textCursor()
-        pos_in_block = cursor.positionInBlock()
-        block = cursor.block()
-        block_text = block.text()
+    def _on_tag_selected(self, item: QListWidgetItem) -> None:
+        """Replace #partial with #tag and close popup."""
+        tag = item.text()
+        self._hide_tag_popup()
+        self._insert_tag_completion(tag)
 
-        # Find the # position
-        hash_pos = -1
-        for i in range(pos_in_block - 1, -1, -1):
-            if block_text[i] == "#":
-                hash_pos = i
-                break
-            if block_text[i].isspace():
-                break
-
-        if hash_pos < 0:
+    def _insert_tag_completion(self, tag: str) -> None:
+        """Replace text from # to cursor with #tag."""
+        if not getattr(self, "_hash_block", None):
             return
-
-        # Select from # to cursor and replace with #tag
+        block = self._hash_block
+        if not block.isValid():
+            return
+        cursor = self._editor.textCursor()
         block_start = block.position()
-        cursor.setPosition(block_start + hash_pos)
-        cursor.setPosition(block_start + pos_in_block, QTextCursor.MoveMode.KeepAnchor)
-        cursor.insertText("#" + text)
+        cursor.setPosition(block_start + self._hash_pos)
+        cursor.setPosition(block_start + self._pos_in_block,
+                          QTextCursor.MoveMode.KeepAnchor)
+        cursor.insertText("#" + tag)
         self._editor.setTextCursor(cursor)
+        self._editor.setFocus()
+
+    def _hide_tag_popup(self) -> None:
+        """Destroy the tag popup."""
+        if self._tag_popup is not None:
+            self._tag_popup.hide()
+            self._tag_popup.deleteLater()
+            self._tag_popup = None
+            self._tag_list_widget = None
