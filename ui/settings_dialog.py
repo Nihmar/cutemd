@@ -409,7 +409,6 @@ class SettingsDialog(QDialog):
             self._field_row(
                 self.tr("Show menu bar"),
                 self._menu_bar_toggle,
-                self.tr("Press Ctrl+P for command palette"),
             )
         )
         gen_lay.addWidget(card)

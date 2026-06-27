@@ -1261,7 +1261,7 @@ class MainWindow(QMainWindow):
         new_mbv = dlg.selected_menu_bar_visible()
         if new_mbv != self._s.menu_bar_visible():
             self._s.set_menu_bar_visible(new_mbv)
-            self.menuBar().setVisible(new_mbv)
+            self._apply_menu_bar_visibility()
 
         # --- Per-folder settings (shortcuts, images, WebDAV, appearance) ---
         if self._folder_settings is not None:

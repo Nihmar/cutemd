@@ -1,6 +1,8 @@
 """Folder tree panel --- shows markdown files in a QTreeView."""
 
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QDir, QSize, QSortFilterProxyModel, Qt, QUrl, Signal
@@ -258,6 +260,15 @@ class FileTreePanel(QWidget):
         if path and Path(path).is_file():
             self.file_double_activated.emit(path)
 
+    def _open_path(self, path_str: str) -> None:
+        """Open *path_str* in the system file manager / default application."""
+        _LOG.debug("_open_path: %s", path_str)
+        url = QUrl.fromLocalFile(path_str)
+        if not QDesktopServices.openUrl(url):
+            _LOG.debug("QDesktopServices.openUrl returned False, trying xdg-open")
+            if sys.platform == "linux":
+                subprocess.Popen(["xdg-open", path_str])
+
     def _on_context_menu(self, point) -> None:
         _LOG.debug("_on_context_menu")
         index = self._tree.indexAt(point)
@@ -280,7 +291,7 @@ class FileTreePanel(QWidget):
             menu.addSeparator()
             act_explorer = menu.addAction(self.tr("Open in file explorer"))
             act_explorer.triggered.connect(
-                lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
+                lambda: self._open_path(path)
             )
         else:
             act_new_tab = menu.addAction(self.tr("Open in new tab"))
@@ -295,11 +306,11 @@ class FileTreePanel(QWidget):
             menu.addSeparator()
             act_open = menu.addAction(self.tr("Open with default application"))
             act_open.triggered.connect(
-                lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
+                lambda: self._open_path(path)
             )
             act_explorer = menu.addAction(self.tr("Open in file explorer"))
             act_explorer.triggered.connect(
-                lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(p.parent)))
+                lambda: self._open_path(str(p.parent))
             )
 
         menu.exec(self._tree.viewport().mapToGlobal(point))
