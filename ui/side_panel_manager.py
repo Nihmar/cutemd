@@ -32,6 +32,7 @@ class SidePanelManager:
         side_tree_btn: QToolButton,
         side_search_btn: QToolButton,
         side_toc_btn: QToolButton,
+        side_tags_btn: QToolButton,
         right_dock: QDockWidget | None = None,
     ) -> None:
         self._w = window
@@ -40,6 +41,7 @@ class SidePanelManager:
         self._side_tree_btn = side_tree_btn
         self._side_search_btn = side_search_btn
         self._side_toc_btn = side_toc_btn
+        self._side_tags_btn = side_tags_btn
         self._right_dock = right_dock
 
         self._tree_anim: QVariantAnimation | None = None
@@ -118,6 +120,7 @@ class SidePanelManager:
         else:
             self._side_tree_btn.setChecked(False)
             self._side_search_btn.setChecked(False)
+            self._side_tags_btn.setChecked(False)
             self.hide_left_panel()
             # Also hide right dock
             if self._right_dock is not None:
@@ -215,13 +218,13 @@ class SidePanelManager:
     # ------------------------------------------------------------------
 
     def _uncheck_others(self, active: QToolButton | None) -> None:
-        """Uncheck the two left-panel buttons (tree, search), then re-check
+        """Uncheck left-panel buttons (tree, search, tags), then re-check
         *active* if given.  TOC is independent and not touched here.
 
         Signals are blocked during the operation to prevent infinite
         recursion from the toggle handlers that call this method.
         """
-        for btn in [self._side_tree_btn, self._side_search_btn]:
+        for btn in [self._side_tree_btn, self._side_search_btn, self._side_tags_btn]:
             btn.blockSignals(True)
             btn.setChecked(False)
             btn.blockSignals(False)

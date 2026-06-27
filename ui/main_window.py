@@ -272,6 +272,7 @@ class MainWindow(QMainWindow):
             "find_files": self._on_find_in_files,
             "replace_files": self._on_replace_in_files,
             "toggle_split": self._toggle_split,
+            "toggle_tags": self._on_toggle_tags,
             "settings": self._on_settings,
             "shortcuts": self._on_show_shortcuts,
             "check_update": self._check_for_updates,
@@ -292,6 +293,7 @@ class MainWindow(QMainWindow):
         # Wire toggles that have checkable actions
         self.act_toggle_preview.toggled.connect(self._on_toggle_preview)
         self.act_toggle_tree.toggled.connect(self._on_toggle_tree)
+        self.act_toggle_tags.toggled.connect(self._on_toggle_tags)
         self.act_toggle_statusbar.toggled.connect(self._on_toggle_statusbar)
 
     def _apply_menu_bar_visibility(self) -> None:
@@ -399,17 +401,16 @@ class MainWindow(QMainWindow):
         self._left_stack.addWidget(self._tree_panel)
         self._left_stack.addWidget(self._search_panel)
 
-        # Wrap left stack in a vertical splitter (for future panels, e.g. tags)
-        self._left_splitter = QSplitter(Qt.Orientation.Vertical)
-        self._left_splitter.addWidget(self._left_stack)
-        self._left_splitter.setChildrenCollapsible(False)
-
-        # --- Tags panel (left dock, below tree/search) ---
+        # --- Tags panel (left stack, index 2) ---
         self._tags_panel = TagsPanel()
         self._tags_panel.tag_note_activated.connect(self._on_tag_note_activated)
         self._tags_panel.tags_updated.connect(self._on_tags_updated)
-        self._tags_panel.setVisible(False)
-        self._left_splitter.addWidget(self._tags_panel)
+        self._left_stack.addWidget(self._tags_panel)
+
+        # Wrap left stack in a vertical splitter (for future panels)
+        self._left_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._left_splitter.addWidget(self._left_stack)
+        self._left_splitter.setChildrenCollapsible(False)
 
         # --- TOC panel (right dock) ---
         self._toc_panel = TocPanel()
@@ -488,6 +489,7 @@ class MainWindow(QMainWindow):
         self._side_panel = SidePanelManager(
             self, self._splitter, self._left_stack,
             self._side_tree_btn, self._side_search_btn, self._side_toc_btn,
+            self._side_tags_btn,
             right_dock=self._right_dock,
         )
 
@@ -574,12 +576,14 @@ class MainWindow(QMainWindow):
             self._editor_toolbar.set_toc_checked(new_state)
 
     def _on_side_tags_toggled(self, checked: bool) -> None:
-        """Toggle visibility of the tags panel in the left splitter."""
-        if hasattr(self, "_tags_panel"):
-            self._tags_panel.setVisible(checked)
-            # When showing tags, ensure left panel is open
-            if checked and not self._side_panel.is_left_panel_open():
+        """Toggle the tags panel in the left stack."""
+        if checked:
+            self._side_panel._uncheck_others(self._side_tags_btn)
+            self._left_stack.setCurrentIndex(2)
+            if not self._side_panel.is_left_panel_open():
                 self._side_panel.show_left_panel()
+        else:
+            self._side_panel.hide_left_panel()
 
     def _rebuild_toc(self) -> None:
         """Rebuild the table of contents from the current tab's editor content."""
@@ -1331,6 +1335,18 @@ class MainWindow(QMainWindow):
 
     def _on_toggle_tree(self, visible: bool) -> None:
         self._side_panel.on_tree_action(visible)
+
+    def _on_toggle_tags(self, visible: bool) -> None:
+        """Handle the act_toggle_tags action (from menu / shortcut)."""
+        if visible:
+            self._side_panel._uncheck_others(self._side_tags_btn)
+            self._left_stack.setCurrentIndex(2)
+            self._side_panel.show_left_panel()
+        else:
+            self._side_tags_btn.setChecked(False)
+            # Only hide left panel if tags was the active one
+            if self._left_stack.currentIndex() == 2:
+                self._side_panel.hide_left_panel()
 
     def _on_toggle_statusbar(self, visible: bool) -> None:
         self._status_file.parent().setVisible(visible)

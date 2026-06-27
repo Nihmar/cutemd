@@ -106,6 +106,10 @@ class ActionRegistry:
             "Toggle &File Tree", QKeySequence("Ctrl+B"), None,
             checkable=True, checked=True,
         )
+        self._acts["act_toggle_tags"] = self._action(
+            "Toggle &Tags", QKeySequence("Ctrl+Shift+T"), None,
+            checkable=True, checked=False,
+        )
         self._acts["act_toggle_statusbar"] = self._action(
             "Toggle Status &Bar", None, None, checkable=True, checked=True
         )

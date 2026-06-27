@@ -36,6 +36,7 @@ DEFAULT_SHORTCUTS: dict[str, str] = {
     "act_replace_files": "Ctrl+Shift+H",
     "act_toggle_preview": "Ctrl+Shift+P",
     "act_toggle_tree": "Ctrl+B",
+    "act_toggle_tags": "Ctrl+Shift+T",
     "act_toggle_statusbar": "Ctrl+Shift+B",
     "act_command_palette": "Ctrl+P",
     "act_settings": "Ctrl+,",
