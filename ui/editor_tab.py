@@ -737,9 +737,10 @@ class EditorTab(QWidget):
         self._pending_render_hash = params_hash
 
         # Collect render params.
+        # Note: "md" is NOT passed — the worker creates its own parser
+        # because MarkdownIt doesn't survive cross-thread signal marshaling.
         params: dict[str, Any] = {
             "text": text,
-            "md": self._md,
             "preview_css": self._preview_css,
             "theme": self._theme,
             "font_family": self._preview_font_family,
