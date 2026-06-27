@@ -483,6 +483,8 @@ class EditorTab(QWidget):
             ".pptx": self.tr("PowerPoint"),
             ".cbz": self.tr("CBZ"),
             ".epub": self.tr("EPUB"),
+            ".csv": self.tr("CSV"),
+            ".tsv": self.tr("TSV"),
         }
         label = name_map.get(ext, self.tr("Document"))
         _LOG.debug("_load_document: %s (%s) label=%s", path.name, ext, label)
@@ -499,7 +501,7 @@ class EditorTab(QWidget):
         self.preview.setPlainText(self.tr("Rendering\u2026"))
         self._preview_stack.setCurrentIndex(0)
 
-        self._doc_thread = AsyncDocRenderer(path, self._preview_css, self)
+        self._doc_thread = AsyncDocRenderer(path, self)
         self._doc_thread.result.connect(self._on_doc_rendered)
         self._doc_thread.start()
 

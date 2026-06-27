@@ -16,7 +16,7 @@ IMG_EXTS: frozenset[str] = frozenset(
     {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".ico"}
 )
 PDF_EXTS: frozenset[str] = frozenset({".pdf"})
-DOC_EXTS: frozenset[str] = frozenset({".docx", ".xlsx", ".pptx", ".cbz", ".epub"})
+DOC_EXTS: frozenset[str] = frozenset({".docx", ".xlsx", ".pptx", ".cbz", ".epub", ".csv", ".tsv"})
 CSV_EXTS: frozenset[str] = frozenset({".csv", ".tsv"})
 
 # ---------------------------------------------------------------------------
