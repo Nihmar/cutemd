@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QRect, QStringListModel, Qt
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QStringListModel, Qt
 from PySide6.QtGui import QKeyEvent, QTextCursor
 from PySide6.QtWidgets import QCompleter, QPlainTextEdit
 
@@ -386,26 +386,21 @@ class MarkdownAutoCompleter(QObject):
         self._tag_model.setStringList(matching)
         self._tag_completer.setCompletionPrefix(prefix)
 
-        # Show popup at cursor position
-        cursor_rect = self._editor.cursorRect(cursor)
-        popup_rect = QRect(
-            cursor_rect.x(),
-            cursor_rect.y() + cursor_rect.height() + 2,
-            200,
-            min(len(matching) * 20 + 4, 200),
-        )
-        _LOG.debug("_show_tag_completer: popup rect=%s", popup_rect)
-        self._tag_completer.complete(popup_rect)
-
-        # Adjust popup width
+        # Show popup — use the viewport to map cursor rect to global coords
         popup = self._tag_completer.popup()
-        if popup:
-            popup.setMinimumWidth(180)
-            _LOG.debug("_show_tag_completer: popup visible=%s", popup.isVisible())
-        else:
-            _LOG.debug("_show_tag_completer: popup is None!")
+        if popup is not None:
+            popup.setMinimumWidth(200)
+            popup.setMaximumHeight(240)
 
-        return True
+        # Get cursor rect in viewport coordinates, map to global
+        cursor_rect = self._editor.cursorRect(cursor)
+        vp = self._editor.viewport()
+        global_pos = vp.mapToGlobal(
+            cursor_rect.bottomLeft() + QPoint(0, 2)
+        )
+        popup_rect = QRect(global_pos.x(), global_pos.y(), 200, 200)
+        _LOG.debug("_show_tag_completer: global rect=%s", popup_rect)
+        self._tag_completer.complete(popup_rect)
 
     def _on_tag_completed(self, text: str) -> None:
         """Replace the partial tag after # with the selected completion."""
