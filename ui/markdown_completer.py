@@ -18,6 +18,10 @@ from PySide6.QtCore import QEvent, QObject, QRect, QStringListModel, Qt
 from PySide6.QtGui import QKeyEvent, QTextCursor
 from PySide6.QtWidgets import QCompleter, QPlainTextEdit
 
+from core.logging import setup_logging
+
+_LOG = setup_logging("cutemd.completer")
+
 # ---------------------------------------------------------------------------
 # Default settings (used when no QSettings value exists)
 # ---------------------------------------------------------------------------
@@ -98,6 +102,7 @@ class MarkdownAutoCompleter(QObject):
         # Tag autocomplete: Ctrl+Space after #
         if (key_event.key() == Qt.Key.Key_Space
                 and key_event.modifiers() == Qt.KeyboardModifier.ControlModifier):
+            _LOG.debug("eventFilter: Ctrl+Space detected, calling _show_tag_completer")
             return self._show_tag_completer()
 
         return self._handle_key(key_event)
@@ -339,12 +344,16 @@ class MarkdownAutoCompleter(QObject):
         after ``#``.
         """
         if not self._tag_list:
+            _LOG.debug("_show_tag_completer: no tags in list")
             return False
 
         cursor = self._editor.textCursor()
         pos = cursor.position()
         block_text = cursor.block().text()
         pos_in_block = cursor.positionInBlock()
+
+        _LOG.debug("_show_tag_completer: block_text=%r pos_in_block=%d",
+                   block_text, pos_in_block)
 
         # Walk backwards from cursor to find the #
         hash_pos = -1
@@ -357,23 +366,27 @@ class MarkdownAutoCompleter(QObject):
                 break
 
         if hash_pos < 0:
+            _LOG.debug("_show_tag_completer: no # before cursor")
             return False
 
         # Extract partial tag text after #
         partial = block_text[hash_pos + 1:pos_in_block]
         prefix = "#" + partial
+        _LOG.debug("_show_tag_completer: hash_pos=%d partial=%r prefix=%r",
+                   hash_pos, partial, prefix)
 
         # Filter tags matching the partial text
         matching = [t for t in self._tag_list
-                    if partial.lower() in t.lower()]
+                    if partial.lower() in t.lower()] if partial else list(self._tag_list)
+        _LOG.debug("_show_tag_completer: %d matching tags (out of %d)",
+                   len(matching), len(self._tag_list))
         if not matching:
             return False
 
         self._tag_model.setStringList(matching)
         self._tag_completer.setCompletionPrefix(prefix)
 
-        # Show popup at the # position
-        block_start = cursor.block().position()
+        # Show popup at cursor position
         cursor_rect = self._editor.cursorRect(cursor)
         popup_rect = QRect(
             cursor_rect.x(),
@@ -381,12 +394,16 @@ class MarkdownAutoCompleter(QObject):
             200,
             min(len(matching) * 20 + 4, 200),
         )
+        _LOG.debug("_show_tag_completer: popup rect=%s", popup_rect)
         self._tag_completer.complete(popup_rect)
 
-        # Adjust popup width to longest tag
+        # Adjust popup width
         popup = self._tag_completer.popup()
         if popup:
             popup.setMinimumWidth(180)
+            _LOG.debug("_show_tag_completer: popup visible=%s", popup.isVisible())
+        else:
+            _LOG.debug("_show_tag_completer: popup is None!")
 
         return True
 

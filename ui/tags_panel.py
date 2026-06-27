@@ -186,6 +186,7 @@ class TagsPanel(QWidget):
         self._tree.setHeaderHidden(True)
         self._tree.setIndentation(16)
         self._tree.setAnimated(True)
+        self._tree.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._tree.itemClicked.connect(self._on_item_clicked)
         layout.addWidget(self._tree)
 
@@ -235,6 +236,10 @@ class TagsPanel(QWidget):
             item = self._tree.topLevelItem(i)
             if not low or low in item.text(0).lower():
                 item.setHidden(False)
+                if low:
+                    item.setExpanded(True)
+                else:
+                    item.setExpanded(False)
             else:
                 # Check children too
                 child_match = False
@@ -243,7 +248,11 @@ class TagsPanel(QWidget):
                     if low in child.text(0).lower():
                         child_match = True
                         break
-                item.setHidden(not child_match)
+                if child_match:
+                    item.setHidden(False)
+                    item.setExpanded(True)
+                else:
+                    item.setHidden(True)
 
     def _cancel_scan(self) -> None:
         if self._scan_thread is not None:
@@ -262,7 +271,7 @@ class TagsPanel(QWidget):
             item = QTreeWidgetItem(self._tree, [tag])
             item.setData(0, Qt.ItemDataRole.UserRole, "")  # tag node, not clickable
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            item.setExpanded(True)
+            # Collapsed by default (will expand on click or filter)
             self._tag_items[tag] = item
             self._tag_counts[tag] = 0
 
@@ -286,6 +295,8 @@ class TagsPanel(QWidget):
         self._scan_thread = None
         # Emit tag names so the editor completer can pick them up
         self.tags_updated.emit(sorted(self._tag_items.keys()))
+        # Set focus on the tree so arrow keys work
+        self._tree.setFocus()
 
     def _on_scan_finished(self) -> None:
         """Clean up the finished thread reference."""
