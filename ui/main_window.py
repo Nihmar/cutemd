@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
-    QDockWidget,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -248,10 +247,10 @@ class MainWindow(QMainWindow):
         self._s.set_left_panel_width(left)
 
     def _on_right_dock_splitter_moved(self, pos: int, index: int) -> None:
-        """Save right dock splitter sizes when user drags."""
-        sizes = self._right_dock_splitter.sizes()
+        """Save right splitter sizes when user drags."""
+        sizes = self._right_splitter.sizes()
         if sum(sizes) > 0:
-            _LOG.debug("rightDockSplitterMoved: %s", sizes)
+            _LOG.debug("rightSplitterMoved: %s", sizes)
             self._s.set_right_dock_sizes(sizes)
 
     # ------------------------------------------------------------------
@@ -437,22 +436,16 @@ class MainWindow(QMainWindow):
         self._toc_panel = TocPanel()
         self._toc_panel.heading_activated.connect(self._on_toc_heading_activated)
 
-        # --- Right dock widget ---
-        self._right_dock = QDockWidget(self.tr("Table of Contents"), self)
-        self._right_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
-        self._right_dock.setObjectName("rightDock")
-        self._right_dock_splitter = QSplitter(Qt.Orientation.Vertical)
-        self._right_dock_splitter.addWidget(self._toc_panel)
-        self._right_dock_splitter.setChildrenCollapsible(False)
-        self._right_dock_splitter.splitterMoved.connect(self._on_right_dock_splitter_moved)
-
-        # --- Backlinks panel (right dock, below TOC) ---
+        # --- Backlinks panel (right dock) ---
         self._backlinks_panel = BacklinksPanel()
         self._backlinks_panel.backlink_activated.connect(self._on_backlink_activated)
-        self._right_dock_splitter.addWidget(self._backlinks_panel)
 
-        self._right_dock.setWidget(self._right_dock_splitter)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._right_dock)
+        # --- Right splitter (vertical: TOC + backlinks) ---
+        self._right_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._right_splitter.addWidget(self._toc_panel)
+        self._right_splitter.addWidget(self._backlinks_panel)
+        self._right_splitter.setChildrenCollapsible(False)
+        self._right_splitter.splitterMoved.connect(self._on_right_dock_splitter_moved)
 
         # --- Tabs ---
         self._tabs = QTabWidget()
@@ -510,7 +503,7 @@ class MainWindow(QMainWindow):
             self, self._splitter, self._left_stack,
             self._side_tree_btn, self._side_search_btn, self._side_toc_btn,
             self._side_tags_btn,
-            right_dock=self._right_dock,
+            right_dock=None,
         )
 
         # Main layout: toolbar | splitter  (no splitter handle between them)
@@ -520,6 +513,7 @@ class MainWindow(QMainWindow):
         outer_layout.setSpacing(0)
         outer_layout.addWidget(self._left_tb)
         outer_layout.addWidget(self._splitter)
+        outer_layout.addWidget(self._right_splitter)
         outer_layout.addWidget(self._right_tb)
 
         self.setCentralWidget(outer)
@@ -535,7 +529,7 @@ class MainWindow(QMainWindow):
 
         # Right dock initial visibility
         _rd_vis = self._s.right_dock_visible()
-        self._right_dock.setVisible(_rd_vis)
+        self._right_splitter.setVisible(_rd_vis)
         # Right toolbar initial checked state
         self._right_toc_btn.blockSignals(True)
         self._right_toc_btn.setChecked(_rd_vis)
@@ -600,8 +594,8 @@ class MainWindow(QMainWindow):
         toc_vis = self._toc_panel.isVisible() if hasattr(self, "_toc_panel") else False
         bl_vis = self._backlinks_panel.isVisible() if hasattr(self, "_backlinks_panel") else False
 
-        if hasattr(self, "_right_dock"):
-            self._right_dock.setVisible(toc_vis or bl_vis)
+        if hasattr(self, "_right_splitter"):
+            self._right_splitter.setVisible(toc_vis or bl_vis)
         # Persist
         if hasattr(self, "_s"):
             self._s.set_right_dock_visible(toc_vis or bl_vis)
