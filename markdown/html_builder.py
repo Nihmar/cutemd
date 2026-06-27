@@ -14,6 +14,10 @@ from markdown.image_utils import (
     build_file_index,
     fix_image_paragraphs,
 )
+
+from core.logging import setup_logging
+
+_LOG = setup_logging("cutemd.html_builder")
 from markdown.tools import BLOCK_OPEN_TYPES, add_heading_ids
 
 if TYPE_CHECKING:
@@ -89,7 +93,11 @@ def preprocess_wikilinks(text: str) -> str:
 
 def preprocess_tags(text: str) -> str:
     """Wrap inline ``#tag`` tokens in ``<span class="tag">`` for styling."""
-    return _INLINE_TAG_RE.sub(r'<span class="tag">#\1</span>', text)
+    result = _INLINE_TAG_RE.sub(r'<span class="tag">#\1</span>', text)
+    if result != text:
+        _LOG.debug("preprocess_tags: %d tag(s) wrapped",
+                   len(_INLINE_TAG_RE.findall(text)))
+    return result
 
 
 def strip_frontmatter(text: str) -> str:

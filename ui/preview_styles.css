@@ -248,9 +248,6 @@ hr {
 /* Inline #tags */
 .tag {
     color: #d19a66;
-    font-size: 85%;
-    font-weight: 500;
-    padding: 1px 4px;
-    border-radius: 3px;
-    background-color: rgba(209, 154, 102, 0.12);
+    font-weight: bold;
+    background-color: rgba(209, 154, 102, 0.15);
 }
