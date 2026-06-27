@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -24,6 +24,57 @@ from ui.widgets import CuteListWidget
 
 _CHUNK_SIZE = 20
 _CHUNK_INTERVAL = 10  # ms
+
+
+class _ReplaceWorker(QObject):
+    """Runs replace-all in a background thread."""
+    done = Signal(int, object)  # replaced_total, files_modified
+
+    def __init__(self, query: str, replacement: str, flags: int,
+                 file_results: dict, parent=None):
+        super().__init__(parent)
+        self._query = query
+        self._replacement = replacement
+        self._flags = flags
+        self._file_results = file_results
+
+    def run(self) -> None:
+        replaced, files = _do_replace_in_files(
+            self._file_results, self._query, self._replacement, self._flags
+        )
+        self.done.emit(replaced, files)
+
+
+def _do_replace_in_files(
+    file_results: dict, query: str, replacement: str, flags: int
+) -> tuple[int, list]:
+    """Pure function — performs the actual replace across files."""
+    replaced_total = 0
+    files_modified: list = []
+    for file_path, line_nums in file_results.items():
+        try:
+            content = file_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        lines = content.split("\n")
+        file_replaced = 0
+        for line_num in sorted(set(line_nums)):
+            if line_num < 1 or line_num > len(lines):
+                continue
+            new_line, count = re.subn(
+                re.escape(query), replacement, lines[line_num - 1], flags=flags
+            )
+            if count > 0:
+                lines[line_num - 1] = new_line
+                file_replaced += count
+        if file_replaced > 0:
+            try:
+                file_path.write_text("\n".join(lines), encoding="utf-8")
+                replaced_total += file_replaced
+                files_modified.append(file_path)
+            except OSError:
+                pass
+    return replaced_total, files_modified
 
 _LOG = setup_logging("cutemd.search")
 
@@ -285,8 +336,6 @@ class SearchPanel(QWidget):
             return
 
         flags = re.IGNORECASE if not self._search_case_cb.isChecked() else 0
-        replaced_total = 0
-        files_modified: list[Path] = []
 
         # Collect all results grouped by file
         file_results: dict[Path, list[int]] = {}
@@ -300,36 +349,22 @@ class SearchPanel(QWidget):
             file_path, line_num = location
             file_results.setdefault(file_path, []).append(line_num)
 
-        for file_path, line_nums in file_results.items():
-            try:
-                content = file_path.read_text(encoding="utf-8")
-            except OSError:
-                continue
+        # Run replace in background thread.
+        self._replace_thread = QThread(self)
+        self._replace_worker = _ReplaceWorker(query, replacement, flags, file_results)
+        self._replace_worker.moveToThread(self._replace_thread)
+        self._replace_worker.done.connect(self._on_replace_done)
+        self._replace_worker.done.connect(self._replace_thread.quit)
+        self._replace_thread.started.connect(self._replace_worker.run)
+        self._replace_thread.start()
+        self._replace_btn.setEnabled(False)
+        self._replace_all_btn.setEnabled(False)
+        self._replace_all_btn.setText(self.tr("Replacing\u2026"))
 
-            lines = content.split("\n")
-            file_replaced = 0
-            for line_num in sorted(set(line_nums)):
-                if line_num < 1 or line_num > len(lines):
-                    continue
-                new_line, count = re.subn(
-                    re.escape(query), replacement, lines[line_num - 1], flags=flags
-                )
-                if count > 0:
-                    lines[line_num - 1] = new_line
-                    file_replaced += count
-
-            if file_replaced > 0:
-                try:
-                    file_path.write_text("\n".join(lines), encoding="utf-8")
-                    replaced_total += file_replaced
-                    files_modified.append(file_path)
-                except OSError as e:
-                    QMessageBox.critical(
-                        self,
-                        self.tr("Error"),
-                        self.tr("Could not write file {}:\n{}").format(file_path.name, e),
-                    )
-
+    def _on_replace_done(self, replaced_total: int, files_modified: list) -> None:
+        self._replace_btn.setEnabled(True)
+        self._replace_all_btn.setEnabled(True)
+        self._replace_all_btn.setText(self.tr("Replace All"))
         QMessageBox.information(
             self,
             self.tr("Replace All"),
@@ -337,8 +372,6 @@ class SearchPanel(QWidget):
                 replaced_total, len(files_modified)
             ),
         )
-
-        # Refresh search results
         self._on_search_text_changed(self._search_input.text())
 
     def _get_affected_files(self) -> set[Path]:
