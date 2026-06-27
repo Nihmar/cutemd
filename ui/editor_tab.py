@@ -1001,6 +1001,9 @@ class EditorTab(QWidget):
     def close_find(self) -> None:
         self._find_bar.close()
 
+    def find_bar_visible(self) -> bool:
+        return self._find_bar.isVisible()
+
     # ------------------------------------------------------------------
     # Qt overrides
     # ------------------------------------------------------------------

@@ -16,6 +16,7 @@ class EditorToolbar(QWidget):
 
     format_requested = Signal(str)   # syntax to insert
     image_requested = Signal()
+    toggle_search = Signal()         # toggles the find bar
 
     def __init__(
         self,
@@ -88,6 +89,18 @@ class EditorToolbar(QWidget):
         img_btn.clicked.connect(self.image_requested)
         layout.addWidget(img_btn)
         self._buttons.append((img_btn, "image"))
+
+        self._add_separator(layout)
+
+        search_btn = QToolButton()
+        search_btn.setIcon(self._icon("search"))
+        search_btn.setToolTip(self.tr("Find in page"))
+        search_btn.setAutoRaise(True)
+        search_btn.setIconSize(QSize(18, 18))
+        search_btn.setFixedSize(30, 28)
+        search_btn.clicked.connect(self.toggle_search)
+        layout.addWidget(search_btn)
+        self._buttons.append((search_btn, "search"))
 
         layout.addStretch()
 

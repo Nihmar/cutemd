@@ -475,6 +475,7 @@ class MainWindow(QMainWindow):
         )
         self._editor_toolbar.format_requested.connect(self._insert_md)
         self._editor_toolbar.image_requested.connect(self._on_insert_image)
+        self._editor_toolbar.toggle_search.connect(self._on_toggle_search)
         editor_toolbar = self._editor_toolbar
 
         # --- Inline status bar ---
@@ -899,6 +900,15 @@ class MainWindow(QMainWindow):
         tab = self._current_tab()
         if isinstance(tab, EditorTab):
             tab.open_find()
+
+    def _on_toggle_search(self) -> None:
+        """Toggle the find bar in the current tab."""
+        tab = self._current_tab()
+        if isinstance(tab, EditorTab):
+            if tab.find_bar_visible():
+                tab.close_find()
+            else:
+                tab.open_find()
 
     def _on_find_in_files(self) -> None:
         _LOG.debug("_on_find_in_files")
