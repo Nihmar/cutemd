@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 
 from core.logging import setup_logging
 from markdown.html_builder import (
+    preprocess_tags,
     preprocess_wikilink_images,
     preprocess_wikilinks,
     strip_frontmatter,
@@ -685,7 +686,9 @@ class EditorTab(QWidget):
         if not raw_text.strip():
             return  # nothing to preview
         text = strip_frontmatter(raw_text)
-        text = preprocess_wikilinks(preprocess_wikilink_images(text))
+        text = preprocess_tags(
+            preprocess_wikilinks(preprocess_wikilink_images(text))
+        )
         self._frontmatter_offset = len(raw_text.split("\n")) - len(text.split("\n"))
         text_hash = hash(text)
         _LOG.debug("_update_preview: hash=%s", text_hash)
@@ -772,7 +775,9 @@ class EditorTab(QWidget):
         # Use the *preprocessed* text that was sent to the worker.
         if self._cached_text:
             rendered_text = strip_frontmatter(self._cached_text)
-            rendered_text = preprocess_wikilinks(preprocess_wikilink_images(rendered_text))
+            rendered_text = preprocess_tags(
+                preprocess_wikilinks(preprocess_wikilink_images(rendered_text))
+            )
             try:
                 self._line_anchor_map = build_line_anchor_map(self._md, rendered_text)
             except Exception:

@@ -29,6 +29,9 @@ _TABLE_BORDER_ATTR_RE = re.compile(r'\s+border="[^"]*"', re.IGNORECASE)
 _IMG_FILE_URL_RE = re.compile(r'<img\s[^>]*\bsrc="(file:///[^"]+)"[^>]*>')
 _FRONTMATTER_RE = re.compile(r"^---\s*\n.*?\n(?:---|\.\.\.)\s*\n", re.DOTALL)
 
+# Inline #tag (not at line start to avoid matching headings)
+_INLINE_TAG_RE = re.compile(r"(?<=\s)#([\w\u0080-\uFFFF][\w\u0080-\uFFFF-]*)")
+
 _CODE_BLOCK_RE = re.compile(
     r"(<pre><code[^>]*>)(.*?)(</code></pre>)", re.DOTALL
 )
@@ -82,6 +85,11 @@ def preprocess_wikilinks(text: str) -> str:
             return f"[{display.strip()}]({_uq(target.strip(), safe='/')})"
         return f"[{inner}]({_uq(inner, safe='/')})"
     return _WIKILINK_RE.sub(_repl, text)
+
+
+def preprocess_tags(text: str) -> str:
+    """Wrap inline ``#tag`` tokens in ``<span class="tag">`` for styling."""
+    return _INLINE_TAG_RE.sub(r'<span class="tag">#\1</span>', text)
 
 
 def strip_frontmatter(text: str) -> str:
