@@ -144,6 +144,10 @@ QPlainTextEdit {
     border-left: 1px solid ${MIDLIGHT};
     padding: 6px 0;
 }
+QToolButton:checked {
+    background: ${HIGHLIGHT};
+    color: ${HIGHLIGHTED_TEXT};
+}
 QToolButton {
     background: transparent;
     border: none;
