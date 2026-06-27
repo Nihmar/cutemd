@@ -53,6 +53,9 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     STATE_FENCE = 1
     STATE_MATH = 2
 
+    # Threshold above which inline patterns are skipped for performance.
+    _LARGE_DOC_BLOCKS = 4000
+
     def __init__(self, parent=None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._theme = "dark"
@@ -130,6 +133,13 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             return
 
         self.setCurrentBlockState(self.STATE_NORMAL)
+
+        # Skip expensive inline patterns on very large documents.
+        if self.document() is not None and self.document().blockCount() > self._LARGE_DOC_BLOCKS:
+            self._apply_rule(self.HEADING_RE, text, self.heading_fmt)
+            self._apply_rule(self.LIST_RE, text, self.list_fmt)
+            self._apply_rule(self.BLOCKQUOTE_RE, text, self.blockquote_fmt)
+            return
 
         # --- Inline patterns ---
         self._apply_rule(self.HEADING_RE, text, self.heading_fmt)

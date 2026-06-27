@@ -55,7 +55,7 @@ from markdown.html_builder import (
 from core.animation_speed import animation_duration_ms
 from core.constants import BROKEN_LINK_LINE_LIMIT, DOC_EXTS, IMG_EXTS, LARGE_FILE_THRESHOLD, MD_EXTS, PDF_EXTS
 from core.file_utils import read_file_with_encoding
-from core.link_resolution import build_line_anchor_map, resolve_link_target
+from core.link_resolution import resolve_link_target
 from ui.drop_handler import DropHandler
 from ui.find_bar import FindBar
 from ui.image_viewer import ImageViewer
@@ -701,9 +701,8 @@ class EditorTab(QWidget):
         text = preprocess_wikilinks(preprocess_wikilink_images(text))
         text_hash = hash(text)
         _LOG.debug("_update_preview: hash=%s", text_hash)
-        if text_hash != self._line_anchor_map_hash:
-            self._line_anchor_map = self._build_line_anchor_map(text)
-            self._line_anchor_map_hash = text_hash
+        # Anchor map is computed in the worker thread.
+        # Use stale map until the new one arrives.
 
         first_block = self.editor.firstVisibleBlock()
         current_line = first_block.blockNumber()
@@ -766,7 +765,7 @@ class EditorTab(QWidget):
         self._preview_worker.render_requested.emit(params)
         self._refresh_link_highlights()
 
-    def _on_preview_ready(self, html: str) -> None:
+    def _on_preview_ready(self, html: str, anchor_map: object, text_hash: int) -> None:
         self._preview_busy = False
         # Cancel spinner if it hasn't fired yet.
         if hasattr(self, "_spinner_timer"):
@@ -776,6 +775,12 @@ class EditorTab(QWidget):
         self._preview_stack.setCurrentIndex(0)  # back to preview
         self.preview.setHtml(html)
         self._syncing_scroll -= 1
+        
+        # Update anchor map if the text hasn't changed since
+        # the render was requested.
+        if text_hash == self._cached_text_hash:
+            self._line_anchor_map = anchor_map if isinstance(anchor_map, list) else []
+            self._line_anchor_map_hash = text_hash
 
         # Track rendered state to skip redundant future renders.
         if not self._preview_pending:
@@ -790,15 +795,6 @@ class EditorTab(QWidget):
             params = self._pending_preview_params
             self._preview_busy = True
             self._preview_worker.render_requested.emit(params)
-
-    def _build_line_anchor_map(self, text: str) -> list[int]:
-        """Build a mapping from editor line numbers to preview heading anchors.
-        Delegates to pure ``build_line_anchor_map`` in core.link_resolution."""
-        return build_line_anchor_map(self._md, text)
-
-    # ------------------------------------------------------------------
-    # Scroll sync
-    # ------------------------------------------------------------------
 
     def _sync_preview_scroll(self) -> None:
         if self._syncing_scroll > 0:
