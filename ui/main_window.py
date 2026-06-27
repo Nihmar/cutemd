@@ -407,6 +407,7 @@ class MainWindow(QMainWindow):
         # --- Tags panel (left dock, below tree/search) ---
         self._tags_panel = TagsPanel()
         self._tags_panel.tag_note_activated.connect(self._on_tag_note_activated)
+        self._tags_panel.tags_updated.connect(self._on_tags_updated)
         self._tags_panel.setVisible(False)
         self._left_splitter.addWidget(self._tags_panel)
 
@@ -651,6 +652,14 @@ class MainWindow(QMainWindow):
         tab.load_file(p)
         self._refresh_tab_title(tab)
         self._update_window_title()
+
+    def _on_tags_updated(self, tags: list[str]) -> None:
+        """Propagate updated tag list to all editor tab completers."""
+        _LOG.debug("_on_tags_updated: %d tags", len(tags))
+        for i in range(self._tabs.count()):
+            tab = self._tabs.widget(i)
+            if isinstance(tab, EditorTab) and hasattr(tab, "_completer"):
+                tab._completer.set_tag_list(tags)
 
     def _add_tab(self) -> EditorTab:
         tab = EditorTab(

@@ -4,6 +4,7 @@
 - Auto-pair brackets: ``[`` → ``[]()``, ``(`` → ``()``
 - List / blockquote continuation on Enter
 - Backspace removes empty delimiter pairs
+- Tag autocomplete: Ctrl+Space after ``#`` shows known vault tags
 
 All features are togglable via settings.
 """
@@ -13,9 +14,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtCore import QEvent, QObject, QRect, QStringListModel, Qt
 from PySide6.QtGui import QKeyEvent, QTextCursor
-from PySide6.QtWidgets import QPlainTextEdit
+from PySide6.QtWidgets import QCompleter, QPlainTextEdit
 
 # ---------------------------------------------------------------------------
 # Default settings (used when no QSettings value exists)
@@ -63,12 +64,25 @@ class MarkdownAutoCompleter(QObject):
             self._cfg.update(settings)
         editor.installEventFilter(self)
 
+        # Tag autocomplete state
+        self._tag_list: list[str] = []
+        self._tag_model = QStringListModel(self)
+        self._tag_completer = QCompleter(self._tag_model, self)
+        self._tag_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._tag_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self._tag_completer.activated.connect(self._on_tag_completed)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def update_settings(self, settings: dict[str, Any]) -> None:
         self._cfg.update(settings)
+
+    def set_tag_list(self, tags: list[str]) -> None:
+        """Update the tag list used for Ctrl+Space autocomplete."""
+        self._tag_list = sorted(set(tags))
+        self._tag_model.setStringList(self._tag_list)
 
     # ------------------------------------------------------------------
     # Event filter
@@ -79,6 +93,12 @@ class MarkdownAutoCompleter(QObject):
             return super().eventFilter(obj, event)
 
         key_event: QKeyEvent = event  # type: ignore[assignment]
+
+        # Tag autocomplete: Ctrl+Space after #
+        if (key_event.key() == Qt.Key.Key_Space
+                and key_event.modifiers() == Qt.KeyboardModifier.ControlModifier):
+            return self._show_tag_completer()
+
         return self._handle_key(key_event)
 
     # ------------------------------------------------------------------
@@ -308,3 +328,89 @@ class MarkdownAutoCompleter(QObject):
         cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.MoveAnchor)
         cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
         cursor.insertText("")
+
+    # ------------------------------------------------------------------
+    # Tag autocomplete (Ctrl+Space after #)
+    # ------------------------------------------------------------------
+
+    def _show_tag_completer(self) -> bool:
+        """Show a QCompleter popup with tags matching the partial text
+        after ``#``.
+        """
+        if not self._tag_list:
+            return False
+
+        cursor = self._editor.textCursor()
+        pos = cursor.position()
+        block_text = cursor.block().text()
+        pos_in_block = cursor.positionInBlock()
+
+        # Walk backwards from cursor to find the #
+        hash_pos = -1
+        for i in range(pos_in_block - 1, -1, -1):
+            ch = block_text[i]
+            if ch == "#":
+                hash_pos = i
+                break
+            if ch.isspace():
+                break
+
+        if hash_pos < 0:
+            return False
+
+        # Extract partial tag text after #
+        partial = block_text[hash_pos + 1:pos_in_block]
+        prefix = "#" + partial
+
+        # Filter tags matching the partial text
+        matching = [t for t in self._tag_list
+                    if partial.lower() in t.lower()]
+        if not matching:
+            return False
+
+        self._tag_model.setStringList(matching)
+        self._tag_completer.setCompletionPrefix(prefix)
+
+        # Show popup at the # position
+        block_start = cursor.block().position()
+        cursor_rect = self._editor.cursorRect(cursor)
+        popup_rect = QRect(
+            cursor_rect.x(),
+            cursor_rect.y() + cursor_rect.height() + 2,
+            200,
+            min(len(matching) * 20 + 4, 200),
+        )
+        self._tag_completer.complete(popup_rect)
+
+        # Adjust popup width to longest tag
+        popup = self._tag_completer.popup()
+        if popup:
+            popup.setMinimumWidth(180)
+
+        return True
+
+    def _on_tag_completed(self, text: str) -> None:
+        """Replace the partial tag after # with the selected completion."""
+        cursor = self._editor.textCursor()
+        pos_in_block = cursor.positionInBlock()
+        block = cursor.block()
+        block_text = block.text()
+
+        # Find the # position
+        hash_pos = -1
+        for i in range(pos_in_block - 1, -1, -1):
+            if block_text[i] == "#":
+                hash_pos = i
+                break
+            if block_text[i].isspace():
+                break
+
+        if hash_pos < 0:
+            return
+
+        # Select from # to cursor and replace with #tag
+        block_start = block.position()
+        cursor.setPosition(block_start + hash_pos)
+        cursor.setPosition(block_start + pos_in_block, QTextCursor.MoveMode.KeepAnchor)
+        cursor.insertText("#" + text)
+        self._editor.setTextCursor(cursor)

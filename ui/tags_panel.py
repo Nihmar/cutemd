@@ -159,9 +159,11 @@ class TagsPanel(QWidget):
 
     Emits:
         tag_note_activated(str) — absolute path of the clicked note.
+        tags_updated(list) — list of unique tag names after scan completes.
     """
 
     tag_note_activated = Signal(str)
+    tags_updated = Signal(list)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -251,6 +253,8 @@ class TagsPanel(QWidget):
             )
         _LOG.debug("_on_scan_complete: %d tags, %d notes",
                    total_tags, total_files)
+        # Emit tag names so the editor completer can pick them up
+        self.tags_updated.emit(sorted(self._tag_items.keys()))
 
     def _on_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         filepath = item.data(0, Qt.ItemDataRole.UserRole)
