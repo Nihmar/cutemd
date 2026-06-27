@@ -31,7 +31,7 @@ class EditorToolbar(QWidget):
         self._buttons: list[tuple[QToolButton, str]] = []
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 6, 10, 6)
+        layout.setContentsMargins(6, 2, 6, 2)
         layout.setSpacing(4)
 
         # --- Heading button ---
