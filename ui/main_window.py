@@ -61,6 +61,7 @@ from ui.search_panel import SearchPanel
 from ui.settings_manager import AppSettings
 from ui.settings_applicator import SettingsApplicator
 from ui.shortcut_manager import ShortcutManager
+from ui.tags_panel import TagsPanel
 from ui.theme_manager import ThemeManager
 from ui.themes import get_theme, system_theme
 from ui.side_panel_manager import SidePanelManager
@@ -160,6 +161,12 @@ class MainWindow(QMainWindow):
         self._backlinks_timer.setSingleShot(True)
         self._backlinks_timer.setInterval(800)
         self._backlinks_timer.timeout.connect(self._do_backlinks_scan)
+
+        # --- Tags scan debounce timer ---
+        self._tags_timer = QTimer(self)
+        self._tags_timer.setSingleShot(True)
+        self._tags_timer.setInterval(1000)
+        self._tags_timer.timeout.connect(self._do_tags_scan)
 
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
@@ -346,6 +353,11 @@ class MainWindow(QMainWindow):
         )
         lt_layout.addWidget(self._side_search_btn)
 
+        self._side_tags_btn = _side_btn(
+            "tag", self.tr("Toggle tags"), slot=self._on_side_tags_toggled
+        )
+        lt_layout.addWidget(self._side_tags_btn)
+
         self._side_toc_btn = _side_btn(
             "toc", self.tr("Table of Contents"), slot=self._on_side_toc_toggled
         )
@@ -391,6 +403,12 @@ class MainWindow(QMainWindow):
         self._left_splitter = QSplitter(Qt.Orientation.Vertical)
         self._left_splitter.addWidget(self._left_stack)
         self._left_splitter.setChildrenCollapsible(False)
+
+        # --- Tags panel (left dock, below tree/search) ---
+        self._tags_panel = TagsPanel()
+        self._tags_panel.tag_note_activated.connect(self._on_tag_note_activated)
+        self._tags_panel.setVisible(False)
+        self._left_splitter.addWidget(self._tags_panel)
 
         # --- TOC panel (right dock) ---
         self._toc_panel = TocPanel()
@@ -534,6 +552,14 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_s"):
             self._s.set_right_dock_visible(checked)
 
+    def _on_side_tags_toggled(self, checked: bool) -> None:
+        """Toggle visibility of the tags panel in the left splitter."""
+        if hasattr(self, "_tags_panel"):
+            self._tags_panel.setVisible(checked)
+            # When showing tags, ensure left panel is open
+            if checked and not self._side_panel.is_left_panel_open():
+                self._side_panel.show_left_panel()
+
     def _rebuild_toc(self) -> None:
         """Rebuild the table of contents from the current tab's editor content."""
         tab = self._current_tab()
@@ -587,6 +613,35 @@ class MainWindow(QMainWindow):
 
     def _on_backlink_activated(self, filepath: str) -> None:
         """Open a backlinked file in a new tab."""
+        p = Path(filepath)
+        idx = self._find_tab_for_file(p)
+        if idx >= 0:
+            self._tabs.setCurrentIndex(idx)
+            return
+        tab = self._add_tab()
+        tab.load_file(p)
+        self._refresh_tab_title(tab)
+        self._update_window_title()
+
+    # ------------------------------------------------------------------
+    # Tags
+    # ------------------------------------------------------------------
+
+    def _trigger_tags_scan(self) -> None:
+        """Schedule a debounced tags scan (called on save events)."""
+        if self._folder_path is None:
+            return
+        self._tags_timer.start()
+
+    def _do_tags_scan(self) -> None:
+        """Execute the pending tags scan."""
+        if self._folder_path is None:
+            return
+        _LOG.debug("_do_tags_scan")
+        self._tags_panel.start_scan(self._folder_path)
+
+    def _on_tag_note_activated(self, filepath: str) -> None:
+        """Open a note from the tags panel in a new tab."""
         p = Path(filepath)
         idx = self._find_tab_for_file(p)
         if idx >= 0:
@@ -1371,6 +1426,8 @@ class MainWindow(QMainWindow):
         self._s.set_last_folder(path)
         self._update_auto_sync_timer()
         self._update_menu_state()
+        # Initial tags scan for the vault
+        self._trigger_tags_scan()
 
     def _restore_last_folder(self) -> None:
         """Decide what to show on startup (called via QTimer.singleShot(0)).
@@ -1477,6 +1534,8 @@ class MainWindow(QMainWindow):
         self._tree_panel.set_root_path("")
         self._search_panel.set_folder(None)
         self._backlinks_panel.clear()
+        self._tags_panel.clear()
+        self._tags_timer.stop()
         self._s.remove_last_folder()
         self._auto_sync_timer.stop()
         self._update_menu_state()
@@ -1673,6 +1732,9 @@ class MainWindow(QMainWindow):
             tab = self._current_tab()
             if tab and not tab._is_binary_preview:
                 self._trigger_backlinks_scan(tab)
+        # Debounced tags scan on autosave
+        if saved_any:
+            self._trigger_tags_scan()
 
     def _on_new(self) -> None:
         tab = self._current_tab()
@@ -1692,6 +1754,7 @@ class MainWindow(QMainWindow):
                 if tab.file_path:
                     self._tree_panel.select_file(tab.file_path)
                     self._trigger_backlinks_scan(tab)
+                    self._trigger_tags_scan()
                 # Sync-on-save for manual saves
                 if self._s.sync_on_save():
                     self._on_webdav_sync(auto_triggered=True)
@@ -1798,6 +1861,7 @@ class MainWindow(QMainWindow):
         self._autosave_timer.stop()
         self._auto_sync_timer.stop()
         self._backlinks_timer.stop()
+        self._tags_timer.stop()
         for i in range(self._tabs.count() - 1, -1, -1):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab) and not tab.maybe_save():

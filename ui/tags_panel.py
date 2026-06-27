@@ -1,0 +1,258 @@
+"""Tags panel — collects tags from YAML frontmatter and inline #tags.
+
+Scans all .md files in the vault on folder open and on save.
+Runs in a background QThread.  Displays tags in a QTreeWidget with
+note filenames as children.
+"""
+
+import re
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtWidgets import (
+    QLabel,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
+
+from core.logging import setup_logging
+
+_LOG = setup_logging("cutemd.tags")
+
+# ---------------------------------------------------------------------------
+# YAML frontmatter
+# ---------------------------------------------------------------------------
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+# ---------------------------------------------------------------------------
+# Inline tag detection: #tag  (not at line start to avoid matching headings)
+# ---------------------------------------------------------------------------
+_INLINE_TAG_RE = re.compile(r"(?<=\s)#([\w\u0080-\uFFFF][\w\u0080-\uFFFF-]*)")
+# Also match at the very start of the file/line when NOT preceded by a heading
+# context.  We use a simpler fallback: #word patterns that are not at BOL.
+_START_TAG_RE = re.compile(r"(?<!\S)#([\w\u0080-\uFFFF][\w\u0080-\uFFFF-]*)")
+
+
+def _parse_yaml_tags(text: str) -> list[str]:
+    """Extract tags from YAML frontmatter ``tags:`` field.
+
+    Supports list format ``[tag1, tag2]``, bullet list ``- tag1``, and
+    single string ``tag1``.
+    """
+    m = _FRONTMATTER_RE.match(text)
+    if not m:
+        return []
+    fm = m.group(1)
+    # Match tags: line
+    tag_match = re.search(r"^tags:\s*(.*)", fm, re.MULTILINE)
+    if not tag_match:
+        return []
+    value = tag_match.group(1).strip()
+
+    tags: list[str] = []
+    # List: [tag1, tag2]
+    if value.startswith("["):
+        inner = value.strip("[]")
+        for item in re.split(r",\s*", inner):
+            t = item.strip().strip("\"'")
+            t = t.lstrip("#")
+            if t:
+                tags.append(t)
+    elif value.startswith("- "):
+        # Bullet list
+        tag_block_match = re.search(r"^tags:\s*\n((?:\s+-.+\n?)+)", fm, re.MULTILINE)
+        if tag_block_match:
+            block = tag_block_match.group(1)
+            for line in block.split("\n"):
+                line = line.strip()
+                if line.startswith("- "):
+                    t = line[2:].strip().strip("\"'")
+                    t = t.lstrip("#")
+                    if t:
+                        tags.append(t)
+    else:
+        # Single string
+        t = value.lstrip("#")
+        if t:
+            tags.append(t)
+    return tags
+
+
+def _collect_inline_tags(text: str) -> list[str]:
+    """Find inline ``#tag`` tokens in the note body (excluding frontmatter)."""
+    body = _FRONTMATTER_RE.sub("", text, count=1)
+    tags: set[str] = set()
+    for m in _INLINE_TAG_RE.finditer(body):
+        tags.add(m.group(1))
+    return sorted(tags)
+
+
+class TagScanner(QThread):
+    """Background worker that collects all tags from .md files in a vault."""
+
+    tag_found = Signal(str, str)  # tag, filepath
+    scan_complete = Signal()
+
+    def __init__(
+        self,
+        folder_path: Path,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._folder_path = folder_path
+
+    def run(self) -> None:
+        _LOG.debug("TagScanner: scanning %s", self._folder_path)
+        try:
+            for md_file in sorted(self._folder_path.rglob("*.md")):
+                if self.isInterruptionRequested():
+                    _LOG.debug("TagScanner: interrupted")
+                    return
+                try:
+                    text = md_file.read_text(encoding="utf-8", errors="ignore")
+                except OSError:
+                    continue
+
+                tags: set[str] = set()
+
+                # YAML frontmatter tags
+                for t in _parse_yaml_tags(text):
+                    tags.add(t)
+
+                # Inline #tags
+                for t in _collect_inline_tags(text):
+                    tags.add(t)
+
+                for tag in sorted(tags):
+                    self.tag_found.emit(tag, str(md_file))
+
+            # Also scan .markdown files
+            for md_file in sorted(self._folder_path.rglob("*.markdown")):
+                if self.isInterruptionRequested():
+                    return
+                try:
+                    text = md_file.read_text(encoding="utf-8", errors="ignore")
+                except OSError:
+                    continue
+                tags: set[str] = set()
+                for t in _parse_yaml_tags(text):
+                    tags.add(t)
+                for t in _collect_inline_tags(text):
+                    tags.add(t)
+                for tag in sorted(tags):
+                    self.tag_found.emit(tag, str(md_file))
+
+        except Exception:
+            _LOG.exception("TagScanner: error during scan")
+
+        _LOG.debug("TagScanner: scan complete")
+        self.scan_complete.emit()
+
+
+class TagsPanel(QWidget):
+    """Sidebar panel displaying all tags in the vault as a tree.
+
+    Top-level items are tag names; children are note filenames.
+    Clicking a note opens it in a new tab.
+
+    Emits:
+        tag_note_activated(str) — absolute path of the clicked note.
+    """
+
+    tag_note_activated = Signal(str)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        self._status_label = QLabel(self.tr("No tags"))
+        self._status_label.setStyleSheet("font-size: 11px; padding: 4px;")
+        layout.addWidget(self._status_label)
+
+        self._tree = QTreeWidget()
+        self._tree.setHeaderHidden(True)
+        self._tree.setIndentation(16)
+        self._tree.setAnimated(True)
+        self._tree.itemClicked.connect(self._on_item_clicked)
+        layout.addWidget(self._tree)
+
+        self._scan_thread: TagScanner | None = None
+        self._tag_items: dict[str, QTreeWidgetItem] = {}
+        self._tag_counts: dict[str, int] = {}
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def start_scan(self, folder_path: Path) -> None:
+        """Cancel any running scan and start a new one."""
+        _LOG.debug("start_scan: %s", folder_path)
+        self._cancel_scan()
+
+        self._tree.clear()
+        self._tag_items.clear()
+        self._tag_counts.clear()
+        self._status_label.setText(self.tr("Scanning\u2026"))
+        self._status_label.show()
+
+        self._scan_thread = TagScanner(folder_path, self)
+        self._scan_thread.tag_found.connect(self._on_tag_found)
+        self._scan_thread.scan_complete.connect(self._on_scan_complete)
+        self._scan_thread.finished.connect(self._scan_thread.deleteLater)
+        self._scan_thread.start()
+
+    def clear(self) -> None:
+        """Cancel any scan and clear the panel."""
+        _LOG.debug("clear")
+        self._cancel_scan()
+        self._tree.clear()
+        self._tag_items.clear()
+        self._tag_counts.clear()
+        self._status_label.setText(self.tr("No tags"))
+
+    # ------------------------------------------------------------------
+    # Internal
+    # ------------------------------------------------------------------
+
+    def _cancel_scan(self) -> None:
+        if self._scan_thread is not None and self._scan_thread.isRunning():
+            _LOG.debug("_cancel_scan: interrupting running scan")
+            self._scan_thread.requestInterruption()
+            self._scan_thread.wait(2000)
+
+    def _on_tag_found(self, tag: str, filepath: str) -> None:
+        _LOG.debug("_on_tag_found: %s → %s", tag, Path(filepath).name)
+        if tag not in self._tag_items:
+            item = QTreeWidgetItem(self._tree, [tag])
+            item.setData(0, Qt.ItemDataRole.UserRole, "")  # tag node, not clickable
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+            item.setExpanded(True)
+            self._tag_items[tag] = item
+            self._tag_counts[tag] = 0
+
+        parent = self._tag_items[tag]
+        child = QTreeWidgetItem(parent, [Path(filepath).name])
+        child.setData(0, Qt.ItemDataRole.UserRole, filepath)
+        child.setToolTip(0, filepath)
+        self._tag_counts[tag] += 1
+
+    def _on_scan_complete(self) -> None:
+        total_tags = len(self._tag_items)
+        total_files = sum(self._tag_counts.values())
+        if total_tags == 0:
+            self._status_label.setText(self.tr("No tags"))
+        else:
+            self._status_label.setText(
+                self.tr("{} tags in {} notes").format(total_tags, total_files)
+            )
+        _LOG.debug("_on_scan_complete: %d tags, %d notes",
+                   total_tags, total_files)
+
+    def _on_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
+        filepath = item.data(0, Qt.ItemDataRole.UserRole)
+        if filepath:
+            self.tag_note_activated.emit(filepath)
