@@ -17,6 +17,7 @@ class EditorToolbar(QWidget):
     format_requested = Signal(str)   # syntax to insert
     image_requested = Signal()
     toggle_search = Signal()         # toggles the find bar
+    detach_preview = Signal()        # detach/reattach the preview pane
 
     def __init__(
         self,
@@ -101,6 +102,18 @@ class EditorToolbar(QWidget):
         search_btn.clicked.connect(self.toggle_search)
         layout.addWidget(search_btn)
         self._buttons.append((search_btn, "search"))
+
+        detach_btn = QToolButton()
+        detach_btn.setIcon(self._icon("detach"))
+        detach_btn.setToolTip(self.tr("Detach preview"))
+        detach_btn.setAutoRaise(True)
+        detach_btn.setCheckable(True)
+        detach_btn.setIconSize(QSize(18, 18))
+        detach_btn.setFixedSize(30, 28)
+        detach_btn.clicked.connect(self.detach_preview)
+        layout.addWidget(detach_btn)
+        self._detach_btn = detach_btn
+        self._buttons.append((detach_btn, "detach"))
 
         layout.addStretch()
 

@@ -135,6 +135,8 @@ class EditorTab(QWidget):
         self._large_file = False
         self._link_style: str = "md"
         self._mouse_press_pos: QPoint | None = None
+        self._detached_window: QWidget | None = None
+        self._splitter_sizes: list[int] = []
 
         # --- Drop handler (drag&drop + clipboard paste) ---
         self._drop_handler = DropHandler(self)
@@ -1004,6 +1006,47 @@ class EditorTab(QWidget):
     def find_bar_visible(self) -> bool:
         return self._find_bar.isVisible()
 
+    def detach_preview(self) -> bool:
+        """Move the preview pane into a standalone window.
+        Returns True if detached, False if re-attached.
+        """
+        if self._detached_window is not None:
+            self._attach_preview()
+            return False
+
+        idx = self._splitter.indexOf(self._preview_stack)
+        if idx < 0:
+            return False
+        self._splitter_sizes = self._splitter.sizes()
+        self._preview_stack.setParent(None)
+
+        self._detached_window = QWidget(None, Qt.WindowType.Window)
+        self._detached_window.setWindowTitle(
+            self.tr("Preview \u2014 {}").format(self.display_name())
+        )
+        self._detached_window.resize(600, 700)
+        wl = QVBoxLayout(self._detached_window)
+        wl.setContentsMargins(0, 0, 0, 0)
+        wl.addWidget(self._preview_stack)
+        self._detached_window.installEventFilter(self)
+        self._detached_window.show()
+        _LOG.debug("detach_preview: detached")
+        return True
+
+    def _attach_preview(self) -> None:
+        """Move the preview back into the splitter."""
+        if self._detached_window is None:
+            return
+        self._detached_window.removeEventFilter(self)
+        self._preview_stack.setParent(None)
+        self._detached_window.hide()
+        self._detached_window.deleteLater()
+        self._detached_window = None
+        self._splitter.insertWidget(1, self._preview_stack)
+        if hasattr(self, "_splitter_sizes") and self._splitter_sizes:
+            self._splitter.setSizes(self._splitter_sizes)
+        _LOG.debug("_attach_preview: re-attached")
+
     # ------------------------------------------------------------------
     # Qt overrides
     # ------------------------------------------------------------------
@@ -1019,7 +1062,12 @@ class EditorTab(QWidget):
           - DragEnter/Leave/Move → file drop from explorer
           - Drop → insert file path or image
           - Wheel + Ctrl → zoom in/out
+          - Close → re-attach detached preview window
         """
+        if obj is self._detached_window and event.type() == QEvent.Type.Close:
+            self._attach_preview()
+            return True
+
         if obj is self.editor:
             if event.type() == QEvent.Type.Resize:
                 cr = self.editor.contentsRect()

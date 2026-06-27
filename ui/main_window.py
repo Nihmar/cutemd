@@ -476,6 +476,7 @@ class MainWindow(QMainWindow):
         self._editor_toolbar.format_requested.connect(self._insert_md)
         self._editor_toolbar.image_requested.connect(self._on_insert_image)
         self._editor_toolbar.toggle_search.connect(self._on_toggle_search)
+        self._editor_toolbar.detach_preview.connect(self._on_detach_preview)
         editor_toolbar = self._editor_toolbar
 
         # --- Inline status bar ---
@@ -859,8 +860,12 @@ class MainWindow(QMainWindow):
     def _on_tab_close_requested(self, index: int) -> None:
         _LOG.debug("_on_tab_close_requested: index=%d", index)
         tab = self._tabs.widget(index)
-        if isinstance(tab, EditorTab) and not tab.maybe_save():
-            return
+        if isinstance(tab, EditorTab):
+            # Re-attach preview if detached
+            if tab._detached_window is not None:
+                tab._attach_preview()
+            if not tab.maybe_save():
+                return
         if tab is self._preview_tab:
             self._preview_tab = None
         self._tabs.removeTab(index)
@@ -926,6 +931,13 @@ class MainWindow(QMainWindow):
                 tab.close_find()
             else:
                 tab.open_find()
+
+    def _on_detach_preview(self) -> None:
+        """Detach or re-attach the current tab's preview pane."""
+        tab = self._current_tab()
+        if isinstance(tab, EditorTab):
+            detached = tab.detach_preview()
+            self._editor_toolbar._detach_btn.setChecked(detached)
 
     def _on_find_in_files(self) -> None:
         _LOG.debug("_on_find_in_files")
