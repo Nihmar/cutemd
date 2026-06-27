@@ -418,6 +418,13 @@ class MarkdownAutoCompleter(QObject):
         self._tag_list_widget.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
         )
+        # Highlight the selected row using palette colors
+        self._tag_list_widget.setStyleSheet(
+            "QListWidget::item:selected {"
+            "  background: palette(highlight);"
+            "  color: palette(highlighted-text);"
+            "}"
+        )
         for tag in matching:
             self._tag_list_widget.addItem(QListWidgetItem(tag))
         self._tag_list_widget.itemClicked.connect(self._on_tag_selected)
