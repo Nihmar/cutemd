@@ -14,10 +14,8 @@ from PySide6.QtCore import (
     QVariantAnimation,
 )
 from PySide6.QtGui import (
-    QAction,
     QColor,
     QIcon,
-    QKeySequence,
     QPainter,
     QPixmap,
     QTextCursor,
@@ -33,7 +31,6 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
-    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QSplitter,
@@ -52,15 +49,19 @@ from core.file_utils import default_folder_config, update_recent_folders
 from core.link_resolution import resolve_link_target
 from core.webdav.sync import sync_folder
 from ui import theme
+from ui.action_registry import ActionRegistry
+from ui.window_state import WindowStateManager
 from ui.editor_context_menu import show_editor_context_menu
 from ui.editor_tab import EditorTab
 from ui.editor_toolbar import EditorToolbar
 from ui.file_tree_panel import FileTreePanel
 from ui.search_panel import SearchPanel
 from ui.settings_manager import AppSettings
+from ui.settings_applicator import SettingsApplicator
 from ui.shortcut_manager import ShortcutManager
 from ui.theme_manager import ThemeManager
 from ui.themes import get_theme, system_theme
+from ui.side_panel_manager import SidePanelManager
 from ui.toc_panel import TocPanel
 from ui.update_dialog import UpdateAvailableDialog
 
@@ -188,40 +189,14 @@ class MainWindow(QMainWindow):
             self.resize(1200, 750)
 
         self._setup_actions()
-        self._setup_menubar()
 
-        self._all_actions: dict[str, QAction] = {
-            "act_open_folder": self.act_open_folder,
-            "act_close_folder": self.act_close_folder,
-            "act_new": self.act_new,
-            "act_save": self.act_save,
-            "act_save_as": self.act_save_as,
-            "act_close_tab": self.act_close_tab,
-            "act_exit": self.act_exit,
-            "act_undo": self.act_undo,
-            "act_redo": self.act_redo,
-            "act_find": self.act_find,
-            "act_find_files": self.act_find_files,
-            "act_replace_files": self.act_replace_files,
-            "act_toggle_preview": self.act_toggle_preview,
-            "act_toggle_split": self.act_toggle_split,
-            "act_toggle_tree": self.act_toggle_tree,
-            "act_toggle_statusbar": self.act_toggle_statusbar,
-            "act_settings": self.act_settings,
-            "act_shortcuts": self.act_shortcuts,
-            "act_check_update": self.act_check_update,
-            "act_command_palette": self.act_command_palette,
-            "act_webdav_sync": self.act_webdav_sync,
-            "act_zoom_in": self.act_zoom_in,
-            "act_zoom_out": self.act_zoom_out,
-            "act_zoom_reset": self.act_zoom_reset,
-            "act_zoom_preview_in": self.act_zoom_preview_in,
-            "act_zoom_preview_out": self.act_zoom_preview_out,
-        }
         self._shortcut_mgr = ShortcutManager(None, self)
         self._shortcut_mgr.apply(self._all_actions)
         _LOG.debug("__init__: shortcuts applied, %d QShortcuts registered",
                    len(self._shortcut_mgr._shortcuts))
+
+        # Settings applicator
+        self._settings_applicator = SettingsApplicator(self)
 
         self._setup_statusbar()
         self._setup_central()
@@ -239,23 +214,10 @@ class MainWindow(QMainWindow):
         super().showEvent(event)
         if not getattr(self, "_panel_restored", False):
             self._panel_restored = True
-            self._reset_save_timer()
-
-    def _reset_save_timer(self) -> None:
-        """Ignore splitterMoved for 500ms after programmatic setSizes."""
-        self._save_allowed = False
-        if hasattr(self, "_save_timer"):
-            self._save_timer.stop()
-        self._save_timer = QTimer(self)
-        self._save_timer.setSingleShot(True)
-        self._save_timer.timeout.connect(self._allow_save)
-        self._save_timer.start(500)
-
-    def _allow_save(self) -> None:
-        self._save_allowed = True
+            self._side_panel._reset_save_timer()
 
     def _on_splitter_moved(self, pos: int, index: int) -> None:
-        if not getattr(self, "_save_allowed", True):
+        if not self._side_panel._save_allowed:
             return
         left = self._splitter.sizes()[0]
         if left <= 0:
@@ -266,172 +228,42 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Actions
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Actions & Menu bar (delegated to ActionRegistry)
+    # ------------------------------------------------------------------
     def _setup_actions(self) -> None:
-        # File
-        self.act_open_folder = QAction(self.tr("Open &Folder…"), self)
-        self.act_open_folder.setShortcut(QKeySequence.StandardKey.Open)
-        self.act_open_folder.triggered.connect(self._on_open_folder)
+        callbacks = {
+            "open_folder": self._on_open_folder,
+            "close_folder": self._on_close_folder,
+            "new": self._on_new,
+            "save": self._on_save,
+            "save_as": self._on_save_as,
+            "close_tab": self._on_close_tab,
+            "find": self._on_find,
+            "find_files": self._on_find_in_files,
+            "replace_files": self._on_replace_in_files,
+            "toggle_split": self._toggle_split,
+            "settings": self._on_settings,
+            "shortcuts": self._on_show_shortcuts,
+            "check_update": self._check_for_updates,
+            "command_palette": self._on_command_palette,
+            "webdav_sync": self._on_webdav_sync,
+            "zoom_editor": self._zoom_editor,
+            "zoom_reset": self._zoom_reset,
+            "zoom_preview": self._zoom_preview,
+        }
+        self._action_registry = ActionRegistry(self)
+        self._action_registry.build(callbacks)
 
-        self.act_close_folder = QAction(self.tr("Close Folder"), self)
-        self.act_close_folder.triggered.connect(self._on_close_folder)
+        # Convenience aliases (kept for backward compat in the rest of the class)
+        self._all_actions = self._action_registry.all
+        for name, action in self._all_actions.items():
+            setattr(self, name, action)
 
-        self.act_new = QAction(self.tr("&New File…"), self)
-        self.act_new.setShortcut(QKeySequence.StandardKey.New)
-        self.act_new.triggered.connect(self._on_new)
-
-        self.act_save = QAction(self.tr("&Save"), self)
-        self.act_save.setShortcut(QKeySequence.StandardKey.Save)
-        self.act_save.triggered.connect(self._on_save)
-
-        self.act_save_as = QAction(self.tr("Save &As…"), self)
-        self.act_save_as.setShortcut(QKeySequence.StandardKey.SaveAs)
-        self.act_save_as.triggered.connect(self._on_save_as)
-
-        self.act_close_tab = QAction(self.tr("Close Tab"), self)
-        self.act_close_tab.setShortcut(QKeySequence.StandardKey.Close)
-        self.act_close_tab.triggered.connect(self._on_close_tab)
-
-        self.act_exit = QAction(self.tr("E&xit"), self)
-        self.act_exit.setShortcut(QKeySequence.StandardKey.Quit)
-        self.act_exit.triggered.connect(self.close)
-
-        # Edit
-        self.act_undo = QAction(self.tr("&Undo"), self)
-        self.act_undo.setShortcut(QKeySequence.StandardKey.Undo)
-
-        self.act_redo = QAction(self.tr("&Redo"), self)
-        self.act_redo.setShortcut(QKeySequence.StandardKey.Redo)
-
-        self.act_find = QAction(self.tr("&Find…"), self)
-        self.act_find.setShortcut(QKeySequence.StandardKey.Find)
-        self.act_find.triggered.connect(self._on_find)
-
-        self.act_find_files = QAction(self.tr("Find in &Files…"), self)
-        self.act_find_files.setShortcut(
-            QKeySequence(Qt.Modifier.CTRL | Qt.Modifier.SHIFT | Qt.Key.Key_F)
-        )
-        self.act_find_files.triggered.connect(self._on_find_in_files)
-
-        self.act_replace_files = QAction(self.tr("Replace in &Files…"), self)
-        self.act_replace_files.setShortcut(
-            QKeySequence(Qt.Modifier.CTRL | Qt.Modifier.SHIFT | Qt.Key.Key_H)
-        )
-        self.act_replace_files.triggered.connect(self._on_replace_in_files)
-
-        # View
-        self.act_toggle_preview = QAction(self.tr("Toggle &Preview"), self)
-        self.act_toggle_preview.setCheckable(True)
-        self.act_toggle_preview.setChecked(True)
+        # Wire toggles that have checkable actions
         self.act_toggle_preview.toggled.connect(self._on_toggle_preview)
-
-        self.act_toggle_split = QAction(self.tr("Toggle Split &Orientation"), self)
-        self.act_toggle_split.triggered.connect(self._toggle_split)
-
-        self.act_toggle_tree = QAction(self.tr("Toggle &File Tree"), self)
-        self.act_toggle_tree.setCheckable(True)
-        self.act_toggle_tree.setChecked(True)
-        self.act_toggle_tree.setShortcut(QKeySequence("Ctrl+B"))
         self.act_toggle_tree.toggled.connect(self._on_toggle_tree)
-
-        self.act_toggle_statusbar = QAction(self.tr("Toggle Status &Bar"), self)
-        self.act_toggle_statusbar.setCheckable(True)
-        self.act_toggle_statusbar.setChecked(True)
         self.act_toggle_statusbar.toggled.connect(self._on_toggle_statusbar)
-
-        self.act_settings = QAction(self.tr("&Settings…"), self)
-        self.act_settings.setShortcut(QKeySequence("Ctrl+,"))
-        self.act_settings.triggered.connect(self._on_settings)
-        _LOG.debug("_setup_actions: act_settings trigger connected, shortcut=%s",
-                   self.act_settings.shortcut().toString())
-
-        self.act_shortcuts = QAction(self.tr("&Keyboard Shortcuts…"), self)
-        self.act_shortcuts.setShortcut(QKeySequence("Ctrl+/"))
-        self.act_shortcuts.triggered.connect(self._on_show_shortcuts)
-
-        self.act_check_update = QAction(self.tr("Check for &Updates…"), self)
-        self.act_check_update.triggered.connect(lambda: self._check_for_updates(silent=False))
-
-        self.act_command_palette = QAction(self.tr("&Command Palette…"), self)
-        self.act_command_palette.triggered.connect(self._on_command_palette)
-        _LOG.debug("_setup_actions: act_command_palette trigger connected, shortcut=%s",
-                   self.act_command_palette.shortcut().toString() or "(none)")
-
-        self.act_webdav_sync = QAction(self.tr("&Sync Now"), self)
-        self.act_webdav_sync.setShortcut(QKeySequence("Ctrl+Alt+S"))
-        self.act_webdav_sync.triggered.connect(self._on_webdav_sync)
-
-        # Zoom
-        self.act_zoom_in = QAction(self.tr("Zoom &In (Editor)"), self)
-        self.act_zoom_in.setShortcut(QKeySequence("Ctrl+="))
-        self.act_zoom_in.triggered.connect(lambda: self._zoom_editor(1))
-
-        self.act_zoom_out = QAction(self.tr("Zoom &Out (Editor)"), self)
-        self.act_zoom_out.setShortcut(QKeySequence("Ctrl+-"))
-        self.act_zoom_out.triggered.connect(lambda: self._zoom_editor(-1))
-
-        self.act_zoom_reset = QAction(self.tr("&Reset Zoom"), self)
-        self.act_zoom_reset.setShortcut(QKeySequence("Ctrl+0"))
-        self.act_zoom_reset.triggered.connect(self._zoom_reset)
-
-        self.act_zoom_preview_in = QAction(self.tr("Zoom Preview &In"), self)
-        self.act_zoom_preview_in.setShortcut(QKeySequence("Ctrl+Shift+="))
-        self.act_zoom_preview_in.triggered.connect(lambda: self._zoom_preview(1))
-
-        self.act_zoom_preview_out = QAction(self.tr("Zoom Preview O&ut"), self)
-        self.act_zoom_preview_out.setShortcut(QKeySequence("Ctrl+Shift+-"))
-        self.act_zoom_preview_out.triggered.connect(lambda: self._zoom_preview(-1))
-
-    # ------------------------------------------------------------------
-    # Menubar
-    # ------------------------------------------------------------------
-    def _setup_menubar(self) -> None:
-        mb = self.menuBar()
-
-        self._file_menu = mb.addMenu(self.tr("&File"))
-        self._file_menu.addAction(self.act_open_folder)
-        self._file_menu.addAction(self.act_close_folder)
-        self._file_menu.addSeparator()
-        self._file_menu.addAction(self.act_new)
-        self._file_menu.addAction(self.act_save)
-        self._file_menu.addAction(self.act_save_as)
-        self._file_menu.addSeparator()
-        self._file_menu.addAction(self.act_webdav_sync)
-        self._file_menu.addSeparator()
-        self._file_menu.addAction(self.act_close_tab)
-        self._file_menu.addSeparator()
-        self._file_menu.addAction(self.act_exit)
-
-        self._edit_menu = mb.addMenu(self.tr("&Edit"))
-        self._edit_menu.addAction(self.act_undo)
-        self._edit_menu.addAction(self.act_redo)
-        self._edit_menu.addSeparator()
-        self._edit_menu.addAction(self.act_find)
-        self._edit_menu.addAction(self.act_find_files)
-        self._edit_menu.addAction(self.act_replace_files)
-
-        self._view_menu = mb.addMenu(self.tr("&View"))
-        self._view_menu.addAction(self.act_toggle_preview)
-        # act_toggle_split is deprecated — kept for backward compat, hidden from menu.
-        self._view_menu.addSeparator()
-        self._view_menu.addAction(self.act_toggle_tree)
-        self._view_menu.addAction(self.act_toggle_statusbar)
-        self._view_menu.addSeparator()
-        self._view_menu.addAction(self.act_zoom_in)
-        self._view_menu.addAction(self.act_zoom_out)
-        self._view_menu.addAction(self.act_zoom_reset)
-        self._view_menu.addSeparator()
-        self._view_menu.addAction(self.act_zoom_preview_in)
-        self._view_menu.addAction(self.act_zoom_preview_out)
-
-        self._settings_menu = mb.addMenu(self.tr("&Settings"))
-        self._settings_menu.addAction(self.act_settings)
-
-        self._help_menu = mb.addMenu(self.tr("&Help"))
-        self._help_menu.addAction(self.act_command_palette)
-        self._help_menu.addSeparator()
-        self._help_menu.addAction(self.act_check_update)
-        self._help_menu.addSeparator()
-        self._help_menu.addAction(self.act_shortcuts)
 
     def _apply_menu_bar_visibility(self) -> None:
         v = self._s.menu_bar_visible()
@@ -544,6 +376,9 @@ class MainWindow(QMainWindow):
         self._tabs.tabCloseRequested.connect(self._on_tab_close_requested)
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
+        # Window state manager (geometry + session persistence)
+        self._window_state = WindowStateManager(self._s, self._tabs)
+
         # --- Editor toolbar ---
         self._editor_toolbar = EditorToolbar(
             icon_color,
@@ -585,6 +420,12 @@ class MainWindow(QMainWindow):
         self._splitter.setSizes([220, 948])
         self._splitter.splitterMoved.connect(self._on_splitter_moved)
 
+        # Side panel manager (centralizes toggle/anim logic)
+        self._side_panel = SidePanelManager(
+            self, self._splitter, self._left_stack,
+            self._side_tree_btn, self._side_search_btn, self._side_toc_btn,
+        )
+
         # Main layout: toolbar | splitter  (no splitter handle between them)
         outer = QWidget()
         outer_layout = QHBoxLayout(outer)
@@ -611,116 +452,32 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Search panel (embedded find-in-files)
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # Side panel (delegated to SidePanelManager)
+    # ------------------------------------------------------------------
     def _show_left_panel(self) -> None:
-        _LOG.debug("_show_left_panel")
-        self._left_stack.show()
-        total = self._splitter.width()
-        left = self._s.left_panel_width()
-        _LOG.debug("_show_left_panel: total=%d saved_left=%d", total, left)
-        if total > 0:
-            self._animate_splitter_to(left)
-        else:
-            self._animate_splitter_to(220)
+        self._side_panel.show_left_panel()
 
     def _hide_left_panel(self) -> None:
-        _LOG.debug("_hide_left_panel")
-        self._animate_splitter_to(0, on_finish=lambda: self._left_stack.hide())
+        self._side_panel.hide_left_panel()
 
     def _animate_splitter_to(self, left_width: int, on_finish=None) -> None:
-        """Animate the main splitter's left panel width."""
-        total = self._splitter.width()
-        _LOG.debug("_animate_splitter_to: left=%d total=%d", left_width, total)
-        if total <= 0:
-            if on_finish:
-                on_finish()
-            return
-
-        if hasattr(self, "_tree_anim"):
-            self._tree_anim.stop()
-        start = self._splitter.sizes()[0]
-
-        if start == left_width:
-            if on_finish:
-                on_finish()
-            return
-
-        self._tree_anim = QVariantAnimation(self)
-        self._tree_anim.setDuration(animation_duration_ms(150))
-        self._tree_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self._tree_anim.setStartValue(0.0)
-        self._tree_anim.setEndValue(1.0)
-
-        def _step(progress: float) -> None:
-            cur = int(start + (left_width - start) * progress)
-            self._splitter.setSizes([max(cur, 0), max(total - cur, 0)])
-
-        self._tree_anim.valueChanged.connect(_step)
-
-        def _done() -> None:
-            self._reset_save_timer()
-            if on_finish:
-                on_finish()
-
-        self._tree_anim.finished.connect(_done)
-        self._tree_anim.start()
+        self._side_panel._animate_splitter_to(left_width, on_finish)
 
     def _restore_panel_width(self) -> None:
-        left = self._s.left_panel_width()
-        total = self._splitter.width()
-        _LOG.debug("_restore_panel_width: left=%d total=%d", left, total)
-        if total > 0 and left >= 0:
-            left = max(0, min(left, total))
-            self._splitter.setSizes([left, total - left])
-        self._reset_save_timer()
+        self._side_panel.restore_panel_width()
 
     def _is_left_panel_open(self) -> bool:
-        """Return True if the left panel is currently visible with non-zero width."""
-        return self._left_stack.isVisible() and self._splitter.sizes()[0] > 0
+        return self._side_panel.is_left_panel_open()
 
     def _on_side_tree_toggled(self, checked: bool) -> None:
-        if checked:
-            self._side_search_btn.blockSignals(True)
-            self._side_search_btn.setChecked(False)
-            self._side_search_btn.blockSignals(False)
-            self._side_toc_btn.blockSignals(True)
-            self._side_toc_btn.setChecked(False)
-            self._side_toc_btn.blockSignals(False)
-            self._left_stack.setCurrentIndex(0)
-            if not self._is_left_panel_open():
-                self._show_left_panel()
-        else:
-            self._hide_left_panel()
+        self._side_panel.on_tree_toggled(checked)
 
     def _on_side_search_toggled(self, checked: bool) -> None:
-        if checked:
-            self._side_tree_btn.blockSignals(True)
-            self._side_tree_btn.setChecked(False)
-            self._side_tree_btn.blockSignals(False)
-            self._side_toc_btn.blockSignals(True)
-            self._side_toc_btn.setChecked(False)
-            self._side_toc_btn.blockSignals(False)
-            self._left_stack.setCurrentIndex(1)
-            if not self._is_left_panel_open():
-                self._show_left_panel()
-            self._search_panel._search_input.setFocus()
-        else:
-            self._hide_left_panel()
+        self._side_panel.on_search_toggled(checked)
 
     def _on_side_toc_toggled(self, checked: bool) -> None:
-        if checked:
-            self._side_tree_btn.blockSignals(True)
-            self._side_tree_btn.setChecked(False)
-            self._side_tree_btn.blockSignals(False)
-            self._side_search_btn.blockSignals(True)
-            self._side_search_btn.setChecked(False)
-            self._side_search_btn.blockSignals(False)
-            self._left_stack.setCurrentIndex(2)
-            if not self._is_left_panel_open():
-                self._show_left_panel()
-            self._rebuild_toc()
-        else:
-            self._toc_timer.stop()
-            self._hide_left_panel()
+        self._side_panel.on_toc_toggled(checked)
 
     def _rebuild_toc(self) -> None:
         """Rebuild the table of contents from the current tab's editor content."""
@@ -743,9 +500,6 @@ class MainWindow(QMainWindow):
             tab.editor.setTextCursor(cursor)
             tab.editor.centerCursor()
 
-    # ------------------------------------------------------------------
-    # Tab management
-    # ------------------------------------------------------------------
     def _add_tab(self) -> EditorTab:
         tab = EditorTab(
             self._md,
@@ -915,47 +669,13 @@ class MainWindow(QMainWindow):
         _LOG.debug("_on_find_in_files")
         if self._folder_path is None:
             return
-        if self._left_stack.currentIndex() == 1 and not self._left_stack.isHidden():
-            self._side_search_btn.blockSignals(True)
-            self._side_search_btn.setChecked(False)
-            self._side_search_btn.blockSignals(False)
-            self._hide_left_panel()
-        else:
-            self._side_search_btn.blockSignals(True)
-            self._side_tree_btn.blockSignals(True)
-            self._side_toc_btn.blockSignals(True)
-            self._side_search_btn.setChecked(True)
-            self._side_tree_btn.setChecked(False)
-            self._side_toc_btn.setChecked(False)
-            self._side_search_btn.blockSignals(False)
-            self._side_tree_btn.blockSignals(False)
-            self._side_toc_btn.blockSignals(False)
-            self._left_stack.setCurrentIndex(1)
-            self._show_left_panel()
-            self._search_panel._search_input.setFocus()
-            self._search_panel._search_input.selectAll()
+        self._side_panel.open_search_panel()
 
-    def _on_replace_in_files(self) -> None:  # Apre/chiude replacement
+    def _on_replace_in_files(self) -> None:
         _LOG.debug("_on_replace_in_files")
         if self._folder_path is None:
             return
-        if self._left_stack.currentIndex() == 1 and not self._left_stack.isHidden():
-            self._search_panel._replace_input.setFocus()
-            self._search_panel._replace_input.selectAll()
-        else:
-            self._side_search_btn.blockSignals(True)
-            self._side_tree_btn.blockSignals(True)
-            self._side_toc_btn.blockSignals(True)
-            self._side_search_btn.setChecked(True)
-            self._side_tree_btn.setChecked(False)
-            self._side_toc_btn.setChecked(False)
-            self._side_search_btn.blockSignals(False)
-            self._side_tree_btn.blockSignals(False)
-            self._side_toc_btn.blockSignals(False)
-            self._left_stack.setCurrentIndex(1)
-            self._show_left_panel()
-            self._search_panel._replace_input.setFocus()
-            self._search_panel._replace_input.selectAll()
+        self._side_panel.open_replace_panel()
 
     def _open_file_at_line(self, location: tuple) -> None:
         path, line_num = location
@@ -1155,163 +875,12 @@ class MainWindow(QMainWindow):
             return
 
         _LOG.debug("_on_settings: applying changes")
+        _LOG.debug("_on_settings: applying changes")
 
-        # --- Theme ---
-        new_theme_id = dlg.selected_theme_id()
-        if new_theme_id != self._theme_id:
-            self._theme_id = new_theme_id
-            self._current_theme = (
-                system_theme() if new_theme_id == "system" else get_theme(new_theme_id)
-            )
-            self._apply_theme()
+        self._settings_applicator.apply(dlg)
 
-        # --- Language ---
-        new_lang = dlg.selected_language()
-        if new_lang != self._language:
-            self._language = new_lang
-            self._s.set_language(new_lang)
-            from ui.translations import apply_language
-
-            app = QApplication.instance()
-            if isinstance(app, QApplication):
-                apply_language(app, new_lang)
-
-        # --- Fonts ---
-        new_ef = dlg.selected_editor_font()
-        new_efs = dlg.selected_editor_font_size()
-        new_pf = dlg.selected_preview_font()
-        new_pfs = dlg.selected_preview_font_size()
-
-        changed = False
-        if new_ef != self._editor_font_family or new_efs != self._editor_font_size:
-            self._editor_font_family = new_ef
-            self._editor_font_size = new_efs
-            changed = True
-
-        if new_pf != self._preview_font_family or new_pfs != self._preview_font_size:
-            self._preview_font_family = new_pf
-            self._preview_font_size = new_pfs
-            changed = True
-
-        if changed:
-            for i in range(self._tabs.count()):
-                tab = self._tabs.widget(i)
-                if isinstance(tab, EditorTab):
-                    tab.set_editor_font(
-                        self._editor_font_family, self._editor_font_size
-                    )
-                    tab.set_preview_font(
-                        self._preview_font_family, self._preview_font_size
-                    )
-
-        # --- Line numbers ---
-        new_ln = dlg.selected_line_number_mode()
-        if new_ln != self._line_number_mode:
-            self._line_number_mode = new_ln
-            for i in range(self._tabs.count()):
-                tab = self._tabs.widget(i)
-                if isinstance(tab, EditorTab):
-                    tab.set_line_number_mode(new_ln)
-
-        # --- Cursor width ---
-        new_cw = dlg.selected_cursor_width()
-        if new_cw != self._cursor_width:
-            self._cursor_width = new_cw
-            for i in range(self._tabs.count()):
-                tab = self._tabs.widget(i)
-                if isinstance(tab, EditorTab):
-                    tab.set_cursor_width(new_cw)
-
-        # --- Smart editing ---
-        new_se = dlg.selected_smart_editing()
-        new_ls = dlg.selected_link_style()
-        new_se["link_style"] = new_ls
-        if new_se != self._smart_editing:
-            self._smart_editing = new_se
-            for key, val in new_se.items():
-                self._s.set_raw_value(f"smart_editing/{key}", val)
-            self._s.set_raw_value("link_style", new_ls)
-            for i in range(self._tabs.count()):
-                tab = self._tabs.widget(i)
-                if isinstance(tab, EditorTab):
-                    tab.set_smart_editing(new_se)
-
-        # --- Autosave interval ---
-        new_asi = dlg.selected_autosave_interval()
-        if new_asi != self._s.autosave_interval():
-            self._s.set_autosave_interval(new_asi)
-            self._autosave_interval = max(1, new_asi) * 1000
-            self._autosave_timer.setInterval(self._autosave_interval)
-
-        # --- Auto-update ---
-        self._s.set_auto_update_check(dlg.selected_auto_update_check())
-
-        # --- Menu bar ---
-        new_mbv = dlg.selected_menu_bar_visible()
-        old_mbv = self._s.menu_bar_visible()
-        _LOG.debug("_on_settings: menu_bar new=%s old=%s", new_mbv, old_mbv)
-        if new_mbv != old_mbv:
-            self._s.set_menu_bar_visible(new_mbv)
-            self.menuBar().setVisible(new_mbv)
-
-        # --- Per-folder settings (shortcuts, images, WebDAV, appearance) ---
-        if self._folder_settings is not None:
-            new_sc = dlg.selected_shortcuts()
-            self._folder_settings.save_shortcuts(new_sc)
-
-            cfg = self._folder_settings.load()
-            new_id = dlg.selected_attachments_dir()
-            if new_id is not None:
-                cfg["attachments_dir"] = new_id
-
-            cfg["theme"] = self._theme_id
-            cfg["editor_font_family"] = self._editor_font_family
-            cfg["editor_font_size"] = self._editor_font_size
-            cfg["preview_font_family"] = self._preview_font_family
-            cfg["preview_font_size"] = self._preview_font_size
-            cfg["line_number_mode"] = self._line_number_mode
-            cfg["cursor_width"] = self._cursor_width
-            self._folder_settings.save(cfg)
-
-            self._shortcut_mgr._folder_settings = self._folder_settings
-            self._shortcut_mgr.apply(self._all_actions)
-
-            # Propagate updated attachments_dir to all open tabs
-            attachments_dir = self._folder_settings.attachments_dir()
-            for i in range(self._tabs.count()):
-                w = self._tabs.widget(i)
-                if isinstance(w, EditorTab):
-                    w.set_attachments_dir(attachments_dir)
-
-            # --- WebDAV config ---
-            new_url = dlg.selected_webdav_url()
-            new_user = dlg.selected_webdav_username()
-            new_pass = dlg.selected_webdav_password()
-
-            if new_url or new_user or new_pass:
-                self._folder_settings.save_webdav_config(
-                    {
-                        "url": new_url,
-                        "username": new_user,
-                        "password": new_pass,
-                    }
-                )
-            else:
-                self._folder_settings.clear_webdav_config()
-
-            # --- Auto-sync settings ---
-            self._s.set_auto_sync_enabled(dlg.selected_auto_sync_enabled())
-            self._s.set_auto_sync_interval(dlg.selected_auto_sync_interval())
-            self._s.set_sync_on_save(dlg.selected_sync_on_save())
-
-            # --- Session restore ---
-            self._s.set_session_restore_enabled(dlg.selected_session_restore_enabled())
-
-            self._update_auto_sync_timer()
-
-            self._update_menu_state()
-        else:
-            # No folder open — persist to global QSettings
+        # Global-only settings (when no folder is open)
+        if self._folder_settings is None:
             self._s.set_theme(self._theme_id)
             self._s.set_editor_font_family(self._editor_font_family)
             self._s.set_editor_font_size(self._editor_font_size)
@@ -1320,13 +889,7 @@ class MainWindow(QMainWindow):
             self._s.set_line_number_mode(self._line_number_mode)
             self._s.set_cursor_width(self._cursor_width)
 
-        # --- Show hidden files (global) ---
-        new_shf = dlg.selected_show_hidden_files()
-        if new_shf != self._show_hidden_files:
-            self._show_hidden_files = new_shf
-            self._s.set_show_hidden_files(new_shf)
-            self._tree_panel.set_show_hidden_files(new_shf)
-
+    
     def _update_auto_sync_timer(self) -> None:
         """Start or stop the auto-sync timer based on current settings."""
         has_webdav = (
@@ -1570,23 +1133,7 @@ class MainWindow(QMainWindow):
             )
 
     def _on_toggle_tree(self, visible: bool) -> None:
-        if visible:
-            self._side_tree_btn.blockSignals(True)
-            self._side_search_btn.blockSignals(True)
-            self._side_toc_btn.blockSignals(True)
-            self._side_tree_btn.setChecked(True)
-            self._side_search_btn.setChecked(False)
-            self._side_toc_btn.setChecked(False)
-            self._side_tree_btn.blockSignals(False)
-            self._side_search_btn.blockSignals(False)
-            self._side_toc_btn.blockSignals(False)
-            self._left_stack.setCurrentIndex(0)
-            self._show_left_panel()
-        else:
-            self._side_tree_btn.setChecked(False)
-            self._side_search_btn.setChecked(False)
-            self._side_toc_btn.setChecked(False)
-            self._hide_left_panel()
+        self._side_panel.on_tree_action(visible)
 
     def _on_toggle_statusbar(self, visible: bool) -> None:
         self._status_file.parent().setVisible(visible)
@@ -1734,7 +1281,10 @@ class MainWindow(QMainWindow):
             return
 
         # Try session restore first (if enabled and no CLI files)
-        if self._restore_session():
+        if self._window_state.restore_session(
+            set_folder_fn=self._set_folder,
+            add_tab_fn=self._add_tab,
+        ):
             self._update_menu_state()
             return
 
@@ -1773,29 +1323,13 @@ class MainWindow(QMainWindow):
         self.act_webdav_sync.setVisible(webdav_ready)
         self.act_webdav_sync.setEnabled(webdav_ready)
         if not folder_mode:
-            self._side_tree_btn.blockSignals(True)
-            self._side_search_btn.blockSignals(True)
-            self._side_toc_btn.blockSignals(True)
-            self._side_tree_btn.setChecked(False)
-            self._side_search_btn.setChecked(False)
-            self._side_toc_btn.setChecked(False)
-            self._side_tree_btn.blockSignals(False)
-            self._side_search_btn.blockSignals(False)
-            self._side_toc_btn.blockSignals(False)
-            self._left_stack.hide()
+            self._side_panel.hide_all_panels()
             self._left_tb.hide()
             self.act_toggle_tree.setChecked(False)
             self._side_folder_btn.setText("...")
         else:
-            self._side_tree_btn.blockSignals(True)
-            self._side_search_btn.blockSignals(True)
-            self._side_tree_btn.setChecked(True)
-            self._side_search_btn.setChecked(False)
-            self._side_tree_btn.blockSignals(False)
-            self._side_search_btn.blockSignals(False)
+            self._side_panel.on_tree_action(True)
             self._left_tb.show()
-            self._left_stack.setCurrentIndex(0)
-            self._left_stack.show()
             self.act_toggle_tree.setChecked(True)
             QTimer.singleShot(0, self._restore_panel_width)
             self._side_folder_btn.setText(self._folder_path.name)
@@ -1807,45 +1341,14 @@ class MainWindow(QMainWindow):
 
     def _save_session(self) -> None:
         """Save the list of open tab file paths and current folder to settings."""
-        tabs: list[str] = []
-        for i in range(self._tabs.count()):
-            tab = self._tabs.widget(i)
-            if isinstance(tab, EditorTab) and tab.file_path:
-                tabs.append(str(tab.file_path))
-        self._s.set_session_restore_tabs(tabs)
-        if self._folder_path:
-            self._s.set_raw_value("session_restore_folder", str(self._folder_path))
-        else:
-            self._s.set_raw_value("session_restore_folder", "")
+        self._window_state.save_session(self._folder_path)
 
     def _restore_session(self) -> bool:
-        """Restore folder and open tabs from the last session. Returns True if any tabs restored."""
-        _LOG.debug("_restore_session: enabled=%s", self._s.session_restore_enabled())
-        if not self._s.session_restore_enabled():
-            return False
-        # Restore folder first if one was open
-        folder_str = self._s.raw_value("session_restore_folder", "")
-        if folder_str:
-            folder = Path(folder_str)
-            if folder.is_dir():
-                self._set_folder(folder)
-        saved_tabs = self._s.session_restore_tabs()
-        _LOG.debug("_restore_session: folder=%s tabs=%d", folder_str, len(saved_tabs))
-        if not saved_tabs:
-            return False
-        restored = 0
-        for path_str in saved_tabs:
-            p = Path(path_str)
-            if p.is_file():
-                tab = self._add_tab()
-                tab.load_file(p)
-                restored += 1
-        if restored > 0:
-            # Remove the untitled tab left by _set_folder / the initial one
-            untitled = self._tabs.widget(0)
-            if isinstance(untitled, EditorTab) and untitled.file_path is None:
-                self._tabs.removeTab(0)
-        return restored > 0
+        """Restore folder and open tabs from the last session."""
+        return self._window_state.restore_session(
+            set_folder_fn=self._set_folder,
+            add_tab_fn=self._add_tab,
+        )
 
     def _on_close_folder(self) -> None:
         tab = self._current_tab()
@@ -2130,11 +1633,11 @@ class MainWindow(QMainWindow):
         self.act_zoom_preview_out.setText(self.tr("Zoom Preview O&ut"))
 
         # Menu titles
-        self._file_menu.setTitle(self.tr("&File"))
-        self._edit_menu.setTitle(self.tr("&Edit"))
-        self._view_menu.setTitle(self.tr("&View"))
-        self._settings_menu.setTitle(self.tr("&Settings"))
-        self._help_menu.setTitle(self.tr("&Help"))
+        self._action_registry.menu("file").setTitle(self.tr("&File"))
+        self._action_registry.menu("edit").setTitle(self.tr("&Edit"))
+        self._action_registry.menu("view").setTitle(self.tr("&View"))
+        self._action_registry.menu("settings").setTitle(self.tr("&Settings"))
+        self._action_registry.menu("help").setTitle(self.tr("&Help"))
 
         # Toolbar tooltips
         if hasattr(self, "_editor_toolbar"):
@@ -2154,19 +1657,11 @@ class MainWindow(QMainWindow):
             if isinstance(tab, EditorTab) and not tab.maybe_save():
                 event.ignore()
                 return
-        # Save session if enabled
-        if self._s.session_restore_enabled():
-            self._save_session()
-        self._s.set_window_geometry(self.saveGeometry())
-        left = self._splitter.sizes()[0]
-        _LOG.debug(
-            "closeEvent: splitter sizes=%s saving left=%d", self._splitter.sizes(), left
+        self._window_state.on_close(
+            folder_path=self._folder_path,
+            splitter_sizes=(self._splitter.sizes()[0], self._splitter.sizes()[1]),
+            window_geometry=self.saveGeometry(),
         )
-        if left > 0:
-            self._s.set_left_panel_width(left)
-            self._s._s.sync()
-        else:
-            _LOG.debug("closeEvent: left=%d, NOT saving (panel hidden?)", left)
         event.accept()
 
     def sizeHint(self) -> QSize:
