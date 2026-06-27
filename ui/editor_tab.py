@@ -771,7 +771,7 @@ class EditorTab(QWidget):
         self._refresh_link_highlights()
 
     def _on_preview_ready(self, html: str) -> None:
-        _LOG.debug("_on_preview_ready: html_len=%d", len(html) if html else 0)
+        _LOG.debug("_on_preview_ready: html_len=%d preview=%s", len(html) if html else 0, html[:80] if html else "EMPTY")
         self._preview_busy = False
         # Cancel spinner if it hasn't fired yet.
         if hasattr(self, "_spinner_timer"):

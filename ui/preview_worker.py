@@ -42,20 +42,21 @@ class PreviewWorker(QObject):
 
     def _do_render(self, params: dict) -> None:
         import traceback
-        import sys
 
         text = params.get("text", "")
-        _LOG.debug("_do_render: text_bytes=%d keys=%s", len(text), sorted(params.keys()))
-
-        if self._md is None:
-            self._md = _get_md()
+        _LOG.debug("_do_render: text_bytes=%d", len(text))
 
         try:
+            if self._md is None:
+                self._md = _get_md()
+
             from markdown.html_builder import build_html
 
             render_params = dict(params)
             render_params["md"] = self._md
             html = build_html(**render_params)
+            if not isinstance(html, str):
+                html = str(html)
         except Exception:
             html = (
                 "<!DOCTYPE html><html><head><meta charset='utf-8'></head>"
@@ -64,5 +65,5 @@ class PreviewWorker(QObject):
                 + "</pre></body></html>"
             )
 
-        _LOG.debug("_do_render: html type=%s len=%d", type(html).__name__, len(html))
+        _LOG.debug("_do_render: emitting html_len=%d preview=%s", len(html), html[:80])
         self.result_ready.emit(html)
