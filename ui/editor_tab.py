@@ -55,7 +55,7 @@ from markdown.html_builder import (
 from core.animation_speed import animation_duration_ms
 from core.constants import BROKEN_LINK_LINE_LIMIT, DOC_EXTS, IMG_EXTS, LARGE_FILE_THRESHOLD, MD_EXTS, PDF_EXTS
 from core.file_utils import read_file_with_encoding
-from core.link_resolution import resolve_link_target
+from core.link_resolution import build_line_anchor_map, resolve_link_target
 from ui.drop_handler import DropHandler
 from ui.find_bar import FindBar
 from ui.image_viewer import ImageViewer
@@ -767,8 +767,8 @@ class EditorTab(QWidget):
         self._preview_worker.render_requested.emit(params)
         self._refresh_link_highlights()
 
-    def _on_preview_ready(self, html: str, anchor_map: object) -> None:
-        _LOG.debug("_on_preview_ready: html_len=%d anchor_map_len=%d", len(html) if html else 0, len(anchor_map) if isinstance(anchor_map, list) else -1)
+    def _on_preview_ready(self, html: str) -> None:
+        _LOG.debug("_on_preview_ready: html_len=%d", len(html) if html else 0)
         self._preview_busy = False
         # Cancel spinner if it hasn't fired yet.
         if hasattr(self, "_spinner_timer"):
@@ -778,10 +778,16 @@ class EditorTab(QWidget):
         self._preview_stack.setCurrentIndex(0)  # back to preview
         self.preview.setHtml(html)
         self._syncing_scroll -= 1
-        
-        # Update anchor map with the freshly computed one.
-        if isinstance(anchor_map, list) and len(anchor_map) > 0:
-            self._line_anchor_map = anchor_map
+
+        # Compute anchor map from the rendered text (on main thread).
+        # Use the *preprocessed* text that was sent to the worker.
+        if self._cached_text:
+            rendered_text = strip_frontmatter(self._cached_text)
+            rendered_text = preprocess_wikilinks(preprocess_wikilink_images(rendered_text))
+            try:
+                self._line_anchor_map = build_line_anchor_map(self._md, rendered_text)
+            except Exception:
+                pass
 
         # Track rendered state to skip redundant future renders.
         if not self._preview_pending:
