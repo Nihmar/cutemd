@@ -1,12 +1,24 @@
-"""Keyboard shortcut management — global defaults + per-folder overrides."""
+"""Keyboard shortcut management — global defaults + per-folder overrides.
+
+Shortcuts are handled by standalone QShortcut objects rather than
+QAction.setShortcut().  This ensures they work on all platforms
+regardless of menu-bar visibility or Qt platform plugins.
+The QAction retains the shortcut *string* (via setData) so that the
+ShortcutsDialog / CommandPalette can still display it.
+"""
 
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
+from PySide6.QtWidgets import QWidget
+
+from core.logging import setup_logging
 
 if TYPE_CHECKING:
     from core.folder_settings import FolderSettings
+
+_LOG = setup_logging("cutemd.shortcut_manager")
 
 
 DEFAULT_SHORTCUTS: dict[str, str] = {
@@ -38,20 +50,47 @@ DEFAULT_SHORTCUTS: dict[str, str] = {
 
 
 class ShortcutManager:
-    """Load per-folder shortcuts and apply them to QActions."""
+    """Create standalone QShortcuts wired to QAction.trigger signals."""
 
-    def __init__(self, folder_settings: "FolderSettings | None" = None) -> None:
+    def __init__(
+        self,
+        folder_settings: "FolderSettings | None" = None,
+        parent: QWidget | None = None,
+    ) -> None:
         self._folder_settings = folder_settings
+        self._parent = parent
+        self._shortcuts: list[QShortcut] = []
 
     def apply(self, actions: dict[str, QAction]) -> None:
         customs: dict[str, str] = {}
         if self._folder_settings is not None:
             customs = self._folder_settings.load_shortcuts()
+
+        for sc in self._shortcuts:
+            sc.deleteLater()
+        self._shortcuts.clear()
+
+        _LOG.debug("apply: parent=%s actions=%d folder_settings=%s",
+                    self._parent, len(actions),
+                    bool(self._folder_settings))
+
         for name, action in actions.items():
             shortcut = customs.get(name) or DEFAULT_SHORTCUTS.get(name)
-            if shortcut:
-                action.setShortcut(QKeySequence(shortcut))
+            action.setShortcut(QKeySequence())
+            action.setData(shortcut or "")
+            if shortcut and self._parent is not None:
+                ks = QKeySequence(shortcut)
+                sc = QShortcut(ks, self._parent)
+                sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+                # Wrap in logging lambda to trace shortcut activation
+                sc.activated.connect(
+                    lambda a=action, n=name, ks_str=shortcut: self._on_activated(a, n, ks_str)
+                )
+                _LOG.debug("  registered %-30s %-12s on %s", name, shortcut, self._parent)
+                self._shortcuts.append(sc)
             else:
-                action.setShortcut(QKeySequence())
-            # ApplicationShortcut so shortcuts work even with hidden menu bar.
-            action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+                _LOG.debug("  skipped   %-30s (shortcut=%r parent=%s)", name, shortcut, self._parent)
+
+    def _on_activated(self, action: QAction, name: str, shortcut: str) -> None:
+        _LOG.debug("SHORTCUT ACTIVATED: %s (%s) → calling action.trigger()", name, shortcut)
+        action.trigger()

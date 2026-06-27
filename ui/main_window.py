@@ -223,8 +223,10 @@ class MainWindow(QMainWindow):
             "act_zoom_preview_in": self.act_zoom_preview_in,
             "act_zoom_preview_out": self.act_zoom_preview_out,
         }
-        self._shortcut_mgr = ShortcutManager(None)
+        self._shortcut_mgr = ShortcutManager(None, self)
         self._shortcut_mgr.apply(self._all_actions)
+        _LOG.debug("__init__: shortcuts applied, %d QShortcuts registered",
+                   len(self._shortcut_mgr._shortcuts))
 
         self._setup_statusbar()
         self._setup_central()
@@ -344,6 +346,8 @@ class MainWindow(QMainWindow):
         self.act_settings = QAction(self.tr("&Settings…"), self)
         self.act_settings.setShortcut(QKeySequence("Ctrl+,"))
         self.act_settings.triggered.connect(self._on_settings)
+        _LOG.debug("_setup_actions: act_settings trigger connected, shortcut=%s",
+                   self.act_settings.shortcut().toString())
 
         self.act_shortcuts = QAction(self.tr("&Keyboard Shortcuts…"), self)
         self.act_shortcuts.setShortcut(QKeySequence("Ctrl+/"))
@@ -354,6 +358,8 @@ class MainWindow(QMainWindow):
 
         self.act_command_palette = QAction(self.tr("&Command Palette…"), self)
         self.act_command_palette.triggered.connect(self._on_command_palette)
+        _LOG.debug("_setup_actions: act_command_palette trigger connected, shortcut=%s",
+                   self.act_command_palette.shortcut().toString() or "(none)")
 
         self.act_webdav_sync = QAction(self.tr("&Sync Now"), self)
         self.act_webdav_sync.setShortcut(QKeySequence("Ctrl+Alt+S"))
@@ -433,21 +439,9 @@ class MainWindow(QMainWindow):
         self._help_menu.addAction(self.act_shortcuts)
 
     def _apply_menu_bar_visibility(self) -> None:
-        visible = self._s.menu_bar_visible()
-        self.menuBar().setVisible(visible)
-        # QShortcut is processed independently of QMenuBar — on Windows
-        # hiding the menu bar disables QAction shortcut processing, so we
-        # install a dedicated shortcut as a safety net.
-        try:
-            self._palette_shortcut.deleteLater()
-        except AttributeError:
-            pass
-        if not visible:
-            from PySide6.QtGui import QShortcut
-            self._palette_shortcut = QShortcut(QKeySequence("Ctrl+P"), self)
-            self._palette_shortcut.activated.connect(self._on_command_palette)
-        else:
-            self._palette_shortcut = None
+        v = self._s.menu_bar_visible()
+        _LOG.debug("_apply_menu_bar_visibility: %s", v)
+        self.menuBar().setVisible(v)
 
     # ------------------------------------------------------------------
     # Central widget
@@ -1259,9 +1253,11 @@ class MainWindow(QMainWindow):
 
         # --- Menu bar ---
         new_mbv = dlg.selected_menu_bar_visible()
-        if new_mbv != self._s.menu_bar_visible():
+        old_mbv = self._s.menu_bar_visible()
+        _LOG.debug("_on_settings: menu_bar new=%s old=%s", new_mbv, old_mbv)
+        if new_mbv != old_mbv:
             self._s.set_menu_bar_visible(new_mbv)
-            self._apply_menu_bar_visibility()
+            self.menuBar().setVisible(new_mbv)
 
         # --- Per-folder settings (shortcuts, images, WebDAV, appearance) ---
         if self._folder_settings is not None:
@@ -1282,7 +1278,7 @@ class MainWindow(QMainWindow):
             cfg["cursor_width"] = self._cursor_width
             self._folder_settings.save(cfg)
 
-            self._shortcut_mgr = ShortcutManager(self._folder_settings)
+            self._shortcut_mgr._folder_settings = self._folder_settings
             self._shortcut_mgr.apply(self._all_actions)
 
             # Propagate updated attachments_dir to all open tabs
@@ -1475,6 +1471,7 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _on_command_palette(self) -> None:
+        _LOG.debug("_on_command_palette called")
         from ui.command_palette import CommandPalette
 
         actions = {
@@ -1708,7 +1705,7 @@ class MainWindow(QMainWindow):
         if pf_size is not None:
             self._preview_font_size = pf_size
 
-        self._shortcut_mgr = ShortcutManager(self._folder_settings)
+        self._shortcut_mgr._folder_settings = self._folder_settings
         self._shortcut_mgr.apply(self._all_actions)
         for i in range(self._tabs.count() - 1, -1, -1):
             self._tabs.removeTab(i)
@@ -1861,7 +1858,7 @@ class MainWindow(QMainWindow):
             return
         self._folder_path = None
         self._folder_settings = None
-        self._shortcut_mgr = ShortcutManager(None)
+        self._shortcut_mgr._folder_settings = None
         self._shortcut_mgr.apply(self._all_actions)
         for i in range(self._tabs.count() - 1, -1, -1):
             self._tabs.removeTab(i)

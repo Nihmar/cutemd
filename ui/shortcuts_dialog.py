@@ -15,7 +15,14 @@ from PySide6.QtWidgets import (
 
 def _shortcut_text(action: QAction) -> str:
     seq = action.shortcut()
-    return seq.toString(QKeySequence.SequenceFormat.NativeText) if not seq.isEmpty() else ""
+    if not seq.isEmpty():
+        return seq.toString(QKeySequence.SequenceFormat.NativeText)
+    # Fallback: check data property (set by ShortcutManager for actions
+    # whose QAction shortcut was cleared in favour of a QShortcut).
+    val = action.data()
+    if isinstance(val, str) and val:
+        return val
+    return ""
 
 
 _SHORTCUT_CATEGORIES: dict[str, str] = {
