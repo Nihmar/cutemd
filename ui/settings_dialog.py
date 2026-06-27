@@ -3,8 +3,8 @@
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QRectF, QSize, Qt, QThread, Signal
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QKeySequence, QPainter, QPen
+from PySide6.QtCore import QSize, Qt, QThread, Signal
+from PySide6.QtGui import QColor, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -51,8 +51,17 @@ _FONT_FAMILIES: list[str] | None = None
 
 
 # ======================================================================
-# WebDAV test worker
+# Font loader thread — loads system fonts without blocking the UI
 # ======================================================================
+
+
+class _FontLoaderThread(QThread):
+    result = Signal(list)
+
+    def run(self) -> None:
+        from PySide6.QtGui import QFontDatabase
+        families = sorted(QFontDatabase().families())
+        self.result.emit(families)
 
 class _WebDAVTestWorker(QThread):
     result = Signal(bool, str)
@@ -745,33 +754,48 @@ class SettingsDialog(QDialog):
         )
         return lbl
 
-    def _populate_font_picker(self, picker: FontPicker, current: str) -> None:
-        global _FONT_FAMILIES
+    def _populate_font_picker(self, picker: FontPicker, current: str, families: list[str]) -> None:
         picker._list.clear()
         picker._edit.setPlaceholderText(self.tr("Type to filter\u2026"))
         picker.add_item(self.tr("System"), "System")
-        if _FONT_FAMILIES is None:
-            _FONT_FAMILIES = sorted(QFontDatabase().families())
-        for family in _FONT_FAMILIES:
+        # Batch insert — block repaints while populating the list.
+        picker._list.setUpdatesEnabled(False)
+        for family in families:
             picker.add_item(family, family)
+        picker._list.setUpdatesEnabled(True)
         picker.select_by_data(current if current else "System")
-
-    # ==================================================================
-    # Page switching
-    # ==================================================================
 
     def _on_page_changed(self, index: int) -> None:
         self._stack.setCurrentIndex(index)
         if index == 2 and not self._editor_font_populated:
             self._editor_font_populated = True
-            self._populate_font_picker(self._editor_font_combo, self._editor_font_current)
+            self._load_fonts_async(self._editor_font_combo, self._editor_font_current)
         elif index == 3 and not self._preview_font_populated:
             self._preview_font_populated = True
-            self._populate_font_picker(self._preview_font_combo, self._preview_font_current)
+            self._load_fonts_async(self._preview_font_combo, self._preview_font_current)
         # Reset scroll position to top
         scroll = self._stack.widget(index)
         if isinstance(scroll, QScrollArea):
             scroll.verticalScrollBar().setValue(0)
+
+    def _load_fonts_async(self, picker: FontPicker, current: str) -> None:
+        global _FONT_FAMILIES
+        if _FONT_FAMILIES is not None:
+            # Already cached — populate immediately
+            self._populate_font_picker(picker, current, _FONT_FAMILIES)
+            return
+        # Load in background thread, show "System" in the meantime
+        picker._edit.setPlaceholderText(self.tr("Loading fonts\u2026"))
+        self._font_thread = _FontLoaderThread()
+        self._font_thread.result.connect(
+            lambda families, p=picker, c=current: self._on_fonts_loaded(p, c, families)
+        )
+        self._font_thread.start()
+
+    def _on_fonts_loaded(self, picker: FontPicker, current: str, families: list[str]) -> None:
+        global _FONT_FAMILIES
+        _FONT_FAMILIES = families
+        self._populate_font_picker(picker, current, families)
 
     # ==================================================================
     # Theme swatches
@@ -819,7 +843,7 @@ class SettingsDialog(QDialog):
         # Editor font
         if not self._editor_font_populated:
             self._editor_font_populated = True
-            self._populate_font_picker(self._editor_font_combo, self._editor_font_current)
+            self._load_fonts_async(self._editor_font_combo, self._editor_font_current)
         self._editor_font_combo.select_first()
         self._editor_font_size.setValue(11)
         self._line_number_combo.setCurrentIndex(1)
@@ -828,7 +852,7 @@ class SettingsDialog(QDialog):
         # Preview font
         if not self._preview_font_populated:
             self._preview_font_populated = True
-            self._populate_font_picker(self._preview_font_combo, self._preview_font_current)
+            self._load_fonts_async(self._preview_font_combo, self._preview_font_current)
         self._preview_font_combo.select_first()
         self._preview_font_size.setValue(16)
         # Toggles

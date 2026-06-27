@@ -37,14 +37,14 @@ class FindBar(QWidget):
         self._selections: list[QTextEdit.ExtraSelection] = []
         self.setVisible(False)
         self.setObjectName("findBar")
-        self.setFixedHeight(80)
         self.setMinimumHeight(80)
+        self.setMaximumHeight(86)
 
         # ── Row 1: find ───────────────────────────────────────────────
         self._input = QLineEdit()
         self._input.setPlaceholderText(self.tr("Find\u2026"))
         self._input.setMaximumWidth(200)
-        self._input.setFixedHeight(24)
+        self._input.setMinimumHeight(26)
         self._input.textChanged.connect(self._on_find_text_changed)
         self._input.returnPressed.connect(self._find_next)
 
@@ -92,7 +92,7 @@ class FindBar(QWidget):
         self._replace_input = QLineEdit()
         self._replace_input.setPlaceholderText(self.tr("Replace\u2026"))
         self._replace_input.setMaximumWidth(200)
-        self._replace_input.setFixedHeight(24)
+        self._replace_input.setMinimumHeight(26)
         self._replace_input.returnPressed.connect(self._replace_one)
 
         replace_btn = QPushButton()
