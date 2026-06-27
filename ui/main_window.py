@@ -1526,7 +1526,9 @@ class MainWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl(url))
             return
 
-        source_dir = source_tab.file_path.parent if source_tab.file_path else Path.cwd()
+        source_dir = source_tab.file_path.parent if source_tab.file_path else (
+            self._folder_path if self._folder_path else Path.cwd()
+        )
         attachments_dir = (
             self._folder_settings.attachments_dir()
             if self._folder_settings is not None
