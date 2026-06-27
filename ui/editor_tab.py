@@ -955,11 +955,9 @@ class EditorTab(QWidget):
         self._mouse_press_pos = None
         pt = event.position().toPoint()
         cursor = self.editor.cursorForPosition(pt)
-        block_text = cursor.block().text()
-        pos_in_block = cursor.positionInBlock()
-        link = self._link_mgr.on_mouse_click(pos_in_block, block_text)
-        _LOG.debug("_on_mouse_click: pos=%d block_text[:40]=%s link=%s",
-                   pos_in_block, block_text[:40], link[0] if link else None)
+        link = self._link_mgr.on_mouse_click(
+            cursor.positionInBlock(), cursor.block().text()
+        )
         if link:
             self.file_link_clicked.emit(link[0], link[1])
             return True
