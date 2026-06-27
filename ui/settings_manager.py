@@ -258,6 +258,29 @@ class AppSettings(QObject):
         return QSettings("cutemd", "cutemd").fileName()
 
     # ------------------------------------------------------------------
+    # Right dock
+    # ------------------------------------------------------------------
+    def right_dock_visible(self, default: bool = True) -> bool:
+        val = self._s.value("right_dock_visible", default)
+        return str(val).lower() == "true" if isinstance(val, str) else bool(val)
+
+    def set_right_dock_visible(self, value: bool) -> None:
+        self._s.setValue("right_dock_visible", value)
+
+    def right_dock_sizes(self, default: list[int] | None = None) -> list[int]:
+        val = self._s.value("right_dock_sizes", default or [])
+        return [int(x) for x in val] if isinstance(val, list) else (default or [])
+
+    def set_right_dock_sizes(self, sizes: list[int]) -> None:
+        self._s.setValue("right_dock_sizes", sizes)
+
+    def right_dock_width(self, default: int = 200) -> int:
+        return int(self._s.value("right_dock_width", default))
+
+    def set_right_dock_width(self, width: int) -> None:
+        self._s.setValue("right_dock_width", width)
+
+    # ------------------------------------------------------------------
     # Clear last folder + recent folders
     # ------------------------------------------------------------------
     def remove_recent_folders(self) -> None:

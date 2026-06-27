@@ -113,8 +113,10 @@ class WindowStateManager:
         folder_path: Path | None,
         splitter_sizes: tuple[int, int],
         window_geometry: QByteArray,
+        left_splitter_sizes: list[int] | None = None,
+        right_dock_sizes: list[int] | None = None,
     ) -> None:
-        """Persist session, geometry, and panel width on close."""
+        """Persist session, geometry, and panel state on close."""
         if self._s.session_restore_enabled():
             self.save_session(folder_path)
         self.save_window_geometry(window_geometry)
@@ -122,4 +124,7 @@ class WindowStateManager:
         _LOG.debug("on_close: left=%d", left)
         if left > 0:
             self.save_left_panel_width(left)
+        if right_dock_sizes:
+            _LOG.debug("on_close: right_dock_sizes=%s", right_dock_sizes)
+            self._s.set_right_dock_sizes(right_dock_sizes)
         self._s._s.sync()  # always flush to disk

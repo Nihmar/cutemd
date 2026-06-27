@@ -1,7 +1,8 @@
-"""Left-panel manager — sidebar animations, toggle logic, TOC rebuild.
+"""Side-panel manager — sidebar animations, toggle logic, TOC rebuild.
 
 Extracted from MainWindow to reduce its size and isolate panel
-animation / state management.
+animation / state management.  Manages both left and right docked
+panels.
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QEasingCurve, QTimer, QVariantAnimation
-from PySide6.QtWidgets import QSplitter, QStackedWidget, QToolButton
+from PySide6.QtWidgets import QDockWidget, QSplitter, QStackedWidget, QToolButton
 
 from core.animation_speed import animation_duration_ms
 from core.logging import setup_logging
@@ -21,7 +22,7 @@ _LOG = setup_logging("cutemd.side_panel")
 
 
 class SidePanelManager:
-    """Manages the left sidebar: tree, search, TOC panels and their animations."""
+    """Manages left and right side panels and their animations."""
 
     def __init__(
         self,
@@ -31,6 +32,7 @@ class SidePanelManager:
         side_tree_btn: QToolButton,
         side_search_btn: QToolButton,
         side_toc_btn: QToolButton,
+        right_dock: QDockWidget | None = None,
     ) -> None:
         self._w = window
         self._splitter = splitter
@@ -38,6 +40,7 @@ class SidePanelManager:
         self._side_tree_btn = side_tree_btn
         self._side_search_btn = side_search_btn
         self._side_toc_btn = side_toc_btn
+        self._right_dock = right_dock
 
         self._tree_anim: QVariantAnimation | None = None
         self._save_allowed = True
@@ -98,15 +101,13 @@ class SidePanelManager:
             self.hide_left_panel()
 
     def on_toc_toggled(self, checked: bool) -> None:
-        if checked:
-            self._uncheck_others(self._side_toc_btn)
-            self._left_stack.setCurrentIndex(2)
-            if not self.is_left_panel_open():
-                self.show_left_panel()
-            self._w._rebuild_toc()
-        else:
-            self._w._toc_timer.stop()
-            self.hide_left_panel()
+        """Toggle the right dock (TOC panel).  Independent of left panels."""
+        if self._right_dock is not None:
+            self._right_dock.setVisible(checked)
+            if checked:
+                self._w._rebuild_toc()
+            else:
+                self._w._toc_timer.stop()
 
     def on_tree_action(self, visible: bool) -> None:
         """Handle the act_toggle_tree action (from menu / shortcut)."""
@@ -117,13 +118,19 @@ class SidePanelManager:
         else:
             self._side_tree_btn.setChecked(False)
             self._side_search_btn.setChecked(False)
-            self._side_toc_btn.setChecked(False)
             self.hide_left_panel()
+            # Also hide right dock
+            if self._right_dock is not None:
+                self._right_dock.setVisible(False)
+                self._side_toc_btn.setChecked(False)
 
     def hide_all_panels(self) -> None:
         """Called when closing a folder — hide everything."""
         self._uncheck_others(None)
         self._left_stack.hide()
+        if self._right_dock is not None:
+            self._right_dock.setVisible(False)
+            self._side_toc_btn.setChecked(False)
 
     def open_search_panel(self) -> None:
         """Show the search panel in the left stack."""
@@ -208,12 +215,13 @@ class SidePanelManager:
     # ------------------------------------------------------------------
 
     def _uncheck_others(self, active: QToolButton | None) -> None:
-        """Uncheck all three side buttons, then re-check *active* (if any).
+        """Uncheck the two left-panel buttons (tree, search), then re-check
+        *active* if given.  TOC is independent and not touched here.
 
         Signals are blocked during the operation to prevent infinite
         recursion from the toggle handlers that call this method.
         """
-        for btn in [self._side_tree_btn, self._side_search_btn, self._side_toc_btn]:
+        for btn in [self._side_tree_btn, self._side_search_btn]:
             btn.blockSignals(True)
             btn.setChecked(False)
             btn.blockSignals(False)

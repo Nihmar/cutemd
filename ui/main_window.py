@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
+    QDockWidget,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -216,8 +217,14 @@ class MainWindow(QMainWindow):
         if not getattr(self, "_panel_restored", False):
             self._panel_restored = True
             self._side_panel._reset_save_timer()
+            # Restore right dock splitter sizes on first show
+            if hasattr(self, "_right_dock_splitter"):
+                saved = self._s.right_dock_sizes()
+                if saved and all(s > 0 for s in saved):
+                    self._right_dock_splitter.setSizes(saved)
 
     def _on_splitter_moved(self, pos: int, index: int) -> None:
+        """Save left panel width when user drags the outer splitter."""
         if not self._side_panel._save_allowed:
             return
         left = self._splitter.sizes()[0]
@@ -225,6 +232,13 @@ class MainWindow(QMainWindow):
             return
         _LOG.debug("splitterMoved save: left=%d", left)
         self._s.set_left_panel_width(left)
+
+    def _on_right_dock_splitter_moved(self, pos: int, index: int) -> None:
+        """Save right dock splitter sizes when user drags."""
+        sizes = self._right_dock_splitter.sizes()
+        if sum(sizes) > 0:
+            _LOG.debug("rightDockSplitterMoved: %s", sizes)
+            self._s.set_right_dock_sizes(sizes)
 
     # ------------------------------------------------------------------
     # Actions
@@ -361,14 +375,30 @@ class MainWindow(QMainWindow):
             lambda path, line: self._open_file_at_line((path, line))
         )
 
-        # --- Left stack (tree / search / toc) ---
+        # --- Left stack (tree / search) ---
         self._left_stack = QStackedWidget()
         self._left_stack.addWidget(self._tree_panel)
         self._left_stack.addWidget(self._search_panel)
 
+        # Wrap left stack in a vertical splitter (for future panels, e.g. tags)
+        self._left_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._left_splitter.addWidget(self._left_stack)
+        self._left_splitter.setChildrenCollapsible(False)
+
+        # --- TOC panel (right dock) ---
         self._toc_panel = TocPanel()
         self._toc_panel.heading_activated.connect(self._on_toc_heading_activated)
-        self._left_stack.addWidget(self._toc_panel)
+
+        # --- Right dock widget ---
+        self._right_dock = QDockWidget(self.tr("Table of Contents"), self)
+        self._right_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        self._right_dock.setObjectName("rightDock")
+        self._right_dock_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._right_dock_splitter.addWidget(self._toc_panel)
+        self._right_dock_splitter.setChildrenCollapsible(False)
+        self._right_dock_splitter.splitterMoved.connect(self._on_right_dock_splitter_moved)
+        self._right_dock.setWidget(self._right_dock_splitter)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._right_dock)
 
         # --- Tabs ---
         self._tabs = QTabWidget()
@@ -414,9 +444,9 @@ class MainWindow(QMainWindow):
         editor_layout.addWidget(self._tabs)
         editor_layout.addWidget(status_widget)
 
-        # Splitter: left_stack | editor_pane  (toolbar is outside, always visible)
+        # Splitter: left_splitter | editor_pane  (toolbar is outside, always visible)
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._splitter.addWidget(self._left_stack)
+        self._splitter.addWidget(self._left_splitter)
         self._splitter.addWidget(editor_pane)
         self._splitter.setSizes([220, 948])
         self._splitter.splitterMoved.connect(self._on_splitter_moved)
@@ -425,6 +455,7 @@ class MainWindow(QMainWindow):
         self._side_panel = SidePanelManager(
             self, self._splitter, self._left_stack,
             self._side_tree_btn, self._side_search_btn, self._side_toc_btn,
+            right_dock=self._right_dock,
         )
 
         # Main layout: toolbar | splitter  (no splitter handle between them)
@@ -445,6 +476,13 @@ class MainWindow(QMainWindow):
         self._side_tree_btn.setChecked(True)
         self._side_tree_btn.blockSignals(False)
         self._left_stack.setCurrentIndex(0)
+
+        # Right dock initial visibility
+        _rd_vis = self._s.right_dock_visible()
+        self._side_toc_btn.blockSignals(True)
+        self._side_toc_btn.setChecked(_rd_vis)
+        self._side_toc_btn.blockSignals(False)
+        self._right_dock.setVisible(_rd_vis)
 
         self._preview_tab: EditorTab | None = None
         _LOG.debug("_setup_central: done")
@@ -479,6 +517,9 @@ class MainWindow(QMainWindow):
 
     def _on_side_toc_toggled(self, checked: bool) -> None:
         self._side_panel.on_toc_toggled(checked)
+        # Persist right dock visibility
+        if hasattr(self, "_s"):
+            self._s.set_right_dock_visible(checked)
 
     def _rebuild_toc(self) -> None:
         """Rebuild the table of contents from the current tab's editor content."""
@@ -1699,6 +1740,8 @@ class MainWindow(QMainWindow):
         self._window_state.on_close(
             folder_path=self._folder_path,
             splitter_sizes=(self._splitter.sizes()[0], self._splitter.sizes()[1]),
+            left_splitter_sizes=self._left_splitter.sizes() if hasattr(self, "_left_splitter") else [],
+            right_dock_sizes=self._right_dock_splitter.sizes() if hasattr(self, "_right_dock_splitter") else [],
             window_geometry=self.saveGeometry(),
         )
         event.accept()
