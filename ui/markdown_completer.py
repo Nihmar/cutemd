@@ -551,6 +551,8 @@ class MarkdownAutoCompleter(QObject):
 
     def _handle_tag_filter_key(self, event: QKeyEvent) -> bool:
         if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down,
+                           Qt.Key.Key_PageUp, Qt.Key.Key_PageDown,
+                           Qt.Key.Key_Home, Qt.Key.Key_End,
                            Qt.Key.Key_Return, Qt.Key.Key_Enter):
             return self._handle_tag_popup_key(event)
         if event.key() == Qt.Key.Key_Escape:
