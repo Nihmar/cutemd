@@ -755,6 +755,7 @@ class EditorTab(QWidget):
             return
 
         self._preview_busy = True
+        _LOG.debug("_update_preview: emitting render_requested, text_bytes=%d params_hash=%s", len(text), params_hash)
         # Delay spinner — fast renders don't need it.
         self._spinner_timer = QTimer(self)
         self._spinner_timer.setSingleShot(True)
@@ -767,6 +768,7 @@ class EditorTab(QWidget):
         self._refresh_link_highlights()
 
     def _on_preview_ready(self, html: str, anchor_map: object) -> None:
+        _LOG.debug("_on_preview_ready: html_len=%d anchor_map_len=%d", len(html) if html else 0, len(anchor_map) if isinstance(anchor_map, list) else -1)
         self._preview_busy = False
         # Cancel spinner if it hasn't fired yet.
         if hasattr(self, "_spinner_timer"):

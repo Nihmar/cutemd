@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
 
+from core.logging import setup_logging
+
 
 class PreviewWorker(QObject):
     """Runs ``build_html`` and ``build_line_anchor_map`` in a background
@@ -26,6 +28,8 @@ class PreviewWorker(QObject):
         self.render_requested.connect(self._do_render)
 
     def _do_render(self, params: dict) -> None:
+        _LOG = setup_logging("cutemd.preview_worker")
+        _LOG.debug("_do_render: text_bytes=%d", len(params.get("text", "")))
         from markdown.html_builder import build_html
         from core.link_resolution import build_line_anchor_map
 
