@@ -756,11 +756,16 @@ def _make_popup(parent: QWidget) -> QFrame:
     highlighting.  Sets transient parent for Wayland compatibility.
     """
     popup = QFrame(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
-    # Set transient parent for Wayland
-    top = parent.window()
-    if top is not None and top.windowHandle() is not None:
-        popup.window().windowHandle().setTransientParent(top.windowHandle())
     popup.setObjectName("completerPopup")
+    # Set transient parent for Wayland (must be done before show)
+    top = parent.window()
+    if top is not None:
+        # Create native window handle so transient parent can be set
+        popup.winId()
+        pw = popup.windowHandle()
+        tw = top.windowHandle()
+        if pw is not None and tw is not None:
+            pw.setTransientParent(tw)
     popup.setStyleSheet(
         "#completerPopup {"
         "  background: palette(window);"
