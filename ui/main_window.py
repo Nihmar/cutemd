@@ -48,9 +48,8 @@ from core.animation_speed import animation_duration_ms
 from core.folder_settings import FolderSettings
 from core.logging import setup_logging
 from core.paths import resolve_path
-from core.services.folder_setup import default_folder_config
-from core.services.link_resolver import resolve_link_target
-from core.services.recent_folders import update_recent_folders
+from core.file_utils import default_folder_config, update_recent_folders
+from core.link_resolution import resolve_link_target
 from core.webdav.sync import sync_folder
 from ui import theme
 from ui.editor_context_menu import show_editor_context_menu

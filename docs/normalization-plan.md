@@ -74,18 +74,18 @@ Aggiornare `main.py`, `ui/theme.py`, `core/desktop_integration.py`, e gli altri.
 
 ---
 
-## Fase 2 — Consolidare `core/services/`
+## Fase 2 — Consolidare `core/services/` ✅
 
 **Obiettivo**: Eliminare i file da una-funzione.
 
-### 2.1 Unire in `core/file_utils.py`
+### 2.1 Unire in `core/file_utils.py` ✅
 
 Accorpare:
 - `core/services/file_io.py` → `read_file_with_encoding()`
 - `core/services/folder_setup.py` → `default_folder_config()`
 - `core/services/recent_folders.py` → `update_recent_folders()`
 
-### 2.2 Rinominare `core/services/link_resolver.py` → `core/link_resolution.py`
+### 2.2 Unire in `core/link_resolution.py` ✅
 
 Accorpare:
 - `core/services/link_resolver.py` → `resolve_link_target()`
@@ -93,9 +93,11 @@ Accorpare:
 
 La risoluzione link e la mappatura anchor sono logicamente correlate (entrambe operano su link/struttura documento).
 
-### 2.3 Rimuovere `core/services/__init__.py` e `core/services/`
+### 2.3 Rimuovere `core/services/` ✅
 
-Dopo il consolidamento, la directory `services/` non serve più.
+Dopo il consolidamento, la directory `services/` è stata rimossa.
+
+**✅ Fase 2 completata.** `core/services/` rimosso. Funzioni consolidate in `core/file_utils.py` e `core/link_resolution.py`. Aggiornati `editor_tab.py` e `main_window.py`.
 
 ---
 

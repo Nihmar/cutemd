@@ -54,9 +54,8 @@ from markdown.html_builder import (
 )
 from core.animation_speed import animation_duration_ms
 from core.constants import BROKEN_LINK_LINE_LIMIT, DOC_EXTS, IMG_EXTS, LARGE_FILE_THRESHOLD, MD_EXTS, PDF_EXTS
-from core.services.anchor_map import build_line_anchor_map
-from core.services.file_io import read_file_with_encoding
-from core.services.link_resolver import resolve_link_target
+from core.file_utils import read_file_with_encoding
+from core.link_resolution import build_line_anchor_map, resolve_link_target
 from ui.find_bar import FindBar
 from ui.image_viewer import ImageViewer
 from ui.link_preview_popup import LinkPreviewPopup
@@ -902,7 +901,7 @@ class EditorTab(QWidget):
 
     def _build_line_anchor_map(self, text: str) -> list[int]:
         """Build a mapping from editor line numbers to preview heading anchors.
-        Delegates to pure ``build_line_anchor_map`` in core.services."""
+        Delegates to pure ``build_line_anchor_map`` in core.link_resolution."""
         return build_line_anchor_map(self._md, text)
 
     # ------------------------------------------------------------------
