@@ -76,6 +76,9 @@ class LinkManager:
 
     def on_mouse_move(self, pos_in_block: int, block_text: str, block_number: int) -> bool:
         """Process a mouse-move event over the editor. Returns True if over a link."""
+        from PySide6.QtWidgets import QApplication
+        ctrl_held = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier)
+
         link = self._link_range_at(pos_in_block, block_text)
 
         if link:
@@ -100,12 +103,13 @@ class LinkManager:
 
             if target != self._hovered_link_target:
                 self._hovered_link_target = target
-                from PySide6.QtGui import QCursor
-                self._hover_cursor_pos = QCursor.pos()
-                self._link_preview_show_timer.start()
+                if not ctrl_held:
+                    from PySide6.QtGui import QCursor
+                    self._hover_cursor_pos = QCursor.pos()
+                    self._link_preview_show_timer.start()
             return True
         else:
-            if self._hover_link_key is not None:
+            if self._hover_link_key is not None or ctrl_held:
                 self._hover_link_key = None
                 self._editor.setExtraSelections([])
                 self._viewport.setCursor(Qt.CursorShape.IBeamCursor)

@@ -50,6 +50,10 @@ def resolve_link_target(
     if target_path.suffix.lower() not in MD_EXTS:
         candidates.append(base / (target + ".md"))
         candidates.append(base / (target + ".markdown"))
+    # When the target has no extension, also try document formats.
+    if not target_path.suffix:
+        for ext in DOC_EXTS | IMG_EXTS | PDF_EXTS:
+            candidates.append(base / (target + ext))
     for p in candidates:
         if p.is_file():
             return p.resolve()
