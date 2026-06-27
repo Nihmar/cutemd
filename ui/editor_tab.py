@@ -780,7 +780,6 @@ class EditorTab(QWidget):
         # Update anchor map with the freshly computed one.
         if isinstance(anchor_map, list) and len(anchor_map) > 0:
             self._line_anchor_map = anchor_map
-            self._line_anchor_map_hash = text_hash
 
         # Track rendered state to skip redundant future renders.
         if not self._preview_pending:
