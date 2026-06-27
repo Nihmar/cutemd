@@ -704,13 +704,14 @@ class EditorTab(QWidget):
         # Anchor map is computed in the worker thread.
         # Use stale map until the new one arrives.
 
-        first_block = self.editor.firstVisibleBlock()
-        current_line = first_block.blockNumber()
-        line_map = self._line_anchor_map
-        current_anchor_idx = (
-            line_map[current_line] if current_line < len(line_map) else 0
-        )
-        self._last_anchor = f"b{current_anchor_idx}"
+        if self._line_anchor_map:
+            first_block = self.editor.firstVisibleBlock()
+            current_line = first_block.blockNumber()
+            line_map = self._line_anchor_map
+            current_anchor_idx = (
+                line_map[current_line] if current_line < len(line_map) else 0
+            )
+            self._last_anchor = f"b{current_anchor_idx}"
 
         base_dir = self._file_path.parent if self._file_path else Path.cwd()
         self.preview.set_base_dir(base_dir)
@@ -776,10 +777,9 @@ class EditorTab(QWidget):
         self.preview.setHtml(html)
         self._syncing_scroll -= 1
         
-        # Update anchor map if the text hasn't changed since
-        # the render was requested.
-        if text_hash == self._cached_text_hash:
-            self._line_anchor_map = anchor_map if isinstance(anchor_map, list) else []
+        # Update anchor map with the freshly computed one.
+        if isinstance(anchor_map, list) and len(anchor_map) > 0:
+            self._line_anchor_map = anchor_map
             self._line_anchor_map_hash = text_hash
 
         # Track rendered state to skip redundant future renders.
@@ -833,6 +833,8 @@ class EditorTab(QWidget):
             return
         first_block = self.editor.firstVisibleBlock()
         current_line = first_block.blockNumber()
+        if current_line >= len(line_map):
+            return
         anchor_idx = line_map[current_line]
         anchor = f"b{anchor_idx}"
         if anchor == self._last_anchor:
