@@ -40,13 +40,6 @@ from PySide6.QtWidgets import (
 )
 
 from core.logging import setup_logging
-from markdown.document_renderers import (
-    cbz_to_html,
-    docx_to_html,
-    epub_to_html,
-    pptx_to_html,
-    xlsx_to_html,
-)
 from markdown.html_builder import (
     preprocess_wikilink_images,
     preprocess_wikilinks,
@@ -56,6 +49,7 @@ from core.animation_speed import animation_duration_ms
 from core.constants import BROKEN_LINK_LINE_LIMIT, DOC_EXTS, IMG_EXTS, LARGE_FILE_THRESHOLD, MD_EXTS, PDF_EXTS
 from core.file_utils import read_file_with_encoding
 from core.link_resolution import build_line_anchor_map, resolve_link_target
+from ui.async_doc_renderer import AsyncDocRenderer
 from ui.drop_handler import DropHandler
 from ui.find_bar import FindBar
 from ui.image_viewer import ImageViewer
@@ -501,29 +495,17 @@ class EditorTab(QWidget):
         self._splitter.setSizes([0, 1000])
         self.title_changed.emit()
 
-        try:
-            if ext == ".xlsx":
-                html = xlsx_to_html(path, self._preview_css)
-            elif ext == ".docx":
-                html = docx_to_html(path, self._preview_css)
-            elif ext == ".pptx":
-                html = pptx_to_html(path, self._preview_css)
-            elif ext == ".cbz":
-                html = cbz_to_html(path, self._preview_css)
-            elif ext == ".epub":
-                html = epub_to_html(path, self._preview_css)
-            else:
-                self.preview.setPlainText(self.tr("[Unsupported document format]"))
-                self._preview_stack.setCurrentIndex(0)
-                return
-            self.preview.setHtml(html)
-            self._preview_stack.setCurrentIndex(0)
-        except Exception as e:
-            _LOG.debug("_load_document: error rendering %s: %s", label, e)
-            self.preview.setPlainText(self.tr("[Error rendering {}]").format(label))
-            self._preview_stack.setCurrentIndex(0)
-            return
+        # Show a loading indicator while rendering in background.
+        self.preview.setPlainText(self.tr("Rendering\u2026"))
+        self._preview_stack.setCurrentIndex(0)
 
+        self._doc_thread = AsyncDocRenderer(path, self._preview_css, self)
+        self._doc_thread.result.connect(self._on_doc_rendered)
+        self._doc_thread.start()
+
+    def _on_doc_rendered(self, html: str) -> None:
+        self.preview.setHtml(html)
+        self._preview_stack.setCurrentIndex(0)
         self._refresh_link_highlights()
 
     def save(self) -> bool:
