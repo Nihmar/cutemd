@@ -92,8 +92,10 @@ def preprocess_wikilinks(text: str) -> str:
 
 
 def preprocess_tags(text: str) -> str:
-    """Wrap inline ``#tag`` tokens in ``<span class="tag">`` for styling."""
-    result = _INLINE_TAG_RE.sub(r'<span class="tag">#\1</span>', text)
+    """Wrap inline ``#tag`` tokens in ``<span style="...">`` for styling."""
+    result = _INLINE_TAG_RE.sub(
+        r'<span style="color:#d19a66;font-weight:bold">#\1</span>', text
+    )
     if result != text:
         _LOG.debug("preprocess_tags: %d tag(s) wrapped",
                    len(_INLINE_TAG_RE.findall(text)))

@@ -244,10 +244,3 @@ hr {
     font-size: 90%;
     background-color: rgba(86, 182, 194, 0.08);
 }
-
-/* Inline #tags */
-.tag {
-    color: #d19a66;
-    font-weight: bold;
-    background-color: rgba(209, 154, 102, 0.15);
-}
