@@ -48,7 +48,7 @@ from core.paths import resolve_path
 from core.file_utils import default_folder_config, update_recent_folders
 from core.link_resolution import resolve_link_target
 from core.webdav.sync import sync_folder
-from ui import theme
+from ui.qss_loader import load_qss
 from ui.action_registry import ActionRegistry
 from ui.window_state import WindowStateManager
 from ui.editor_context_menu import show_editor_context_menu
@@ -823,7 +823,7 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if app is not None:
             app.setPalette(pal)
-            app.setStyleSheet(theme.load_qss(pal))
+            app.setStyleSheet(load_qss(pal))
 
         self._recolor_toolbar_icons()
         for i in range(self._tabs.count()):

@@ -56,6 +56,7 @@ from core.animation_speed import animation_duration_ms
 from core.constants import BROKEN_LINK_LINE_LIMIT, DOC_EXTS, IMG_EXTS, LARGE_FILE_THRESHOLD, MD_EXTS, PDF_EXTS
 from core.file_utils import read_file_with_encoding
 from core.link_resolution import build_line_anchor_map, resolve_link_target
+from ui.drop_handler import DropHandler
 from ui.find_bar import FindBar
 from ui.image_viewer import ImageViewer
 from ui.line_number_area import LineNumberArea
@@ -137,8 +138,10 @@ class EditorTab(QWidget):
         self._file_encoding: str = "utf-8"
         self._large_file = False
         self._link_style: str = "md"
-        self._drag_active = False
         self._mouse_press_pos: QPoint | None = None
+
+        # --- Drop handler (drag&drop + clipboard paste) ---
+        self._drop_handler = DropHandler(self)
 
         # Async preview state.
         self._preview_busy = False
@@ -1033,14 +1036,14 @@ class EditorTab(QWidget):
             elif event.type() == QEvent.Type.DragEnter:
                 _LOG.debug("eventFilter: DragEnter")
                 self._on_drag_enter(event)  # type: ignore[arg-type]
-                if not self._drag_active:
+                if not self._drop_handler.drag_active:
                     return False
                 return True
             elif event.type() == QEvent.Type.DragLeave:
-                self._drag_active = False
+                self._drop_handler._drag_active = False
                 return False
             elif event.type() == QEvent.Type.DragMove:
-                if self._drag_active:
+                if self._drop_handler.drag_active:
                     event.acceptProposedAction()  # type: ignore[attr-defined]
                     return True
                 return False
@@ -1049,9 +1052,9 @@ class EditorTab(QWidget):
                     "eventFilter: Drop urls=%s",
                     [url.toString() for url in event.mimeData().urls()],
                 )
-                if self._drag_active and self._on_drop(event):  # type: ignore[arg-type]
+                if self._drop_handler.drag_active and self._on_drop(event):  # type: ignore[arg-type]
                     return True
-                self._drag_active = False
+                self._drop_handler._drag_active = False
             elif event.type() == QEvent.Type.Wheel:
                 we = event  # type: ignore[assignment]
                 if we.modifiers() & Qt.KeyboardModifier.ControlModifier:
@@ -1075,157 +1078,24 @@ class EditorTab(QWidget):
 
         return super().eventFilter(obj, event)
 
+    # ------------------------------------------------------------------
+    # Drag & drop / clipboard paste (delegated to DropHandler)
+    # ------------------------------------------------------------------
+
     def _paste_image_from_clipboard(self) -> bool:
-        """Paste clipboard content: file URLs (any type) or bitmap image.
-        Returns True if handled."""
+        return self._drop_handler.paste_from_clipboard()
 
-        _LOG.debug("_paste_image_from_clipboard")
+    def _handle_file_drop(self, path) -> bool:
+        return self._drop_handler._handle_file_drop(path)
 
-        clipboard = QApplication.clipboard()
-        if clipboard is None:
-            return False
-
-        # 1) Try file URLs first (copy from Explorer / file manager) — any file type
-        mime = clipboard.mimeData()
-        if mime is not None and mime.hasUrls():
-            for url in mime.urls():
-                if url.isLocalFile():
-                    path = Path(url.toLocalFile())
-                    if path.is_file() and self._handle_file_drop(path):
-                        return True
-
-        # 2) Try bitmap data (copy from browser / screenshot)
-        img = clipboard.image()
-        if not img.isNull():
-            if self._attachments_dir is None:
-                return False
-            import datetime
-
-            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"paste_{ts}.png"
-            dest = self._attachments_dir / filename
-            self._attachments_dir.mkdir(parents=True, exist_ok=True)
-            if not img.save(str(dest), "PNG"):
-                return False
-            return self._handle_file_drop(dest)
-
-        return False
-
-    def _handle_file_drop(self, path: Path) -> bool:
-        """Copy *path* to the attachments dir and insert a link.
-        If the file is already inside the opened folder, use it in-place.
-        Images get ``!`` prefix; other files get plain links.
-        Link style (md vs wikilink) respects the user setting."""
-        # Determine the vault root (parent of attachments dir).
-        vault_root = (
-            self._attachments_dir.parent.resolve() if self._attachments_dir else None
-        )
-
-        # If the file is already inside the vault, link it in-place.
-        if vault_root is not None:
-            try:
-                path.resolve().relative_to(vault_root)
-                _LOG.debug(
-                    "_handle_file_drop: in-vault file — linking in-place %s", path.name
-                )
-                return self._insert_file_link(path)
-            except ValueError:
-                pass
-
-        # Otherwise copy to the attachments directory.
-        _LOG.debug("_handle_file_drop: copying to attachments")
-        dest_dir = self._attachments_dir
-        if dest_dir is None:
-            base = self._file_path.parent if self._file_path else Path.cwd()
-            dest_dir = base / "attachments"
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        dest = dest_dir / path.name
-        if dest.exists():
-            stem, ext = path.stem, path.suffix
-            n = 1
-            while dest.exists():
-                dest = dest_dir / f"{stem}_{n}{ext}"
-                n += 1
-        import shutil
-
-        try:
-            if dest.resolve() != path.resolve():
-                shutil.copy2(str(path), str(dest))
-        except OSError:
-            return False
-        return self._insert_file_link(dest)
-
-    def _insert_file_link(self, dest: Path) -> bool:
-        """Insert a markdown or wikilink for *dest*, using relative paths
-        when possible. Images get ``!`` prefix."""
-        link = None
-
-        # If the file is inside the attachments directory, use just the filename
-        # — the resolver already knows to look there.
-        if self._attachments_dir is not None:
-            try:
-                dest.resolve().relative_to(self._attachments_dir.resolve())
-                link = dest.name
-            except ValueError:
-                pass
-
-        # Otherwise compute a relative path from the current file.
-        if link is None and self._file_path and self._file_path.parent:
-            try:
-                rel = dest.resolve().relative_to(
-                    self._file_path.parent.resolve(), walk_up=True
-                )
-                link = rel.as_posix()
-            except ValueError:
-                pass
-
-        # Fallback: absolute path.
-        if link is None:
-            link = dest.as_posix()
-
-        is_image = dest.suffix.lower() in self._IMG_EXTS
-        if self._link_style == "wiki":
-            syntax = f"![[{link}]]" if is_image else f"[[{link}]]"
-        else:
-            syntax = f"![{dest.stem}]({link})" if is_image else f"[{dest.stem}]({link})"
-
-        _LOG.debug(
-            "_insert_file_link: %s style=%s link=%s", dest.name, self._link_style, link
-        )
-        cursor = self.editor.textCursor()
-        cursor.insertText(syntax)
-        self.editor.setFocus()
-        return True
+    def _insert_file_link(self, dest) -> bool:
+        return self._drop_handler._insert_file_link(dest)
 
     def _on_drag_enter(self, event) -> None:
-        """Accept drag events that contain any local file."""
-        self._drag_active = False
-        if event.mimeData().hasUrls():
-            for url in event.mimeData().urls():
-                if url.isLocalFile():
-                    self._drag_active = True
-                    event.acceptProposedAction()
-                    return
-        event.ignore()
+        self._drop_handler.on_drag_enter(event)
 
     def _on_drop(self, event) -> bool:
-        """Handle dropped files — copy to attachments dir and insert a link.
-        Returns True if any file was handled."""
-        if not event.mimeData().hasUrls():
-            return False
-
-        handled = False
-        for url in event.mimeData().urls():
-            if url.isLocalFile():
-                path = Path(url.toLocalFile())
-                if path.is_file() and self._handle_file_drop(path):
-                    handled = True
-
-        if handled:
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-        return handled
+        return self._drop_handler.on_drop(event)
 
     def changeEvent(self, event) -> None:
         if event.type() == QEvent.Type.LanguageChange:

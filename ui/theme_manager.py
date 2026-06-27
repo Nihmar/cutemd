@@ -5,7 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, QSettings, Signal
 from PySide6.QtWidgets import QApplication, QWidget
 
-from ui.theme import load_qss
+from ui.qss_loader import load_qss
 from ui.themes import Theme, get_theme, system_theme
 
 

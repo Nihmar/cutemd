@@ -22,7 +22,7 @@ from PySide6.QtWidgets import QApplication
 from core.logging import setup_logging
 from core.paths import resolve_icon_path
 from ui.main_window import MainWindow
-from ui.theme import apply_modern_style
+from ui.qss_loader import apply_modern_style
 
 _LOG = setup_logging("cutemd.main")
 
