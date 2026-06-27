@@ -31,13 +31,18 @@ from ui.syntax_highlighter import MarkdownHighlighter
 
 
 # ---------------------------------------------------------------------------
-# Async preview worker — renders heavy formats in a background thread
+# Async preview worker — renders ALL formats in a background thread
 # ---------------------------------------------------------------------------
 
 
 class _PreviewRenderThread(QThread):
-    """Renders a document to HTML in a background thread."""
-    result = Signal(str)
+    """Renders any file format to preview content in a background thread.
+
+    Emits ``result(str, str)`` where the first value is the preview content
+    (HTML or plain text) and the second is a type hint:
+    ``"html"`` or ``"text"``.
+    """
+    result = Signal(str, str)  # (content, content_type: "html"|"text")
 
     def __init__(self, path: Path, ext: str, css: str, parent=None):
         super().__init__(parent)
@@ -49,17 +54,69 @@ class _PreviewRenderThread(QThread):
         try:
             if self._ext in (".xlsx",):
                 html = xlsx_to_html(self._path, self._css)
+                self.result.emit(html, "html")
             elif self._ext in (".docx",):
                 html = docx_to_html(self._path, self._css)
+                self.result.emit(html, "html")
             elif self._ext in (".pptx",):
                 html = pptx_to_html(self._path, self._css)
+                self.result.emit(html, "html")
             elif self._ext in (".epub",):
                 html = epub_to_html(self._path, self._css)
+                self.result.emit(html, "html")
+            elif self._ext in (".csv", ".tsv"):
+                text = self._render_csv()
+                self.result.emit(text, "text")
+            elif self._ext in (".pdf",):
+                text = self._render_pdf()
+                self.result.emit(text, "text")
+            elif self._ext in (".cbz",):
+                text = self._render_cbz()
+                self.result.emit(text, "text")
             else:
-                html = f"<p>[Unsupported format: {self._ext}]</p>"
-        except Exception as e:
-            html = f"<p>[Error rendering: {e}]</p>"
-        self.result.emit(html)
+                # Plain text / markdown — read directly
+                try:
+                    text = self._path.read_text(encoding="utf-8")
+                    lines = text.split("\n")
+                    if len(lines) > 500:
+                        text = "\n".join(lines[:500]) + "\n\u2026 (truncated)"
+                    self.result.emit(text, "text")
+                except Exception:
+                    self.result.emit(f"[Cannot read: {self._path.name}]", "text")
+        except Exception as exc:
+            self.result.emit(f"[Error rendering: {exc}]", "text")
+
+    def _render_csv(self) -> str:
+        import csv
+        delimiter = "\t" if self._path.suffix.lower() == ".tsv" else ","
+        with open(self._path, encoding="utf-8", errors="replace") as f:
+            reader = csv.reader(f, delimiter=delimiter)
+            rows = list(reader)[:100]
+        if not rows:
+            return ""
+        col_widths = [0] * max(len(r) for r in rows)
+        for row in rows:
+            for i, cell in enumerate(row):
+                if i < len(col_widths):
+                    col_widths[i] = max(col_widths[i], len(cell))
+        return "\n".join(
+            " \u2502 ".join(c.ljust(col_widths[i]) for i, c in enumerate(row))
+            for row in rows
+        )
+
+    def _render_pdf(self) -> str:
+        return f"[PDF preview not available in popup: {self._path.name}]"
+
+    def _render_cbz(self) -> str:
+        import zipfile
+        try:
+            with zipfile.ZipFile(self._path) as zf:
+                names = sorted(zf.namelist())
+                img_names = [n for n in names if Path(n).suffix.lower()
+                             in {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp"}]
+                return f"[CBZ: {len(img_names)} pages — {self._path.name}]"
+        except Exception:
+            return f"[Cannot read: {self._path.name}]"
 
 
 # ---------------------------------------------------------------------------
@@ -169,9 +226,9 @@ class LinkPreviewPopup(QFrame):
     ) -> None:
         """Load *path* and show the popup at *screen_pos*.
 
-        Heavy formats (XLSX, DOCX, PPTX, EPUB) are rendered in a
-        background thread so the popup appears instantly with a
-        loading indicator.
+        All formats are rendered in a background thread so the popup
+        appears instantly with a loading indicator. Images are the
+        only exception — they load fast enough synchronously.
         """
         if path == self._path and self.isVisible():
             self._move_within_screen(screen_pos)
@@ -187,8 +244,6 @@ class LinkPreviewPopup(QFrame):
             self._render_thread.quit()
             self._render_thread.wait(500)
 
-        # Force-hide if visible so the WM accepts the new position
-        # (Wayland/GNOME ignores move() on visible windows).
         was_visible = self.isVisible()
         if was_visible:
             self.hide()
@@ -204,36 +259,27 @@ class LinkPreviewPopup(QFrame):
 
         ext = path.suffix.lower()
 
-        # Heavy formats — show popup immediately with loading indicator,
-        # then render in background thread.
-        if ext in self._DOCX_EXTS | self._PPTX_EXTS | self._XLSX_EXTS | self._EPUB_EXTS:
-            self._image_label.hide()
-            self._editor.show()
-            self._editor.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
-            self._editor.setWordWrapMode(QTextOption.WrapMode.WordWrap)
-            if self._highlighter is not None:
-                self._highlighter.setDocument(None)
-            self._editor.setPlainText(self.tr("Loading\u2026"))
+        # Images — fast enough to keep synchronous.
+        if ext in self._IMG_EXTS:
+            self._show_image(path)
             self._move_within_screen(screen_pos)
             self.setVisible(True)
             self.raise_()
-            self._start_async_render(path, ext)
             return
 
-        # Light formats — render synchronously.
-        if ext in self._IMG_EXTS:
-            self._show_image(path)
-        elif ext in self._CBZ_EXTS:
-            self._show_cbz(path)
-        elif ext in self._PDF_EXTS:
-            self._show_pdf(path)
-        elif ext in self._CSV_EXTS:
-            self._show_csv(path)
-        else:
-            self._show_text(path, editor_font)
+        # Everything else — show popup immediately with loading,
+        # render in background thread.
+        self._image_label.hide()
+        self._editor.show()
+        self._editor.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self._editor.setWordWrapMode(QTextOption.WrapMode.WordWrap)
+        if self._highlighter is not None:
+            self._highlighter.setDocument(None)
+        self._editor.setPlainText(self.tr("Loading\u2026"))
         self._move_within_screen(screen_pos)
         self.setVisible(True)
         self.raise_()
+        self._start_async_render(path, ext)
 
     def _start_async_render(self, path: Path, ext: str) -> None:
         """Launch background rendering for a heavy document format."""
@@ -241,9 +287,16 @@ class LinkPreviewPopup(QFrame):
         self._render_thread.result.connect(self._on_async_render_done)
         self._render_thread.start()
 
-    def _on_async_render_done(self, html: str) -> None:
+    def _on_async_render_done(self, content: str, content_type: str) -> None:
         """Called when the background render finishes."""
-        self._editor.setHtml(html)
+        if content_type == "html":
+            self._editor.setHtml(content)
+        else:
+            self._editor.setPlainText(content)
+            # Apply monospace font for text/CSV previews.
+            from PySide6.QtGui import QFont
+            mono = QFont("Consolas", 9) if QFont("Consolas").exactMatch() else QFont("monospace", 9)
+            self._editor.setFont(mono)
         self._editor.verticalScrollBar().setValue(0)
 
     def hide_popup(self) -> None:
