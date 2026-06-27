@@ -41,7 +41,7 @@ DEFAULT_SHORTCUTS: dict[str, str] = {
     "act_command_palette": "Ctrl+P",
     "act_settings": "Ctrl+,",
     "act_shortcuts": "Ctrl+/",
-    "act_webdav_sync": "Ctrl+Alt+S",
+    "act_webdav_sync": "Ctrl+Shift+Y",
     "act_zoom_in": "Ctrl+=",
     "act_zoom_out": "Ctrl+-",
     "act_zoom_reset": "Ctrl+0",

@@ -128,7 +128,7 @@ class ActionRegistry:
             "&Command Palette…", None, cb.get("command_palette")
         )
         self._acts["act_webdav_sync"] = self._action(
-            "&Sync Now", QKeySequence("Ctrl+Alt+S"), cb.get("webdav_sync")
+            "&Sync Now", QKeySequence("Ctrl+Shift+Y"), cb.get("webdav_sync")
         )
 
         # Zoom
