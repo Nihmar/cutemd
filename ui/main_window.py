@@ -575,7 +575,7 @@ class MainWindow(QMainWindow):
         pass
 
     def _on_right_toc_toggled(self, checked: bool) -> None:
-        """Toggle TOC visibility in the right dock splitter."""
+        """Toggle TOC visibility in the right splitter."""
         if hasattr(self, "_toc_panel"):
             self._toc_panel.setVisible(checked)
             self._sync_right_dock_visibility()
@@ -585,21 +585,22 @@ class MainWindow(QMainWindow):
                 self._toc_timer.stop()
 
     def _on_right_backlinks_toggled(self, checked: bool) -> None:
-        """Toggle backlinks panel visibility in the right dock splitter."""
+        """Toggle backlinks panel visibility in the right splitter."""
         if hasattr(self, "_backlinks_panel"):
             self._backlinks_panel.setVisible(checked)
             self._sync_right_dock_visibility()
 
     def _sync_right_dock_visibility(self) -> None:
-        """Show right dock if any panel is visible, hide if both hidden."""
-        toc_vis = self._toc_panel.isVisible() if hasattr(self, "_toc_panel") else False
-        bl_vis = self._backlinks_panel.isVisible() if hasattr(self, "_backlinks_panel") else False
+        """Show right splitter if any panel button is checked, hide if both
+        unchecked.  Uses button state (not widget visibility) to avoid
+        deadlock when parent is hidden."""
+        toc_on = self._right_toc_btn.isChecked()
+        bl_on = self._right_backlinks_btn.isChecked()
 
         if hasattr(self, "_right_splitter"):
-            self._right_splitter.setVisible(toc_vis or bl_vis)
-        # Persist
+            self._right_splitter.setVisible(toc_on or bl_on)
         if hasattr(self, "_s"):
-            self._s.set_right_dock_visible(toc_vis or bl_vis)
+            self._s.set_right_dock_visible(toc_on or bl_on)
 
     def _on_side_tags_toggled(self, checked: bool) -> None:
         """Toggle the tags panel in the left stack."""
