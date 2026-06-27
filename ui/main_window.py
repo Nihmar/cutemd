@@ -361,7 +361,7 @@ class MainWindow(QMainWindow):
         self._side_toc_btn = _side_btn(
             "toc", self.tr("Table of Contents"), slot=self._on_side_toc_toggled
         )
-        lt_layout.addWidget(self._side_toc_btn)
+        # TOC toggle moved to editor toolbar; keep button object for state sync
 
         lt_layout.addStretch()
 
@@ -449,6 +449,7 @@ class MainWindow(QMainWindow):
         )
         self._editor_toolbar.format_requested.connect(self._insert_md)
         self._editor_toolbar.image_requested.connect(self._on_insert_image)
+        self._editor_toolbar.toggle_right_panel.connect(self._on_editor_toc_toggled)
         editor_toolbar = self._editor_toolbar
 
         # --- Inline status bar ---
@@ -515,6 +516,8 @@ class MainWindow(QMainWindow):
         self._side_toc_btn.setChecked(_rd_vis)
         self._side_toc_btn.blockSignals(False)
         self._right_dock.setVisible(_rd_vis)
+        if hasattr(self, "_editor_toolbar"):
+            self._editor_toolbar.set_toc_checked(_rd_vis)
 
         self._preview_tab: EditorTab | None = None
         _LOG.debug("_setup_central: done")
@@ -552,6 +555,23 @@ class MainWindow(QMainWindow):
         # Persist right dock visibility
         if hasattr(self, "_s"):
             self._s.set_right_dock_visible(checked)
+        # Sync editor toolbar TOC button
+        if hasattr(self, "_editor_toolbar"):
+            self._editor_toolbar.set_toc_checked(checked)
+
+    def _on_editor_toc_toggled(self) -> None:
+        """Handle TOC toggle from the editor toolbar button."""
+        if hasattr(self, "_right_dock"):
+            new_state = not self._right_dock.isVisible()
+            self._right_dock.setVisible(new_state)
+            self._side_panel.on_toc_toggled(new_state)
+            if hasattr(self, "_s"):
+                self._s.set_right_dock_visible(new_state)
+            # Sync left toolbar button
+            self._side_toc_btn.blockSignals(True)
+            self._side_toc_btn.setChecked(new_state)
+            self._side_toc_btn.blockSignals(False)
+            self._editor_toolbar.set_toc_checked(new_state)
 
     def _on_side_tags_toggled(self, checked: bool) -> None:
         """Toggle visibility of the tags panel in the left splitter."""

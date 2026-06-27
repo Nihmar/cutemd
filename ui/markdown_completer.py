@@ -70,6 +70,7 @@ class MarkdownAutoCompleter(QObject):
         self._tag_completer = QCompleter(self._tag_model, self)
         self._tag_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self._tag_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self._tag_completer.setWidget(self._editor)
         self._tag_completer.activated.connect(self._on_tag_completed)
 
     # ------------------------------------------------------------------

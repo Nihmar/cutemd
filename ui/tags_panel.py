@@ -11,6 +11,7 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QLabel,
+    QLineEdit,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -175,6 +176,12 @@ class TagsPanel(QWidget):
         self._status_label.setStyleSheet("font-size: 11px; padding: 4px;")
         layout.addWidget(self._status_label)
 
+        self._filter_edit = QLineEdit()
+        self._filter_edit.setPlaceholderText(self.tr("Filter tags…"))
+        self._filter_edit.setClearButtonEnabled(True)
+        self._filter_edit.textChanged.connect(self._apply_filter)
+        layout.addWidget(self._filter_edit)
+
         self._tree = QTreeWidget()
         self._tree.setHeaderHidden(True)
         self._tree.setIndentation(16)
@@ -204,7 +211,7 @@ class TagsPanel(QWidget):
         self._scan_thread = TagScanner(folder_path, self)
         self._scan_thread.tag_found.connect(self._on_tag_found)
         self._scan_thread.scan_complete.connect(self._on_scan_complete)
-        self._scan_thread.finished.connect(self._scan_thread.deleteLater)
+        self._scan_thread.finished.connect(self._on_scan_finished)
         self._scan_thread.start()
 
     def clear(self) -> None:
@@ -214,17 +221,40 @@ class TagsPanel(QWidget):
         self._tree.clear()
         self._tag_items.clear()
         self._tag_counts.clear()
+        self._filter_edit.clear()
         self._status_label.setText(self.tr("No tags"))
 
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
 
+    def _apply_filter(self, text: str) -> None:
+        """Show/hide tree items based on filter text."""
+        low = text.strip().lower()
+        for i in range(self._tree.topLevelItemCount()):
+            item = self._tree.topLevelItem(i)
+            if not low or low in item.text(0).lower():
+                item.setHidden(False)
+            else:
+                # Check children too
+                child_match = False
+                for j in range(item.childCount()):
+                    child = item.child(j)
+                    if low in child.text(0).lower():
+                        child_match = True
+                        break
+                item.setHidden(not child_match)
+
     def _cancel_scan(self) -> None:
-        if self._scan_thread is not None and self._scan_thread.isRunning():
-            _LOG.debug("_cancel_scan: interrupting running scan")
-            self._scan_thread.requestInterruption()
-            self._scan_thread.wait(2000)
+        if self._scan_thread is not None:
+            try:
+                if self._scan_thread.isRunning():
+                    _LOG.debug("_cancel_scan: interrupting running scan")
+                    self._scan_thread.requestInterruption()
+                    self._scan_thread.wait(2000)
+            except RuntimeError:
+                pass  # C++ object already deleted
+        self._scan_thread = None
 
     def _on_tag_found(self, tag: str, filepath: str) -> None:
         _LOG.debug("_on_tag_found: %s → %s", tag, Path(filepath).name)
@@ -253,8 +283,13 @@ class TagsPanel(QWidget):
             )
         _LOG.debug("_on_scan_complete: %d tags, %d notes",
                    total_tags, total_files)
+        self._scan_thread = None
         # Emit tag names so the editor completer can pick them up
         self.tags_updated.emit(sorted(self._tag_items.keys()))
+
+    def _on_scan_finished(self) -> None:
+        """Clean up the finished thread reference."""
+        self._scan_thread = None
 
     def _on_item_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         filepath = item.data(0, Qt.ItemDataRole.UserRole)

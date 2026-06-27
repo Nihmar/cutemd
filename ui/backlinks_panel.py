@@ -221,7 +221,7 @@ class BacklinksPanel(QWidget):
         )
         self._scan_thread.backlink_found.connect(self._on_backlink_found)
         self._scan_thread.scan_complete.connect(self._on_scan_complete)
-        self._scan_thread.finished.connect(self._scan_thread.deleteLater)
+        self._scan_thread.finished.connect(self._on_scan_finished)
         self._scan_thread.start()
 
     def clear(self) -> None:
@@ -237,10 +237,15 @@ class BacklinksPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _cancel_scan(self) -> None:
-        if self._scan_thread is not None and self._scan_thread.isRunning():
-            _LOG.debug("_cancel_scan: interrupting running scan")
-            self._scan_thread.requestInterruption()
-            self._scan_thread.wait(2000)
+        if self._scan_thread is not None:
+            try:
+                if self._scan_thread.isRunning():
+                    _LOG.debug("_cancel_scan: interrupting running scan")
+                    self._scan_thread.requestInterruption()
+                    self._scan_thread.wait(2000)
+            except RuntimeError:
+                pass  # C++ object already deleted
+        self._scan_thread = None
 
     def _on_backlink_found(self, filepath: str) -> None:
         _LOG.debug("_on_backlink_found: %s", filepath)
@@ -260,6 +265,11 @@ class BacklinksPanel(QWidget):
         else:
             self._status_label.setText(self.tr("{} backlinks").format(count))
         _LOG.debug("_on_scan_complete: %d backlinks", count)
+        self._scan_thread = None
+
+    def _on_scan_finished(self) -> None:
+        """Clean up the finished thread reference."""
+        self._scan_thread = None
 
     def _on_item_clicked(self, item: QListWidgetItem) -> None:
         filepath = item.data(Qt.ItemDataRole.UserRole)
