@@ -1,8 +1,9 @@
 """QTextBrowser subclass that loads local images via loadResource() override."""
 
 import base64
-import logging
 from pathlib import Path
+
+from core.logging import setup_logging
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QImage, QTextDocument
@@ -13,7 +14,7 @@ from markdown.image_utils import (
     resolve_image_path,
 )
 
-_LOG = logging.getLogger("cutemd.preview_browser")
+_LOG = setup_logging("cutemd.preview_browser")
 
 
 def _fit_image(img: QImage, max_width: int) -> QImage:
