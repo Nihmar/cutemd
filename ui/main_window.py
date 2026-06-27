@@ -498,8 +498,8 @@ class MainWindow(QMainWindow):
         editor_layout = QVBoxLayout(editor_pane)
         editor_layout.setContentsMargins(0, 0, 0, 0)
         editor_layout.setSpacing(2)
-        editor_layout.addWidget(editor_toolbar)
         editor_layout.addWidget(self._tabs)
+        editor_layout.addWidget(editor_toolbar)
         editor_layout.addWidget(status_widget)
 
         # Splitter: left | editor | right  (toolbars are outside, always visible)
