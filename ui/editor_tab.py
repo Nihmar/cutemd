@@ -766,7 +766,7 @@ class EditorTab(QWidget):
         self._preview_worker.render_requested.emit(params)
         self._refresh_link_highlights()
 
-    def _on_preview_ready(self, html: str, anchor_map: object, text_hash: int) -> None:
+    def _on_preview_ready(self, html: str, anchor_map: object) -> None:
         self._preview_busy = False
         # Cancel spinner if it hasn't fired yet.
         if hasattr(self, "_spinner_timer"):

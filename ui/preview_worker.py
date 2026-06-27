@@ -18,7 +18,7 @@ class PreviewWorker(QObject):
     :attr:`result_ready` to receive the generated HTML and anchor map.
     """
 
-    result_ready = Signal(str, object, int)  # html, anchor_map, text_hash
+    result_ready = Signal(str, object)  # html, anchor_map
     render_requested = Signal(object)  # actually carries a dict of kwargs
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -42,4 +42,4 @@ class PreviewWorker(QObject):
         except Exception:
             anchor_map = []
 
-        self.result_ready.emit(html, anchor_map, hash(params["text"]))
+        self.result_ready.emit(html, anchor_map)

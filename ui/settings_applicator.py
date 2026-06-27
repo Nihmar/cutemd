@@ -116,6 +116,9 @@ class SettingsApplicator:
         # --- Auto-update ---
         w._s.set_auto_update_check(dlg.selected_auto_update_check())
 
+        # --- Session restore (global) ---
+        w._s.set_session_restore_enabled(dlg.selected_session_restore_enabled())
+
         # --- Menu bar ---
         new_mbv = dlg.selected_menu_bar_visible()
         old_mbv = w._s.menu_bar_visible()
@@ -187,9 +190,6 @@ class SettingsApplicator:
         w._s.set_auto_sync_enabled(dlg.selected_auto_sync_enabled())
         w._s.set_auto_sync_interval(dlg.selected_auto_sync_interval())
         w._s.set_sync_on_save(dlg.selected_sync_on_save())
-
-        # Session restore
-        w._s.set_session_restore_enabled(dlg.selected_session_restore_enabled())
 
         w._update_auto_sync_timer()
         w._update_menu_state()
