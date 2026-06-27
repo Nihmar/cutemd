@@ -128,6 +128,7 @@ class EditorTab(QWidget):
         self._last_anchor: str = ""
         self._line_anchor_map: list[int] = []
         self._line_anchor_map_hash: int = 0
+        self._frontmatter_offset: int = 0  # lines stripped by frontmatter removal
         self._last_rendered_hash: int = 0
         self._pending_render_hash: int = 0
         self._pending_sync_anchor: str = ""
@@ -701,6 +702,7 @@ class EditorTab(QWidget):
             return  # nothing to preview
         text = strip_frontmatter(raw_text)
         text = preprocess_wikilinks(preprocess_wikilink_images(text))
+        self._frontmatter_offset = len(raw_text.split("\n")) - len(text.split("\n"))
         text_hash = hash(text)
         _LOG.debug("_update_preview: hash=%s", text_hash)
         # Anchor map is computed in the worker thread.
@@ -708,7 +710,7 @@ class EditorTab(QWidget):
 
         if self._line_anchor_map:
             first_block = self.editor.firstVisibleBlock()
-            current_line = first_block.blockNumber()
+            current_line = max(0, first_block.blockNumber() - self._frontmatter_offset)
             line_map = self._line_anchor_map
             current_anchor_idx = (
                 line_map[current_line] if current_line < len(line_map) else 0
@@ -842,7 +844,7 @@ class EditorTab(QWidget):
         if not line_map:
             return
         first_block = self.editor.firstVisibleBlock()
-        current_line = first_block.blockNumber()
+        current_line = max(0, first_block.blockNumber() - self._frontmatter_offset)
         if current_line >= len(line_map):
             return
         anchor_idx = line_map[current_line]
@@ -922,7 +924,9 @@ class EditorTab(QWidget):
             return
 
         # Scroll editor so that line is near the top.
-        # Use a ratio-based approach: line / total_lines.
+        # Adjust for frontmatter: target_line is from preprocessed text,
+        # editor blocks include the frontmatter lines.
+        target_line += self._frontmatter_offset
         editor_sb = self.editor.verticalScrollBar()
         max_ed = editor_sb.maximum()
         if max_ed <= 0:
