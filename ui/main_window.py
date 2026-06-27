@@ -52,6 +52,7 @@ from core.webdav.sync import sync_folder
 from ui.qss_loader import load_qss
 from ui.action_registry import ActionRegistry
 from ui.window_state import WindowStateManager
+from ui.backlinks_panel import BacklinksPanel
 from ui.editor_context_menu import show_editor_context_menu
 from ui.editor_tab import EditorTab
 from ui.editor_toolbar import EditorToolbar
@@ -153,6 +154,12 @@ class MainWindow(QMainWindow):
         self._toc_timer.setSingleShot(True)
         self._toc_timer.setInterval(300)
         self._toc_timer.timeout.connect(self._rebuild_toc)
+
+        # --- Backlinks scan debounce timer ---
+        self._backlinks_timer = QTimer(self)
+        self._backlinks_timer.setSingleShot(True)
+        self._backlinks_timer.setInterval(800)
+        self._backlinks_timer.timeout.connect(self._do_backlinks_scan)
 
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
@@ -397,6 +404,12 @@ class MainWindow(QMainWindow):
         self._right_dock_splitter.addWidget(self._toc_panel)
         self._right_dock_splitter.setChildrenCollapsible(False)
         self._right_dock_splitter.splitterMoved.connect(self._on_right_dock_splitter_moved)
+
+        # --- Backlinks panel (right dock, below TOC) ---
+        self._backlinks_panel = BacklinksPanel()
+        self._backlinks_panel.backlink_activated.connect(self._on_backlink_activated)
+        self._right_dock_splitter.addWidget(self._backlinks_panel)
+
         self._right_dock.setWidget(self._right_dock_splitter)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self._right_dock)
 
@@ -542,6 +555,48 @@ class MainWindow(QMainWindow):
             tab.editor.setTextCursor(cursor)
             tab.editor.centerCursor()
 
+    # ------------------------------------------------------------------
+    # Backlinks
+    # ------------------------------------------------------------------
+
+    def _trigger_backlinks_scan(self, tab: EditorTab, immediate: bool = False) -> None:
+        """Start (or schedule) a backlinks scan for the file in *tab*.
+
+        *immediate* bypasses the debounce timer (used on tab switches).
+        """
+        if self._folder_path is None or tab.file_path is None:
+            return
+        if tab._is_binary_preview:
+            self._backlinks_panel.clear()
+            return
+        self._pending_backlinks_file = tab.file_path
+        if immediate:
+            self._backlinks_timer.stop()
+            self._do_backlinks_scan()
+        else:
+            self._backlinks_timer.start()
+
+    def _do_backlinks_scan(self) -> None:
+        """Execute the pending backlinks scan."""
+        fp = getattr(self, "_pending_backlinks_file", None)
+        if fp is None or self._folder_path is None:
+            return
+        _LOG.debug("_do_backlinks_scan: %s", fp.name)
+        ad = self._folder_settings.attachments_dir() if self._folder_settings else None
+        self._backlinks_panel.start_scan(self._folder_path, fp, ad)
+
+    def _on_backlink_activated(self, filepath: str) -> None:
+        """Open a backlinked file in a new tab."""
+        p = Path(filepath)
+        idx = self._find_tab_for_file(p)
+        if idx >= 0:
+            self._tabs.setCurrentIndex(idx)
+            return
+        tab = self._add_tab()
+        tab.load_file(p)
+        self._refresh_tab_title(tab)
+        self._update_window_title()
+
     def _add_tab(self) -> EditorTab:
         tab = EditorTab(
             self._md,
@@ -631,6 +686,8 @@ class MainWindow(QMainWindow):
             # Rebuild TOC if the panel is visible
             if self._side_toc_btn.isChecked():
                 self._rebuild_toc()
+            # Trigger backlinks scan (immediate on tab switch)
+            self._trigger_backlinks_scan(tab, immediate=True)
 
     def _on_editor_text_changed(self) -> None:
         """Debounce TOC rebuild when editor content changes (only if TOC is open)."""
@@ -1419,6 +1476,7 @@ class MainWindow(QMainWindow):
         self._add_tab()
         self._tree_panel.set_root_path("")
         self._search_panel.set_folder(None)
+        self._backlinks_panel.clear()
         self._s.remove_last_folder()
         self._auto_sync_timer.stop()
         self._update_menu_state()
@@ -1610,6 +1668,11 @@ class MainWindow(QMainWindow):
         # Sync-on-save: trigger sync if enabled and something was saved
         if saved_any and self._s.sync_on_save():
             self._on_webdav_sync(auto_triggered=True)
+        # Debounced backlinks scan on autosave
+        if saved_any:
+            tab = self._current_tab()
+            if tab and not tab._is_binary_preview:
+                self._trigger_backlinks_scan(tab)
 
     def _on_new(self) -> None:
         tab = self._current_tab()
@@ -1628,6 +1691,7 @@ class MainWindow(QMainWindow):
                 self._refresh_tab_title(tab)
                 if tab.file_path:
                     self._tree_panel.select_file(tab.file_path)
+                    self._trigger_backlinks_scan(tab)
                 # Sync-on-save for manual saves
                 if self._s.sync_on_save():
                     self._on_webdav_sync(auto_triggered=True)
@@ -1651,6 +1715,7 @@ class MainWindow(QMainWindow):
             self._refresh_tab_title(tab)
             if tab.file_path:
                 self._tree_panel.select_file(tab.file_path)
+                self._trigger_backlinks_scan(tab)
 
     # ------------------------------------------------------------------
     # Window title
@@ -1732,6 +1797,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         self._autosave_timer.stop()
         self._auto_sync_timer.stop()
+        self._backlinks_timer.stop()
         for i in range(self._tabs.count() - 1, -1, -1):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab) and not tab.maybe_save():
