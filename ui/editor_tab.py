@@ -689,6 +689,10 @@ class EditorTab(QWidget):
         text = preprocess_tags(
             preprocess_wikilinks(preprocess_wikilink_images(text))
         )
+        # Debug: count inline tags
+        _tag_count = text.count('<span class="tag">')
+        if _tag_count:
+            _LOG.debug("_update_preview: %d inline #tag(s) wrapped", _tag_count)
         self._frontmatter_offset = len(raw_text.split("\n")) - len(text.split("\n"))
         text_hash = hash(text)
         _LOG.debug("_update_preview: hash=%s", text_hash)

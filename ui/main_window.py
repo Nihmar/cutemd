@@ -1756,11 +1756,9 @@ class MainWindow(QMainWindow):
         # Sync-on-save: trigger sync if enabled and something was saved
         if saved_any and self._s.sync_on_save():
             self._on_webdav_sync(auto_triggered=True)
-        # Debounced backlinks scan on autosave
-        if saved_any:
-            tab = self._current_tab()
-            if tab and not tab._is_binary_preview:
-                self._trigger_backlinks_scan(tab)
+        # Sync-on-save: trigger sync if enabled and something was saved
+        if saved_any and self._s.sync_on_save():
+            self._on_webdav_sync(auto_triggered=True)
         # Debounced tags scan on autosave
         if saved_any:
             self._trigger_tags_scan()
@@ -1782,7 +1780,6 @@ class MainWindow(QMainWindow):
                 self._refresh_tab_title(tab)
                 if tab.file_path:
                     self._tree_panel.select_file(tab.file_path)
-                    self._trigger_backlinks_scan(tab)
                     self._trigger_tags_scan()
                 # Sync-on-save for manual saves
                 if self._s.sync_on_save():
@@ -1807,7 +1804,7 @@ class MainWindow(QMainWindow):
             self._refresh_tab_title(tab)
             if tab.file_path:
                 self._tree_panel.select_file(tab.file_path)
-                self._trigger_backlinks_scan(tab)
+                self._trigger_tags_scan()
 
     # ------------------------------------------------------------------
     # Window title
