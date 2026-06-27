@@ -68,7 +68,8 @@ class SidePanelManager:
         self._animate_splitter_to(0, on_finish=lambda: self._left_stack.hide())
 
     def is_left_panel_open(self) -> bool:
-        return self._left_stack.isVisible() and self._splitter.sizes()[0] > 0
+        sizes = self._splitter.sizes()
+        return len(sizes) > 0 and sizes[0] > 0
 
     def restore_panel_width(self) -> None:
         left = self._w._s.left_panel_width()
@@ -76,7 +77,10 @@ class SidePanelManager:
         _LOG.debug("restore_panel_width: left=%d total=%d", left, total)
         if total > 0 and left >= 0:
             left = max(0, min(left, total))
-            self._splitter.setSizes([left, total - left])
+            sizes = self._splitter.sizes()
+            right = sizes[2] if len(sizes) > 2 else 0
+            mid = max(total - left - right, 0)
+            self._splitter.setSizes([left, mid, right])
         self._reset_save_timer()
 
     # ------------------------------------------------------------------
@@ -173,7 +177,9 @@ class SidePanelManager:
 
         if self._tree_anim is not None:
             self._tree_anim.stop()
-        start = self._splitter.sizes()[0]
+        sizes = self._splitter.sizes()
+        start = sizes[0] if len(sizes) > 0 else 0
+        right = sizes[2] if len(sizes) > 2 else 0
 
         if start == left_width:
             if on_finish:
@@ -188,7 +194,10 @@ class SidePanelManager:
 
         def _step(progress: float) -> None:
             cur = int(start + (left_width - start) * progress)
-            self._splitter.setSizes([max(cur, 0), max(total - cur, 0)])
+            sizes = self._splitter.sizes()
+            right = sizes[2] if len(sizes) > 2 else 0
+            mid = max(total - cur - right, 0)
+            self._splitter.setSizes([max(cur, 0), mid, right])
 
         self._tree_anim.valueChanged.connect(_step)
 

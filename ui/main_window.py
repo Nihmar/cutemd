@@ -240,7 +240,8 @@ class MainWindow(QMainWindow):
         """Save left panel width when user drags the outer splitter."""
         if not self._side_panel._save_allowed:
             return
-        left = self._splitter.sizes()[0]
+        sizes = self._splitter.sizes()
+        left = sizes[0] if len(sizes) > 0 else 0
         if left <= 0:
             return
         _LOG.debug("splitterMoved save: left=%d", left)
@@ -491,11 +492,12 @@ class MainWindow(QMainWindow):
         editor_layout.addWidget(self._tabs)
         editor_layout.addWidget(status_widget)
 
-        # Splitter: left_splitter | editor_pane  (toolbar is outside, always visible)
+        # Splitter: left | editor | right  (toolbars are outside, always visible)
         self._splitter = QSplitter(Qt.Orientation.Horizontal)
         self._splitter.addWidget(self._left_splitter)
         self._splitter.addWidget(editor_pane)
-        self._splitter.setSizes([220, 948])
+        self._splitter.addWidget(self._right_splitter)
+        self._splitter.setSizes([220, 726, 220])
         self._splitter.splitterMoved.connect(self._on_splitter_moved)
 
         # Side panel manager (centralizes toggle/anim logic)
@@ -513,7 +515,6 @@ class MainWindow(QMainWindow):
         outer_layout.setSpacing(0)
         outer_layout.addWidget(self._left_tb)
         outer_layout.addWidget(self._splitter)
-        outer_layout.addWidget(self._right_splitter)
         outer_layout.addWidget(self._right_tb)
 
         self.setCentralWidget(outer)
@@ -1938,7 +1939,10 @@ class MainWindow(QMainWindow):
                 return
         self._window_state.on_close(
             folder_path=self._folder_path,
-            splitter_sizes=(self._splitter.sizes()[0], self._splitter.sizes()[1]),
+            splitter_sizes=(
+                self._splitter.sizes()[0] if len(self._splitter.sizes()) > 0 else 0,
+                self._splitter.sizes()[1] if len(self._splitter.sizes()) > 1 else 0,
+            ),
             left_splitter_sizes=self._left_splitter.sizes() if hasattr(self, "_left_splitter") else [],
             right_dock_sizes=self._right_dock_splitter.sizes() if hasattr(self, "_right_dock_splitter") else [],
             window_geometry=self.saveGeometry(),
