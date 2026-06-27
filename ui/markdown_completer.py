@@ -18,6 +18,7 @@ from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
+    QLineEdit,
     QListWidgetItem,
     QPlainTextEdit,
     QVBoxLayout,
@@ -79,6 +80,12 @@ class MarkdownAutoCompleter(QObject):
         self._tag_popup: QFrame | None = None
         self._tag_list_widget: CuteListWidget | None = None
 
+        # File autocomplete state
+        self._file_list: list[str] = []
+        self._file_popup: QFrame | None = None
+        self._file_filter: QLineEdit | None = None
+        self._file_list_widget: CuteListWidget | None = None
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -90,6 +97,10 @@ class MarkdownAutoCompleter(QObject):
         """Update the tag list used for Ctrl+Space autocomplete."""
         self._tag_list = sorted(set(tags))
 
+    def set_file_list(self, files: list[str]) -> None:
+        """Update the file list (relative paths) used for link autocomplete."""
+        self._file_list = sorted(set(files))
+
     # ------------------------------------------------------------------
     # Event filter
     # ------------------------------------------------------------------
@@ -97,28 +108,22 @@ class MarkdownAutoCompleter(QObject):
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if obj is self._editor and event.type() == QEvent.Type.KeyPress:
             key_event: QKeyEvent = event  # type: ignore[assignment]
-
-            # Tag autocomplete: Ctrl+Space after #
             if (key_event.key() == Qt.Key.Key_Space
                     and key_event.modifiers() == Qt.KeyboardModifier.ControlModifier):
                 _LOG.debug("eventFilter: Ctrl+Space detected")
+                # Check context: file link vs tag
+                if self._inside_file_link():
+                    return self._show_file_completer()
                 return self._show_tag_completer()
-
             return self._handle_key(key_event)
 
-        # Tag popup list widget keyboard handling
+        # Popup keyboard handling
         if obj is self._tag_list_widget and event.type() == QEvent.Type.KeyPress:
-            key_event: QKeyEvent = event  # type: ignore[assignment]
-            if key_event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                item = self._tag_list_widget.currentItem()
-                if item:
-                    self._on_tag_selected(item)
-                return True
-            if key_event.key() == Qt.Key.Key_Escape:
-                self._hide_tag_popup()
-                self._editor.setFocus()
-                return True
-            return False
+            return self._handle_tag_popup_key(event)
+        if obj is self._file_list_widget and event.type() == QEvent.Type.KeyPress:
+            return self._handle_file_popup_key(event)
+        if obj is self._file_filter and event.type() == QEvent.Type.KeyPress:
+            return self._handle_file_filter_key(event)
 
         return super().eventFilter(obj, event)
 
@@ -351,7 +356,34 @@ class MarkdownAutoCompleter(QObject):
         cursor.insertText("")
 
     # ------------------------------------------------------------------
-    # Tag autocomplete (Ctrl+Space after #)
+    # Context detection
+    # ------------------------------------------------------------------
+
+    def _inside_file_link(self) -> bool:
+        """Check if the cursor is inside a markdown URL ``](...)`` or
+        wikilink ``[[...]]``."""
+        cursor = self._editor.textCursor()
+        pos_in_block = cursor.positionInBlock()
+        block_text = cursor.block().text()
+
+        # Check for markdown link: inside ](...)
+        md_start = block_text.rfind("](", 0, pos_in_block)
+        if md_start >= 0:
+            close = block_text.find(")", md_start)
+            if close >= pos_in_block:
+                return True
+
+        # Check for wikilink: inside [[...]]
+        wiki_start = block_text.rfind("[[", 0, pos_in_block)
+        if wiki_start >= 0:
+            close = block_text.find("]]", wiki_start + 2)
+            if close >= pos_in_block:
+                return True
+
+        return False
+
+    # ------------------------------------------------------------------
+    # Tag autocomplete
     # ------------------------------------------------------------------
 
     def _show_tag_completer(self) -> bool:
@@ -364,7 +396,6 @@ class MarkdownAutoCompleter(QObject):
         block_text = cursor.block().text()
         pos_in_block = cursor.positionInBlock()
 
-        # Walk backwards from cursor to find the #
         hash_pos = -1
         for i in range(pos_in_block - 1, -1, -1):
             ch = block_text[i]
@@ -375,84 +406,48 @@ class MarkdownAutoCompleter(QObject):
                 break
 
         if hash_pos < 0:
-            _LOG.debug("_show_tag_completer: no # before cursor")
             return False
 
-        # Extract partial tag text after #
         partial = block_text[hash_pos + 1:pos_in_block]
-        _LOG.debug("_show_tag_completer: hash_pos=%d partial=%r",
-                   hash_pos, partial)
-
-        # Filter tags matching the partial text
-        matching = ([t for t in self._tag_list
-                     if partial.lower() in t.lower()]
+        matching = ([t for t in self._tag_list if partial.lower() in t.lower()]
                     if partial else list(self._tag_list))
         _LOG.debug("_show_tag_completer: %d matching (out of %d)",
                    len(matching), len(self._tag_list))
         if not matching:
             return False
 
-        # Store state for insertion
         self._hash_pos = hash_pos
         self._pos_in_block = pos_in_block
         self._hash_block = cursor.block()
 
-        # Build popup as a child of the editor viewport
-        self._tag_popup = QFrame(
-            self._editor.viewport(),
-            Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint,
-        )
-        self._tag_popup.setObjectName("tagPopup")
-        self._tag_popup.setStyleSheet(
-            "#tagPopup {"
-            "  background: palette(window);"
-            "  border: 1px solid palette(mid);"
-            "  border-radius: 8px;"
-            "}"
-        )
-        layout = QVBoxLayout(self._tag_popup)
-        layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(0)
-
+        self._tag_popup = _make_popup(self._editor.viewport())
+        layout = self._tag_popup.layout()
         self._tag_list_widget = CuteListWidget(self._tag_popup)
         self._tag_list_widget.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
-        )
-        # Highlight the selected row using palette colors
-        self._tag_list_widget.setStyleSheet(
-            "QListWidget::item:selected {"
-            "  background: palette(highlight);"
-            "  color: palette(highlighted-text);"
-            "}"
-        )
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         for tag in matching:
             self._tag_list_widget.addItem(QListWidgetItem(tag))
         self._tag_list_widget.itemClicked.connect(self._on_tag_selected)
         self._tag_list_widget.installEventFilter(self)
         layout.addWidget(self._tag_list_widget)
 
-        # Position at cursor (global coords)
         cursor_rect = self._editor.cursorRect(cursor)
         vp = self._editor.viewport()
         global_pos = vp.mapToGlobal(cursor_rect.bottomLeft())
         w = max(160, self._tag_list_widget.sizeHintForColumn(0) + 20)
         h = min(len(matching) * 22 + 4, 240)
         self._tag_popup.setGeometry(global_pos.x(), global_pos.y() + 2, w, h)
-        _LOG.debug("_show_tag_completer: popup at (%d,%d) %dx%d",
-                   global_pos.x(), global_pos.y() + 2, w, h)
         self._tag_popup.show()
         self._tag_list_widget.setFocus()
         self._tag_list_widget.setCurrentRow(0)
         return True
 
     def _on_tag_selected(self, item: QListWidgetItem) -> None:
-        """Replace #partial with #tag and close popup."""
         tag = item.text()
         self._hide_tag_popup()
         self._insert_tag_completion(tag)
 
     def _insert_tag_completion(self, tag: str) -> None:
-        """Replace text from # to cursor with #tag."""
         if not getattr(self, "_hash_block", None):
             return
         block = self._hash_block
@@ -468,9 +463,204 @@ class MarkdownAutoCompleter(QObject):
         self._editor.setFocus()
 
     def _hide_tag_popup(self) -> None:
-        """Destroy the tag popup."""
         if self._tag_popup is not None:
             self._tag_popup.hide()
             self._tag_popup.deleteLater()
             self._tag_popup = None
             self._tag_list_widget = None
+
+    def _handle_tag_popup_key(self, event: QKeyEvent) -> bool:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            item = self._tag_list_widget.currentItem()
+            if item:
+                self._on_tag_selected(item)
+            return True
+        if event.key() == Qt.Key.Key_Escape:
+            self._hide_tag_popup()
+            self._editor.setFocus()
+            return True
+        return False
+
+    # ------------------------------------------------------------------
+    # File autocomplete (Ctrl+Space inside link brackets)
+    # ------------------------------------------------------------------
+
+    def _show_file_completer(self) -> bool:
+        """Show a popup with filterable file list."""
+        if not self._file_list:
+            _LOG.debug("_show_file_completer: no files in list")
+            return False
+
+        cursor = self._editor.textCursor()
+        block_text = cursor.block().text()
+        pos_in_block = cursor.positionInBlock()
+
+        # Determine link context
+        self._link_context: str = ""  # 'md' or 'wiki'
+        self._link_start: int = -1
+        self._link_end: int = -1
+
+        md_start = block_text.rfind("](", 0, pos_in_block)
+        if md_start >= 0:
+            close = block_text.find(")", md_start)
+            if close >= pos_in_block:
+                self._link_context = "md"
+                self._link_start = md_start + 2  # after ](
+                self._link_end = close
+
+        if not self._link_context:
+            wiki_start = block_text.rfind("[[", 0, pos_in_block)
+            if wiki_start >= 0:
+                close = block_text.find("]]", wiki_start + 2)
+                if close >= pos_in_block:
+                    self._link_context = "wiki"
+                    self._link_start = wiki_start + 2
+                    self._link_end = close
+
+        if not self._link_context:
+            return False
+
+        partial = block_text[self._link_start:pos_in_block]
+        matching = ([f for f in self._file_list if partial.lower() in f.lower()]
+                    if partial else list(self._file_list))
+        _LOG.debug("_show_file_completer: partial=%r %d matching",
+                   partial, len(matching))
+        if not matching:
+            return False
+
+        self._link_block = cursor.block()
+
+        self._file_popup = _make_popup(self._editor.viewport())
+        layout = self._file_popup.layout()
+
+        self._file_filter = QLineEdit(self._file_popup)
+        self._file_filter.setPlaceholderText(self._editor.tr("Filter files\u2026"))
+        self._file_filter.setText(partial)
+        self._file_filter.selectAll()
+        self._file_filter.textChanged.connect(self._on_file_filter_changed)
+        self._file_filter.installEventFilter(self)
+        layout.addWidget(self._file_filter)
+
+        self._file_list_widget = CuteListWidget(self._file_popup)
+        self._file_list_widget.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._file_list_widget.itemClicked.connect(self._on_file_selected)
+        self._file_list_widget.installEventFilter(self)
+        self._populate_file_list(matching)
+        layout.addWidget(self._file_list_widget)
+
+        cursor_rect = self._editor.cursorRect(cursor)
+        vp = self._editor.viewport()
+        global_pos = vp.mapToGlobal(cursor_rect.bottomLeft())
+        w = max(280, self._file_list_widget.sizeHintForColumn(0) + 20)
+        h = 280
+        self._file_popup.setGeometry(global_pos.x(), global_pos.y() + 2, w, h)
+        self._file_popup.show()
+        self._file_filter.setFocus()
+        return True
+
+    def _populate_file_list(self, files: list[str]) -> None:
+        """Fill the file list widget with filtered files."""
+        self._file_list_widget.clear()
+        for f in files:
+            self._file_list_widget.addItem(QListWidgetItem(f))
+        if self._file_list_widget.count() > 0:
+            self._file_list_widget.setCurrentRow(0)
+
+    def _on_file_filter_changed(self, text: str) -> None:
+        """Re-filter the file list based on filter text."""
+        low = text.strip().lower()
+        matching = [f for f in self._file_list if low in f.lower()] if low else list(self._file_list)
+        self._populate_file_list(matching)
+
+    def _on_file_selected(self, item: QListWidgetItem) -> None:
+        path = item.text()
+        self._hide_file_popup()
+        self._insert_link_target(path)
+
+    def _insert_link_target(self, target: str) -> None:
+        """Replace the link content between delimiters with *target*."""
+        if not getattr(self, "_link_block", None):
+            return
+        block = self._link_block
+        if not block.isValid():
+            return
+        cursor = self._editor.textCursor()
+        block_start = block.position()
+        cursor.setPosition(block_start + self._link_start)
+        cursor.setPosition(block_start + self._link_end,
+                          QTextCursor.MoveMode.KeepAnchor)
+        cursor.insertText(target)
+        self._editor.setTextCursor(cursor)
+        self._editor.setFocus()
+
+    def _hide_file_popup(self) -> None:
+        if self._file_popup is not None:
+            self._file_popup.hide()
+            self._file_popup.deleteLater()
+            self._file_popup = None
+            self._file_filter = None
+            self._file_list_widget = None
+
+    def _handle_file_popup_key(self, event: QKeyEvent) -> bool:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            item = self._file_list_widget.currentItem()
+            if item:
+                self._on_file_selected(item)
+            return True
+        if event.key() == Qt.Key.Key_Escape:
+            self._hide_file_popup()
+            self._editor.setFocus()
+            return True
+        return False
+
+    def _handle_file_filter_key(self, event: QKeyEvent) -> bool:
+        if event.key() == Qt.Key.Key_Down:
+            self._file_list_widget.setFocus()
+            return True
+        if event.key() == Qt.Key.Key_Return or event.key() == Qt.Key.Key_Enter:
+            if self._file_list_widget.count() > 0:
+                self._on_file_selected(self._file_list_widget.item(0))
+            return True
+        if event.key() == Qt.Key.Key_Escape:
+            self._hide_file_popup()
+            self._editor.setFocus()
+            return True
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _make_popup(parent: QWidget) -> QFrame:
+    """Create a styled popup frame with rounded corners and selection
+    highlighting.
+    """
+    popup = QFrame(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+    popup.setObjectName("completerPopup")
+    popup.setStyleSheet(
+        "#completerPopup {"
+        "  background: palette(window);"
+        "  border: 1px solid palette(mid);"
+        "  border-radius: 8px;"
+        "}"
+        "QListWidget {"
+        "  border: none;"
+        "  background: transparent;"
+        "}"
+        "QListWidget::item:selected {"
+        "  background: palette(highlight);"
+        "  color: palette(highlighted-text);"
+        "}"
+        "QLineEdit {"
+        "  border: none;"
+        "  border-bottom: 1px solid palette(mid);"
+        "  padding: 4px 6px;"
+        "  background: transparent;"
+        "}"
+    )
+    layout = QVBoxLayout(popup)
+    layout.setContentsMargins(4, 4, 4, 4)
+    layout.setSpacing(2)
+    return popup

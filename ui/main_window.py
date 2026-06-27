@@ -715,12 +715,29 @@ class MainWindow(QMainWindow):
         self._update_window_title()
 
     def _on_tags_updated(self, tags: list[str]) -> None:
-        """Propagate updated tag list to all editor tab completers."""
+        """Propagate updated tag and file lists to all editor tab completers."""
         _LOG.debug("_on_tags_updated: %d tags", len(tags))
+        # Collect file list too
+        files = self._collect_vault_files()
         for i in range(self._tabs.count()):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab) and hasattr(tab, "_completer"):
                 tab._completer.set_tag_list(tags)
+                tab._completer.set_file_list(files)
+
+    def _collect_vault_files(self) -> list[str]:
+        """Return relative paths of all .md/.markdown files in the vault."""
+        if self._folder_path is None:
+            return []
+        files = []
+        for pattern in ("*.md", "*.markdown"):
+            for p in self._folder_path.rglob(pattern):
+                try:
+                    rel = p.relative_to(self._folder_path)
+                    files.append(str(rel.with_suffix("")))  # strip extension
+                except ValueError:
+                    pass
+        return sorted(set(files))
 
     def _add_tab(self) -> EditorTab:
         tab = EditorTab(
@@ -1522,8 +1539,15 @@ class MainWindow(QMainWindow):
         self._s.set_last_folder(path)
         self._update_auto_sync_timer()
         self._update_menu_state()
-        # Initial tags scan for the vault
+        # Initial tags and file list for autocomplete
         self._trigger_tags_scan()
+        # Immediately propagate file list (tags will follow when scan completes)
+        files = self._collect_vault_files()
+        if files:
+            for i in range(self._tabs.count()):
+                tab = self._tabs.widget(i)
+                if isinstance(tab, EditorTab) and hasattr(tab, "_completer"):
+                    tab._completer.set_file_list(files)
 
     def _restore_last_folder(self) -> None:
         """Decide what to show on startup (called via QTimer.singleShot(0)).
