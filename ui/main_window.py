@@ -1290,6 +1290,7 @@ class MainWindow(QMainWindow):
         self, url: str, user: str, pwd: str, auto_triggered: bool = False
     ) -> None:
         """Launch the WebDAV sync thread."""
+        from ui.webdav_sync import SyncThread
         self._sync_thread = SyncThread(self._folder_path, url, user, pwd)
 
         def _on_progress(msg: str) -> None:
