@@ -8,7 +8,7 @@ from html import unescape as _unescape_html
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from markdown.image_utils import SizeProvider, add_img_dimensions, build_file_index, fix_image_paragraphs
+_FILE_INDEX_CACHE: dict[Path, tuple[float, dict[str, list[Path]]]] = {}
 from markdown.tools import BLOCK_OPEN_TYPES, add_heading_ids
 
 if TYPE_CHECKING:
@@ -144,10 +144,18 @@ def build_html(
             + "</pre>"
         )
 
-    # Build a file index once for the vault root so image resolution
-    # doesn't do a full rglob per unresolved image.
-    vault_root = attachments_dir.parent if attachments_dir is not None else base_dir
-    file_index = build_file_index(vault_root)
+def _cached_file_index(vault_root: Path) -> dict[str, list[Path]]:
+    """Return a cached file index for *vault_root*, invalidated on mtime change."""
+    try:
+        mtime = vault_root.stat().st_mtime
+    except OSError:
+        return build_file_index(vault_root)
+    cached = _FILE_INDEX_CACHE.get(vault_root)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    idx = build_file_index(vault_root)
+    _FILE_INDEX_CACHE[vault_root] = (mtime, idx)
+    return idx
 
     body_html = add_img_dimensions(
         body_html, base_dir, max_width, get_image_size, attachments_dir, file_index

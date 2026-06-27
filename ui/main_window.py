@@ -70,6 +70,7 @@ from ui.update_dialog import UpdateAvailableDialog
 # ---------------------------------------------------------------------------
 _CSS_PATH = resolve_path("ui", "preview_styles.css")
 _ICONS_DIR = resolve_path("ui", "icons")
+_ICON_CACHE: dict[tuple[str, str, int], QIcon] = {}
 
 _LOG = setup_logging("cutemd.main_window")
 
@@ -631,7 +632,12 @@ class MainWindow(QMainWindow):
     # Editor toolbar
     # ------------------------------------------------------------------
     def _make_colored_icon(self, name: str, color: QColor, size: int = 18) -> QIcon:
-        """Render an SVG icon tinted with *color*."""
+        """Render an SVG icon tinted with *color*. Results are cached."""
+        cache_key = (name, color.name(), size)
+        cached = _ICON_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
         from PySide6.QtSvg import QSvgRenderer
 
         path = str(_ICONS_DIR / f"{name}.svg")
@@ -651,7 +657,9 @@ class MainWindow(QMainWindow):
         painter.fillRect(result.rect(), color)
         painter.end()
 
-        return QIcon(result)
+        icon = QIcon(result)
+        _ICON_CACHE[cache_key] = icon
+        return icon
 
     def _recolor_toolbar_icons(self) -> None:
         icon_color = self._current_theme.icon_color

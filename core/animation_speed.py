@@ -6,6 +6,9 @@ from configparser import ConfigParser
 from pathlib import Path
 
 
+_CACHED_FACTOR: float | None = None
+
+
 def animation_duration_ms(base_ms: int = 150) -> int:
     """Return *base_ms* scaled by the system animation speed factor.
 
@@ -13,8 +16,10 @@ def animation_duration_ms(base_ms: int = 150) -> int:
     (KDE Plasma) and ``enable-animations`` from the GNOME gsettings
     path.  Falls back to *base_ms* if nothing is detected.
     """
-    factor = _detect_factor()
-    return max(0, int(base_ms * factor))
+    global _CACHED_FACTOR
+    if _CACHED_FACTOR is None:
+        _CACHED_FACTOR = _detect_factor()
+    return max(0, int(base_ms * _CACHED_FACTOR))
 
 
 def _detect_factor() -> float:
