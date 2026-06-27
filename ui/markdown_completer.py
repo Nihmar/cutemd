@@ -112,9 +112,12 @@ class MarkdownAutoCompleter(QObject):
             if (key_event.key() == Qt.Key.Key_Space
                     and key_event.modifiers() == Qt.KeyboardModifier.ControlModifier):
                 _LOG.debug("eventFilter: Ctrl+Space detected")
-                # Check context: file link vs tag
+                # Check context: tag (after #) takes priority over file link
+                if self._after_hash():
+                    return self._show_tag_completer()
                 if self._inside_file_link():
                     return self._show_file_completer()
+                # Fallback: if there's a # before cursor, try tags
                 return self._show_tag_completer()
             return self._handle_key(key_event)
 
@@ -361,6 +364,19 @@ class MarkdownAutoCompleter(QObject):
     # ------------------------------------------------------------------
     # Context detection
     # ------------------------------------------------------------------
+
+    def _after_hash(self) -> bool:
+        """Check if there is a ``#`` before the cursor (for tag completion)."""
+        cursor = self._editor.textCursor()
+        pos_in_block = cursor.positionInBlock()
+        block_text = cursor.block().text()
+        for i in range(pos_in_block - 1, -1, -1):
+            ch = block_text[i]
+            if ch == "#":
+                return True
+            if ch.isspace():
+                break
+        return False
 
     def _inside_file_link(self) -> bool:
         """Check if the cursor is inside a markdown URL ``](...)`` or
@@ -737,9 +753,13 @@ class MarkdownAutoCompleter(QObject):
 
 def _make_popup(parent: QWidget) -> QFrame:
     """Create a styled popup frame with rounded corners and selection
-    highlighting.
+    highlighting.  Sets transient parent for Wayland compatibility.
     """
     popup = QFrame(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+    # Set transient parent for Wayland
+    top = parent.window()
+    if top is not None and top.windowHandle() is not None:
+        popup.window().windowHandle().setTransientParent(top.windowHandle())
     popup.setObjectName("completerPopup")
     popup.setStyleSheet(
         "#completerPopup {"
