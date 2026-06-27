@@ -770,7 +770,7 @@ class EditorTab(QWidget):
         self._spinner_timer.start(100)
         _LOG.debug("_update_preview: rendering %d bytes", len(text))
         self._preview_worker.render_requested.emit(params)
-        self._refresh_link_highlights()
+        self._link_mgr.schedule_broken_refresh()
 
     def _on_preview_ready(self, html: str) -> None:
         _LOG.debug("_on_preview_ready: html_len=%d preview=%s", len(html) if html else 0, html[:80] if html else "EMPTY")

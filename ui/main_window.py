@@ -1070,15 +1070,13 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _check_for_updates(self, silent: bool = False) -> None:
-        """Check GitHub for a newer release.
+        """Check GitHub for a newer release (runs in background thread).
 
         If *silent* is True only a notification dialog is shown when an
         update is actually available.  Non-silent (menu action) also
         shows a "you're up to date" message.
         """
         from datetime import date
-
-        from core.updater import check_for_update
 
         today = date.today().isoformat()
         if silent:
@@ -1088,8 +1086,17 @@ class MainWindow(QMainWindow):
             if not self._s.auto_update_check():
                 return
 
-        info = check_for_update(__import__("main").__version__)
         self._s.set_last_update_check(today)
+
+        from ui.update_dialog import _CheckUpdateThread
+
+        self._update_thread = _CheckUpdateThread(__import__("main").__version__, self)
+        self._update_thread.result.connect(
+            lambda info: self._on_update_check_result(info, silent)
+        )
+        self._update_thread.start()
+
+    def _on_update_check_result(self, info, silent: bool) -> None:
 
         if info is None:
             if not silent:

@@ -56,6 +56,12 @@ class LinkManager:
         self._popup_cursor_timer.setInterval(100)
         self._popup_cursor_timer.timeout.connect(self._check_popup_cursor)
 
+        # Debounce timer for broken-link highlights (500 ms after last change).
+        self._broken_link_timer = QTimer(tab)
+        self._broken_link_timer.setSingleShot(True)
+        self._broken_link_timer.setInterval(500)
+        self._broken_link_timer.timeout.connect(self._do_refresh_broken)
+
     # ------------------------------------------------------------------
     # Popup access
     # ------------------------------------------------------------------
@@ -122,6 +128,17 @@ class LinkManager:
         self._hovered_link_target = None
         self._link_preview_show_timer.stop()
         return None
+
+    def schedule_broken_refresh(self) -> None:
+        """Schedule a broken-link highlight refresh after a debounce delay."""
+        self._broken_link_timer.start()
+
+    def _do_refresh_broken(self) -> None:
+        """Actually perform the broken-link scan (called by debounce timer)."""
+        text = self._tab._cached_text
+        if not text:
+            return
+        self.refresh_broken_links(text)
 
     def refresh_broken_links(self, text: str) -> None:
         """Mark unresolved links in red using extra selections."""

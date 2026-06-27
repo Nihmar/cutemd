@@ -17,7 +17,20 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-from core.updater import UpdateInfo, download_release
+from core.updater import UpdateInfo, check_for_update, download_release
+
+
+class _CheckUpdateThread(QThread):
+    """Calls the GitHub API in a background thread."""
+    result = Signal(object)  # UpdateInfo | None
+
+    def __init__(self, current_version: str, parent=None):
+        super().__init__(parent)
+        self._version = current_version
+
+    def run(self):
+        info = check_for_update(self._version)
+        self.result.emit(info)
 
 
 class _DownloadThread(QThread):
