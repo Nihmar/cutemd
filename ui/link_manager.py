@@ -119,6 +119,7 @@ class LinkManager:
     def on_mouse_click(self, pos_in_block: int, block_text: str) -> tuple[str, str] | None:
         """Handle a mouse click on a link. Returns (target, display) or None."""
         link = self._link_range_at(pos_in_block, block_text)
+        _LOG.debug("on_mouse_click: pos=%d text=%s link=%s", pos_in_block, block_text[:50], link)
         if link:
             self.popup.hide()
             self._hovered_link_target = None
