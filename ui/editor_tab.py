@@ -87,6 +87,7 @@ class EditorTab(QWidget):
     title_changed = Signal()
     file_link_clicked = Signal(str, str)  # target, display_text
     encoding_changed = Signal(str)
+    preview_detached = Signal(bool)       # True when preview is detached
 
     _MD_EXTS = MD_EXTS
     _IMG_EXTS = IMG_EXTS
@@ -1030,6 +1031,7 @@ class EditorTab(QWidget):
         wl.addWidget(self._preview_stack)
         self._detached_window.installEventFilter(self)
         self._detached_window.show()
+        self.preview_detached.emit(True)
         _LOG.debug("detach_preview: detached")
         return True
 
@@ -1045,6 +1047,7 @@ class EditorTab(QWidget):
         self._splitter.insertWidget(1, self._preview_stack)
         if hasattr(self, "_splitter_sizes") and self._splitter_sizes:
             self._splitter.setSizes(self._splitter_sizes)
+        self.preview_detached.emit(False)
         _LOG.debug("_attach_preview: re-attached")
 
     # ------------------------------------------------------------------

@@ -765,6 +765,9 @@ class MainWindow(QMainWindow):
         tab.editor.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         tab.editor.customContextMenuRequested.connect(self._on_editor_context_menu)
 
+        # Sync detach button state when preview attaches/detaches
+        tab.preview_detached.connect(self._editor_toolbar._detach_btn.setChecked)
+
         # Insert shared toolbar into this tab
         tab.insert_toolbar(self._editor_toolbar)
 
@@ -831,6 +834,10 @@ class MainWindow(QMainWindow):
             self._update_window_title()
             # Move toolbar to the newly active tab
             tab.insert_toolbar(self._editor_toolbar)
+            # Sync detach button state with new tab
+            self._editor_toolbar._detach_btn.setChecked(
+                tab._detached_window is not None
+            )
             # Rebuild TOC if the panel is visible
             if self._right_toc_btn.isChecked():
                 self._rebuild_toc()
