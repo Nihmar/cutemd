@@ -12,11 +12,10 @@ from core.markdown_actions import HEADING_PREFIXES, TOOLBAR_ITEMS
 
 
 class EditorToolbar(QWidget):
-    """Toolbar with heading menu, formatting buttons, and panel toggles."""
+    """Toolbar with heading menu and formatting buttons."""
 
     format_requested = Signal(str)   # syntax to insert
     image_requested = Signal()
-    toggle_right_panel = Signal()    # toggles TOC/backlinks right dock
 
     def __init__(
         self,
@@ -86,20 +85,6 @@ class EditorToolbar(QWidget):
         layout.addWidget(img_btn)
         self._buttons.append((img_btn, "image"))
 
-        self._add_separator(layout)
-
-        # --- TOC / right panel toggle ---
-        self._toc_btn = QToolButton()
-        self._toc_btn.setIcon(self._icon("toc"))
-        self._toc_btn.setToolTip(self.tr("Toggle Table of Contents"))
-        self._toc_btn.setAutoRaise(True)
-        self._toc_btn.setCheckable(True)
-        self._toc_btn.setIconSize(QSize(18, 18))
-        self._toc_btn.setFixedSize(30, 28)
-        self._toc_btn.clicked.connect(self.toggle_right_panel)
-        layout.addWidget(self._toc_btn)
-        self._buttons.append((self._toc_btn, "toc"))
-
         layout.addStretch()
 
     def recolor(self, icon_color: QColor) -> None:
@@ -108,10 +93,7 @@ class EditorToolbar(QWidget):
         for btn, name in self._buttons:
             btn.setIcon(self._icon(name))
 
-    def set_toc_checked(self, checked: bool) -> None:
-        """Update the TOC button checked state (from external toggle)."""
-        if hasattr(self, "_toc_btn"):
-            self._toc_btn.setChecked(checked)
+    def retranslate(self) -> None:
         self._heading_btn.setToolTip(self.tr("Heading level"))
         for (btn, _), (_icon, _syntax, tip_key) in zip(self._buttons, TOOLBAR_ITEMS):
             btn.setToolTip(self.tr(tip_key))

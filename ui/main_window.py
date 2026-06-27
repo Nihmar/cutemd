@@ -379,6 +379,27 @@ class MainWindow(QMainWindow):
         self._sidebar_buttons.append((self._side_folder_btn, "folder_switch"))
         lt_layout.addWidget(self._side_folder_btn)
 
+        # --- Right vertical toolbar ---
+        self._right_tb = QWidget()
+        self._right_tb.setObjectName("rightToolbar")
+        self._right_tb.setFixedWidth(42)
+        self._right_tb.setMinimumWidth(42)
+        rt_layout = QVBoxLayout(self._right_tb)
+        rt_layout.setContentsMargins(3, 8, 3, 8)
+        rt_layout.setSpacing(6)
+
+        self._right_toc_btn = _side_btn(
+            "toc", self.tr("Toggle TOC"), slot=self._on_right_toc_toggled
+        )
+        rt_layout.addWidget(self._right_toc_btn)
+
+        self._right_backlinks_btn = _side_btn(
+            "link", self.tr("Toggle backlinks"), slot=self._on_right_backlinks_toggled
+        )
+        rt_layout.addWidget(self._right_backlinks_btn)
+
+        rt_layout.addStretch()
+
         # --- File tree panel ---
         self._tree_panel = FileTreePanel()
         self._tree_panel.file_activated.connect(self._on_tree_file_activated)
@@ -450,7 +471,6 @@ class MainWindow(QMainWindow):
         )
         self._editor_toolbar.format_requested.connect(self._insert_md)
         self._editor_toolbar.image_requested.connect(self._on_insert_image)
-        self._editor_toolbar.toggle_right_panel.connect(self._on_editor_toc_toggled)
         editor_toolbar = self._editor_toolbar
 
         # --- Inline status bar ---
@@ -500,6 +520,7 @@ class MainWindow(QMainWindow):
         outer_layout.setSpacing(0)
         outer_layout.addWidget(self._left_tb)
         outer_layout.addWidget(self._splitter)
+        outer_layout.addWidget(self._right_tb)
 
         self.setCentralWidget(outer)
 
@@ -514,12 +535,14 @@ class MainWindow(QMainWindow):
 
         # Right dock initial visibility
         _rd_vis = self._s.right_dock_visible()
-        self._side_toc_btn.blockSignals(True)
-        self._side_toc_btn.setChecked(_rd_vis)
-        self._side_toc_btn.blockSignals(False)
         self._right_dock.setVisible(_rd_vis)
-        if hasattr(self, "_editor_toolbar"):
-            self._editor_toolbar.set_toc_checked(_rd_vis)
+        # Right toolbar initial checked state
+        self._right_toc_btn.blockSignals(True)
+        self._right_toc_btn.setChecked(_rd_vis)
+        self._right_toc_btn.blockSignals(False)
+        self._right_backlinks_btn.blockSignals(True)
+        self._right_backlinks_btn.setChecked(True)
+        self._right_backlinks_btn.blockSignals(False)
 
         self._preview_tab: EditorTab | None = None
         _LOG.debug("_setup_central: done")
@@ -553,27 +576,35 @@ class MainWindow(QMainWindow):
         self._side_panel.on_search_toggled(checked)
 
     def _on_side_toc_toggled(self, checked: bool) -> None:
-        self._side_panel.on_toc_toggled(checked)
-        # Persist right dock visibility
-        if hasattr(self, "_s"):
-            self._s.set_right_dock_visible(checked)
-        # Sync editor toolbar TOC button
-        if hasattr(self, "_editor_toolbar"):
-            self._editor_toolbar.set_toc_checked(checked)
+        # Kept for SidePanelManager compatibility, now unused
+        pass
 
-    def _on_editor_toc_toggled(self) -> None:
-        """Handle TOC toggle from the editor toolbar button."""
+    def _on_right_toc_toggled(self, checked: bool) -> None:
+        """Toggle TOC visibility in the right dock splitter."""
+        if hasattr(self, "_toc_panel"):
+            self._toc_panel.setVisible(checked)
+            self._sync_right_dock_visibility()
+            if checked:
+                self._rebuild_toc()
+            else:
+                self._toc_timer.stop()
+
+    def _on_right_backlinks_toggled(self, checked: bool) -> None:
+        """Toggle backlinks panel visibility in the right dock splitter."""
+        if hasattr(self, "_backlinks_panel"):
+            self._backlinks_panel.setVisible(checked)
+            self._sync_right_dock_visibility()
+
+    def _sync_right_dock_visibility(self) -> None:
+        """Show right dock if any panel is visible, hide if both hidden."""
+        toc_vis = self._toc_panel.isVisible() if hasattr(self, "_toc_panel") else False
+        bl_vis = self._backlinks_panel.isVisible() if hasattr(self, "_backlinks_panel") else False
+
         if hasattr(self, "_right_dock"):
-            new_state = not self._right_dock.isVisible()
-            self._right_dock.setVisible(new_state)
-            self._side_panel.on_toc_toggled(new_state)
-            if hasattr(self, "_s"):
-                self._s.set_right_dock_visible(new_state)
-            # Sync left toolbar button
-            self._side_toc_btn.blockSignals(True)
-            self._side_toc_btn.setChecked(new_state)
-            self._side_toc_btn.blockSignals(False)
-            self._editor_toolbar.set_toc_checked(new_state)
+            self._right_dock.setVisible(toc_vis or bl_vis)
+        # Persist
+        if hasattr(self, "_s"):
+            self._s.set_right_dock_visible(toc_vis or bl_vis)
 
     def _on_side_tags_toggled(self, checked: bool) -> None:
         """Toggle the tags panel in the left stack."""
@@ -772,14 +803,14 @@ class MainWindow(QMainWindow):
             tab._emit_status()
             self._update_window_title()
             # Rebuild TOC if the panel is visible
-            if self._side_toc_btn.isChecked():
+            if self._right_toc_btn.isChecked():
                 self._rebuild_toc()
             # Trigger backlinks scan (immediate on tab switch)
             self._trigger_backlinks_scan(tab, immediate=True)
 
     def _on_editor_text_changed(self) -> None:
         """Debounce TOC rebuild when editor content changes (only if TOC is open)."""
-        if self._side_toc_btn.isChecked():
+        if self._right_toc_btn.isChecked():
             self._toc_timer.start()
 
     def _on_tab_modified(self, modified: bool) -> None:
@@ -1540,11 +1571,13 @@ class MainWindow(QMainWindow):
         if not folder_mode:
             self._side_panel.hide_all_panels()
             self._left_tb.hide()
+            self._right_tb.hide()
             self.act_toggle_tree.setChecked(False)
             self._side_folder_btn.setText("...")
         else:
             self._side_panel.on_tree_action(True)
             self._left_tb.show()
+            self._right_tb.show()
             self.act_toggle_tree.setChecked(True)
             QTimer.singleShot(0, self._restore_panel_width)
             self._side_folder_btn.setText(self._folder_path.name)
