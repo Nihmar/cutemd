@@ -64,16 +64,12 @@ class TocPanel(QWidget):
                 self._list.addItem(item)
 
         _LOG.debug("rebuild: %d headings", len(self._entries))
-        self._header.setText(
-            self.tr("Table of Contents ({})").format(len(self._entries))
-        )
 
     def clear(self) -> None:
         """Clear the heading list."""
         _LOG.debug("clear")
         self._list.clear()
         self._entries = []
-        self._header.setText(self.tr("Table of Contents (0)"))
 
     def has_entries(self) -> bool:
         return self._list.count() > 0

@@ -185,8 +185,8 @@ class BacklinksPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
-        self._status_label = QLabel(self.tr("No backlinks"))
-        self._status_label.setStyleSheet("font-size: 11px; padding: 4px;")
+        self._status_label = QLabel(self.tr("Backlinks: 0"))
+        self._status_label.setStyleSheet("font-size: 11px; font-weight: bold; padding: 4px;")
         layout.addWidget(self._status_label)
 
         self._list = CuteListWidget()
