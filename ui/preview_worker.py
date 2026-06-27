@@ -8,68 +8,61 @@ from core.logging import setup_logging
 
 _LOG = setup_logging("cutemd.preview_worker")
 
-# Pre-built MarkdownIt parser — created once in the worker thread.
-# We can't pass the main-thread parser through a queued signal
-# because it doesn't survive cross-thread marshaling.
-_MD: object = None
-
 
 def _get_md():
-    global _MD
-    if _MD is None:
-        from markdown_it import MarkdownIt
-        from mdit_py_plugins.dollarmath import dollarmath_plugin
-        from markdown.math_renderers import (
-            render_math_block,
-            render_math_block_label,
-            render_math_inline,
-            render_math_inline_double,
-        )
-        from markdown.tools import highlight_code
+    """Lazily build a MarkdownIt parser in the worker thread."""
+    from markdown_it import MarkdownIt
+    from mdit_py_plugins.dollarmath import dollarmath_plugin
+    from markdown.math_renderers import (
+        render_math_block, render_math_block_label,
+        render_math_inline, render_math_inline_double,
+    )
+    from markdown.tools import highlight_code
 
-        _MD = (
-            MarkdownIt("commonmark", {"highlight": highlight_code})
-            .enable(["table", "strikethrough"])
-            .use(dollarmath_plugin)
-        )
-        _MD.renderer.rules["math_inline"] = render_math_inline
-        _MD.renderer.rules["math_inline_double"] = render_math_inline_double
-        _MD.renderer.rules["math_block"] = render_math_block
-        _MD.renderer.rules["math_block_label"] = render_math_block_label
-    return _MD
+    md = (
+        MarkdownIt("commonmark", {"highlight": highlight_code})
+        .enable(["table", "strikethrough"])
+        .use(dollarmath_plugin)
+    )
+    md.renderer.rules["math_inline"] = render_math_inline
+    md.renderer.rules["math_inline_double"] = render_math_inline_double
+    md.renderer.rules["math_block"] = render_math_block
+    md.renderer.rules["math_block_label"] = render_math_block_label
+    return md
 
 
 class PreviewWorker(QObject):
-    """Runs ``build_html`` in a background thread so the editor stays
-    responsive while images are resolved and dimensions are loaded.
-    """
-
-    result_ready = Signal(str)  # html
-    render_requested = Signal(object)  # carries a dict of kwargs
+    result_ready = Signal(str)
+    render_requested = Signal(object)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
+        self._md = None
         self.render_requested.connect(self._do_render)
 
     def _do_render(self, params: dict) -> None:
-        from markdown.html_builder import build_html
+        import traceback
+        import sys
 
         text = params.get("text", "")
-        _LOG.debug("_do_render: text_bytes=%d", len(text))
+        _LOG.debug("_do_render: text_bytes=%d keys=%s", len(text), sorted(params.keys()))
 
-        # Build params with a local MarkdownIt (can't pass across threads).
-        render_params = dict(params)
-        render_params["md"] = _get_md()
+        if self._md is None:
+            self._md = _get_md()
 
         try:
+            from markdown.html_builder import build_html
+
+            render_params = dict(params)
+            render_params["md"] = self._md
             html = build_html(**render_params)
-        except BaseException as exc:
+        except Exception:
             html = (
-                "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-                "</head><body><pre>Preview rendering error: "
-                + str(exc).replace("&", "&amp;").replace("<", "&lt;")
+                "<!DOCTYPE html><html><head><meta charset='utf-8'></head>"
+                "<body><pre>Render error:\n"
+                + traceback.format_exc()
                 + "</pre></body></html>"
             )
 
-        _LOG.debug("_do_render: emitting html_len=%d", len(html) if html else 0)
+        _LOG.debug("_do_render: html type=%s len=%d", type(html).__name__, len(html))
         self.result_ready.emit(html)

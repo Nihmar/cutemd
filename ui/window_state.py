@@ -122,3 +122,4 @@ class WindowStateManager:
         _LOG.debug("on_close: left=%d", left)
         if left > 0:
             self.save_left_panel_width(left)
+        self._s._s.sync()  # always flush to disk
