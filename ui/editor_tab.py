@@ -697,6 +697,8 @@ class EditorTab(QWidget):
         if not self._preview_visible or self._is_binary_preview or self._large_file:
             return
         raw_text = self._cached_text
+        if not raw_text.strip():
+            return  # nothing to preview
         text = strip_frontmatter(raw_text)
         text = preprocess_wikilinks(preprocess_wikilink_images(text))
         text_hash = hash(text)

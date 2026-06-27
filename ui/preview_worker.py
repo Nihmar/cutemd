@@ -25,18 +25,19 @@ class PreviewWorker(QObject):
         from markdown.html_builder import build_html
 
         text = params.get("text", "")
+        if not text.strip():
+            return  # skip empty text — nothing to render
+
         _LOG.debug("_do_render: text_bytes=%d", len(text))
+        html = ""
 
         try:
             html = build_html(**params)
-        except Exception as exc:
-            _LOG.debug("_do_render: build_html FAILED — %s", exc)
+        except BaseException as exc:
             html = (
                 "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-                "</head><body><pre>Preview rendering error: "
-                + str(exc).replace("&", "&amp;").replace("<", "&lt;")
-                + "</pre></body></html>"
+                "</head><body><pre>Preview rendering error</pre></body></html>"
             )
 
-        _LOG.debug("_do_render: done html_len=%d", len(html))
-        self.result_ready.emit(html)
+        if html:
+            self.result_ready.emit(html)
