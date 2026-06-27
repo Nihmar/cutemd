@@ -671,8 +671,8 @@ class EditorTab(QWidget):
         self._refresh_link_highlights()
 
     def insert_toolbar(self, toolbar: QWidget) -> None:
-        """Insert *toolbar* between find bar and the editor/preview splitter."""
-        self._toolbar_slot.insertWidget(1, toolbar)
+        """Insert *toolbar* above find bar (index 0)."""
+        self._toolbar_slot.insertWidget(0, toolbar)
 
     # ------------------------------------------------------------------
     # Preview rendering
