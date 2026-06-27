@@ -6,7 +6,7 @@ from pathlib import Path
 
 from markdown_it import MarkdownIt
 
-from core.constants import IMG_EXTS, MD_EXTS, PDF_EXTS
+from core.constants import DOC_EXTS, IMG_EXTS, MD_EXTS, PDF_EXTS
 from core.logging import setup_logging
 
 _LOG = setup_logging("cutemd.link_resolution")
@@ -81,14 +81,14 @@ def resolve_link_target(
                     p2 = check_dir / (target + ext)
                     if p2.is_file():
                         return p2.resolve()
-                for ext in IMG_EXTS | PDF_EXTS:
+                for ext in IMG_EXTS | PDF_EXTS | DOC_EXTS:
                     p2 = check_dir / (target + ext)
                     if p2.is_file():
                         return p2.resolve()
 
     # 4. Extension fallback in the base + attachments dir.
-    if target_path.suffix.lower() not in IMG_EXTS | PDF_EXTS:
-        for ext in IMG_EXTS | PDF_EXTS:
+    if target_path.suffix.lower() not in IMG_EXTS | PDF_EXTS | DOC_EXTS:
+        for ext in IMG_EXTS | PDF_EXTS | DOC_EXTS:
             p = base / (target + ext)
             if p.is_file():
                 return p.resolve()
