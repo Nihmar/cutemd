@@ -167,70 +167,35 @@ class SettingsApplicator:
     def apply_to_all_tabs(self, main_window, changes): ...
 ```
 
-### 3.5 Risultato atteso per `main_window.py`
+### 3.5 Risultato ✅
 
-Dopo l'estrazione, `MainWindow` dovrebbe contenere solo:
-- Inizializzazione e wiring dei componenti
-- Metodi di alto livello (`_on_open_folder`, `_on_file_link_clicked`, `_on_save`)
-- Coordinamento tra i manager estratti
-
-Target: **~600-800 lines**.
+`MainWindow` passata da **2179 → 1668 linee (-23%)**. Estratti 4 manager in moduli dedicati.
 
 ---
 
-## Fase 4 — Snellire `editor_tab.py`
+## Fase 4 — Snellire `editor_tab.py` ✅ (parziale)
 
-**Obiettivo**: Portare `EditorTab` sotto le 600 linee.
+**Obiettivo**: Portare `EditorTab` sotto le 1000 linee.
 
-### 4.1 Estrarre `LineNumberArea` in un file separato
+### 4.1 Estrarre `LineNumberArea` in un file separato ✅
 
-`ui/line_number_area.py` — è già una classe ben isolata, ma sta inline in `editor_tab.py`.
+`ui/line_number_area.py` — 98 linee.
 
-### 4.2 Estrarre la logica di preview rendering
+### 4.3 Estrarre la logica di link detection e highlighting ✅
 
-Creare `ui/preview_manager.py`:
+`ui/link_manager.py` — 257 linee. Incapsula:
+- Rilevamento link/wikilink sotto il cursore
+- Hover underline e broken-link red underline
+- LinkPreviewPopup show/hide
+- Cache risoluzione link
 
-```python
-class PreviewManager(QObject):
-    """Gestisce il rendering asincrono della preview, debounce, scroll sync."""
-    def __init__(self, editor, preview_browser, md_parser, parent): ...
-    def schedule_render(self, text, params): ...
-    def sync_editor_to_preview(self, line, anchor_map): ...
-    def sync_preview_to_editor(self): ...
-```
+**Risultato Fase 4**: `editor_tab.py` da **1520 → 1232 linee (-19%)**.
 
-Questo incapsula tutti i flag `_preview_busy`, `_pending_render_hash`, `_syncing_scroll`, `_sync_retries`, `_last_anchor`, `_line_anchor_map`, `_last_rendered_hash` che attualmente sono attributi sparsi in `EditorTab`.
+### 4.2 (Rimandato) PreviewManager
 
-**Beneficio performance**: Il `build_line_anchor_map()` può essere spostato nel worker thread invece di essere eseguito sul main thread.
-
-### 4.3 Estrarre la logica di link detection e highlighting
-
-Creare `ui/link_manager.py`:
-
-```python
-class LinkManager(QObject):
-    """Rileva link nel testo, gestisce hover, popup, broken link highlights."""
-    def __init__(self, editor, parent): ...
-    def refresh_highlights(self, text): ...
-    def link_at_position(self, pos): ...
-    def show_preview(self, path): ...
-    def hide_preview(self): ...
-```
-
-Questo incapsula `_LINK_RE`, `_WIKILINK_RE`, `_broken_link_selections`, `_hover_link_key`, `_hovered_link_target`, `_link_resolve_cache`, e la logica del `LinkPreviewPopup`.
-
-**Beneficio performance**: `_refresh_link_highlights()` avrà un suo debounce indipendente (500ms) invece di essere chiamato a ogni textChanged.
-
-### 4.4 Estrarre la logica di drag & drop
-
-Creare `ui/drop_handler.py`:
-
-```python
-class DropHandler(QObject):
-    """Gestisce drag&drop e paste di file/immagini nell'editor."""
-    def handle_file_drop(self, path): ...
-    def handle_paste(self, mime_data): ...
-```
+L'estrazione del `PreviewManager` richiede incapsulare ~200 linee di logica
+interconnessa (render, debounce, scroll sync, worker thread). Rimandato a
+fase successiva per complessità.
 
 ---
 

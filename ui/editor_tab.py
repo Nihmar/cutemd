@@ -58,6 +58,8 @@ from core.file_utils import read_file_with_encoding
 from core.link_resolution import build_line_anchor_map, resolve_link_target
 from ui.find_bar import FindBar
 from ui.image_viewer import ImageViewer
+from ui.line_number_area import LineNumberArea
+from ui.link_manager import LinkManager
 from ui.link_preview_popup import LinkPreviewPopup
 from ui.markdown_completer import MarkdownAutoCompleter
 from ui.pdf_viewer import PdfViewer
@@ -66,103 +68,6 @@ from ui.preview_worker import PreviewWorker
 from ui.syntax_highlighter import MarkdownHighlighter
 
 _LOG = setup_logging("cutemd.editor_tab")
-
-
-
-
-# ---------------------------------------------------------------------------
-# LineNumberArea
-# ---------------------------------------------------------------------------
-
-
-class LineNumberArea(QWidget):
-    """Widget that paints line numbers alongside the editor.
-
-    Mode values:
-        0 — hidden
-        1 — every line
-        2 — multiples of 5 (plus line 1 and the last line)
-    """
-
-    def __init__(self, editor: QPlainTextEdit) -> None:
-        super().__init__(editor)
-        self._editor = editor
-        self._mode = 1
-
-    def set_mode(self, mode: int) -> None:
-        self._mode = mode
-        self.update()
-
-    def sizeHint(self) -> QSize:
-        if self._mode == 0:
-            return QSize(0, 0)
-        return QSize(self._line_number_area_width(), 0)
-
-    def _line_number_area_width(self) -> int:
-        digits = len(str(max(1, self._editor.blockCount())))
-        space = 10 + self._editor.fontMetrics().horizontalAdvance("9") * digits
-        return space
-
-    def paintEvent(self, event: object) -> None:
-        super().paintEvent(event)
-        if self._mode == 0:
-            return
-        painter = QPainter(self)
-        painter.fillRect(
-            event.rect(),
-            QColor(
-                self._editor.palette().color(self._editor.palette().ColorRole.Window)
-            ),
-        )
-
-        block = self._editor.firstVisibleBlock()
-        block_num = block.blockNumber()
-        top = int(
-            self._editor.blockBoundingGeometry(block)
-            .translated(self._editor.contentOffset())
-            .top()
-        )
-        bottom = top + int(self._editor.blockBoundingRect(block).height())
-
-        fg = self._editor.palette().color(self._editor.palette().ColorRole.Mid)
-        painter.setPen(fg)
-        painter.setFont(self._editor.font())
-        total_blocks = self._editor.blockCount()
-
-        while block.isValid() and top <= event.rect().bottom():
-            if block.isVisible() and bottom >= event.rect().top():
-                line = block_num + 1
-                if self._mode == 1 or self._should_draw_line(line, total_blocks):
-                    number = str(line)
-                    painter.drawText(
-                        0,
-                        top,
-                        self.width() - 4,
-                        self._editor.fontMetrics().height(),
-                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                        number,
-                    )
-                elif self._mode == 2:
-                    painter.drawText(
-                        0,
-                        top,
-                        self.width() - 4,
-                        self._editor.fontMetrics().height(),
-                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                        "·",
-                    )
-            block = block.next()
-            top = bottom
-            bottom = (
-                top + int(self._editor.blockBoundingRect(block).height())
-                if block.isValid()
-                else top
-            )
-            block_num += 1
-
-    @staticmethod
-    def _should_draw_line(line: int, total: int) -> bool:
-        return line == 1 or line == total or line % 5 == 0
 
 
 # ---------------------------------------------------------------------------
@@ -239,32 +144,13 @@ class EditorTab(QWidget):
         self._preview_busy = False
         self._preview_pending = False
 
-        self._hover_link_key: tuple[int, int, int] | None = None
-        self._hovered_link_target: str | None = None
-        self._hover_cursor_pos: QPoint | None = None
-        self._broken_link_selections: list[QTextEdit.ExtraSelection] = []
-
         # Cached plain text — invalidated only when document changes.
         self._cached_text: str = ""
         self._cached_text_hash: int = 0
         self._cached_words: str = "0 words"
 
-        # Cache for link resolution during a render cycle.
-        self._link_resolve_cache: dict[tuple[str, bool], Path | None] = {}
-
         # --- Link preview popup ---
         self._link_preview_popup = LinkPreviewPopup(self)
-        self._link_preview_show_timer = QTimer(self)
-        self._link_preview_show_timer.setSingleShot(True)
-        self._link_preview_show_timer.setInterval(400)
-        self._link_preview_show_timer.timeout.connect(self._on_link_preview_show)
-
-        # Cursor-tracking timer: polls cursor position while popup is visible
-        # to detect mouse-leave-link (Popup windows grab the mouse from the
-        # editor viewport, so _on_mouse_move stops firing).
-        self._popup_cursor_timer = QTimer(self)
-        self._popup_cursor_timer.setInterval(100)
-        self._popup_cursor_timer.timeout.connect(self._check_popup_cursor)
 
         self._editor_font_family = editor_font_family
         self._editor_font_size = editor_font_size
@@ -274,6 +160,9 @@ class EditorTab(QWidget):
         # --- Editor ---
         self.editor = QPlainTextEdit()
         self.editor.setAcceptDrops(True)
+
+        # --- Link manager (detection, hover, broken-link highlights) ---
+        self._link_mgr = LinkManager(self)
 
         # Timer must exist before textChanged is connected (may fire
         # synchronously during setPlainText).
@@ -395,7 +284,7 @@ class EditorTab(QWidget):
             self._theme = theme
             self._last_rendered_hash = 0
             self._highlighter.set_theme(theme)
-            self._link_preview_popup.set_theme(theme)
+            self._link_mgr.popup.set_theme(theme)
             self._update_preview()
 
     def set_preview_visible(self, visible: bool) -> None:
@@ -740,14 +629,14 @@ class EditorTab(QWidget):
         if self._current_line_sel is not None:
             extra.append(self._current_line_sel)
         extra.extend(self._find_bar.selections)
-        extra.extend(self._broken_link_selections)
+        extra.extend(self._link_mgr._broken_link_selections)
         self.editor.setExtraSelections(extra)
 
     def _invalidate_text_cache(self) -> None:
         """Rebuild the cached plain text after document content changes."""
         self._cached_text = self.editor.toPlainText()
         self._cached_text_hash = hash(self._cached_text)
-        self._link_resolve_cache.clear()
+        self._link_mgr.invalidate_cache()
 
     def _emit_status(self) -> None:
         cursor = self.editor.textCursor()
@@ -930,9 +819,9 @@ class EditorTab(QWidget):
 
     def _on_editor_scrolled(self, _value: int = 0) -> None:
         # Hide link preview when scrolling.
-        self._link_preview_popup.hide()
-        self._hovered_link_target = None
-        self._link_preview_show_timer.stop()
+        self._link_mgr.popup.hide()
+        self._link_mgr._hovered_link_target = None
+        self._link_mgr._link_preview_show_timer.stop()
 
         if (
             self._syncing_scroll > 0
@@ -1038,227 +927,55 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
 
     @classmethod
+    # ------------------------------------------------------------------
+    # Link detection & preview (delegated to LinkManager)
+    # ------------------------------------------------------------------
+
+    @classmethod
     def _link_range_at(
         cls, pos_in_block: int, text: str
     ) -> tuple[str, str, int, int] | None:
-        for m in cls._WIKILINK_RE.finditer(text):
-            if m.start() <= pos_in_block < m.end():
-                inner = m.group(1).strip()
-                if "|" in inner:
-                    display, _, target = inner.partition("|")
-                    return (target.strip(), display.strip(), m.start(), m.end())
-                return (inner, inner, m.start(), m.end())
-        for m in cls._LINK_RE.finditer(text):
-            if m.start() <= pos_in_block < m.end():
-                return (m.group(2).strip(), m.group(1).strip(), m.start(), m.end())
-        return None
+        return LinkManager.link_range_at(pos_in_block, text)
 
-    def _on_mouse_move(self, event: QMouseEvent) -> None:
+    def _on_mouse_move(self, event) -> None:
         pt = event.position().toPoint()
         cursor = self.editor.cursorForPosition(pt)
         block = cursor.block()
-        block_text = block.text()
-        pos = cursor.positionInBlock()
-        link = self._link_range_at(pos, block_text)
+        self._link_mgr.on_mouse_move(
+            cursor.positionInBlock(), block.text(), block.blockNumber()
+        )
 
-        if link:
-            _LOG.debug("_on_mouse_move: url link detected")
-            target, display, start, end = link
-            new_key = (block.blockNumber(), start, end)
-            if new_key != self._hover_link_key:
-                self._hover_link_key = new_key
-
-                block_start = block.position()
-                sel = QTextCursor(self.editor.document())
-                sel.setPosition(block_start + start)
-                sel.setPosition(block_start + end, QTextCursor.MoveMode.KeepAnchor)
-
-                fmt = QTextCharFormat()
-                fmt.setFontUnderline(True)
-                fmt.setUnderlineColor(QColor("#61afef"))
-                extra = QTextEdit.ExtraSelection()
-                extra.format = fmt
-                extra.cursor = sel
-                self.editor.setExtraSelections([extra])
-                self._viewport.setCursor(Qt.CursorShape.PointingHandCursor)
-
-            # --- Link preview popup ---
-            # Only restart the timer when the hovered link target changes.
-            if target != self._hovered_link_target:
-                self._hovered_link_target = target
-                from PySide6.QtGui import QCursor
-
-                self._hover_cursor_pos = QCursor.pos()
-                self._link_preview_show_timer.start()
-        else:
-            if self._hover_link_key is not None:
-                self._hover_link_key = None
-                self.editor.setExtraSelections([])
-                self._viewport.setCursor(Qt.CursorShape.IBeamCursor)
-            # --- Hide popup when leaving link ---
-            if self._hovered_link_target is not None:
-                self._hovered_link_target = None
-                self._hover_cursor_pos = None
-                self._link_preview_show_timer.stop()
-                self._link_preview_popup.hide_popup()
-
-    def _on_mouse_click(self, event: QMouseEvent) -> bool:
+    def _on_mouse_click(self, event) -> bool:
         if event.button() != Qt.MouseButton.LeftButton:
             return False
-
-        # Ignore if this was a drag (press and release at different positions).
         if self._mouse_press_pos is not None:
             release_pt = event.position().toPoint()
             if (release_pt - self._mouse_press_pos).manhattanLength() > 5:
                 self._mouse_press_pos = None
                 return False
         self._mouse_press_pos = None
-
         pt = event.position().toPoint()
         cursor = self.editor.cursorForPosition(pt)
-        block_text = cursor.block().text()
-        pos = cursor.positionInBlock()
-        link = self._link_range_at(pos, block_text)
+        link = self._link_mgr.on_mouse_click(
+            cursor.positionInBlock(), cursor.block().text()
+        )
         if link:
-            # Hide the link preview popup when clicking a link.
-            self._link_preview_popup.hide()
-            self._hovered_link_target = None
-            self._link_preview_show_timer.stop()
             self.file_link_clicked.emit(link[0], link[1])
             return True
-        # Hide popup on any click not on a link.
-        self._link_preview_popup.hide()
-        self._hovered_link_target = None
-        self._link_preview_show_timer.stop()
         return False
 
-    # ------------------------------------------------------------------
-    # Link preview popup
-    # ------------------------------------------------------------------
-
     def _on_link_preview_show(self) -> None:
-        """Timer callback: resolve the hovered link and show the popup."""
-        target = self._hovered_link_target
-        if target is None:
-            return
-
-        path = self._resolve_link_target(target)
-        if path is None:
-            return
-
-        # Position so the cursor sits at the popup's bottom-left corner.
-        gap = 6
-        popup_h = 380  # LinkPreviewPopup._MAX_H
-        if self._hover_cursor_pos is not None:
-            cx, cy = self._hover_cursor_pos.x(), self._hover_cursor_pos.y()
-        else:
-            from PySide6.QtGui import QCursor
-            c = QCursor.pos()
-            cx, cy = c.x(), c.y()
-        x = cx
-        y = cy - popup_h - gap
-        if y < 0:
-            y = cy + gap
-        global_pos = QPoint(x, y)
-        _LOG.debug(
-            "popup target=%s pos=%s cursor=%s viewport.tl=%s",
-            target,
-            global_pos,
-            self._hover_cursor_pos,
-            self.editor.viewport().mapToGlobal(QPoint(0, 0)),
-        )
-
-        # Gather the editor font for the preview editor.
-        editor_font = self.editor.font()
-
-        self._link_preview_popup.show_for_path(path, global_pos, editor_font)
-        # Start polling cursor position to detect mouse-leave-link.
-        self._popup_cursor_timer.start()
+        pass  # handled by LinkManager
 
     def _check_popup_cursor(self) -> None:
-        """Poll cursor position while popup is visible.
-
-        With Popup window type the editor viewport stops receiving mouse
-        events, so we poll QCursor.pos() and check whether the cursor is
-        still over a link in the editor.  If not, dismiss the popup.
-        """
-        if not self._link_preview_popup.isVisible():
-            self._popup_cursor_timer.stop()
-            return
-        from PySide6.QtGui import QCursor
-        vp = self.editor.viewport()
-        local_pos = vp.mapFromGlobal(QCursor.pos())
-        if not vp.rect().contains(local_pos):
-            # Cursor is outside the editor viewport entirely — keep popup
-            # visible (user may be moving towards it).
-            return
-        cursor = self.editor.cursorForPosition(local_pos)
-        block = cursor.block()
-        pos = cursor.positionInBlock()
-        link = self._link_range_at(pos, block.text())
-        if link is None:
-            self._link_preview_popup.hide()
-            self._popup_cursor_timer.stop()
-            self._hovered_link_target = None
-            self._hover_cursor_pos = None
-            self.editor.setExtraSelections([])
-            self._viewport.setCursor(Qt.CursorShape.IBeamCursor)
+        pass  # handled by LinkManager
 
     def _resolve_link_target(self, target: str, quick: bool = False) -> Path | None:
-        """Resolve a link/wikilink target — delegates to pure ``resolve_link_target``."""
-        key = (target, quick)
-        cached = self._link_resolve_cache.get(key)
-        if cached is not None or key in self._link_resolve_cache:
-            return cached
-        source_dir = self._file_path.parent if self._file_path else Path.cwd()
-        result = resolve_link_target(
-            target, source_dir, self._attachments_dir, quick=quick,
-        )
-        self._link_resolve_cache[key] = result
-        return result
+        return self._link_mgr._resolve_link_target(target, quick)
 
     def _refresh_link_highlights(self) -> None:
-        """Mark unresolved links in red using extra selections.
-        Skips large files (>2000 lines) for performance."""
-        editor = self.editor
-        text = self._cached_text
-        lines = text.count("\n") + 1
-        if lines > BROKEN_LINK_LINE_LIMIT:
-            self._broken_link_selections = []
-            self._apply_all_selections()
-            return
+        self._link_mgr.refresh_broken_links(self._cached_text)
 
-        fmt = QTextCharFormat()
-        fmt.setUnderlineColor(QColor("#e06c75"))
-        fmt.setUnderlineStyle(QTextCharFormat.UnderlineStyle.SingleUnderline)
-
-        cursor = editor.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.Start)
-
-        broken: list[QTextEdit.ExtraSelection] = []
-
-        for pattern, target_group in ((self._LINK_RE, 2), (self._WIKILINK_RE, 1)):
-            for m in pattern.finditer(text):
-                target = m.group(target_group)
-                # Skip URLs, email links, etc.
-                if target.startswith(("http://", "https://", "#", "mailto:")):
-                    continue
-                # Skip if the link resolves correctly.
-                if self._resolve_link_target(target, quick=True) is not None:
-                    continue
-
-                sel = QTextEdit.ExtraSelection()
-                sel.cursor = editor.textCursor()
-                sel.cursor.setPosition(m.start())
-                sel.cursor.setPosition(m.end(), QTextCursor.MoveMode.KeepAnchor)
-                sel.format = fmt
-                broken.append(sel)
-
-        self._broken_link_selections = broken
-        self._apply_all_selections()
-
-    # ------------------------------------------------------------------
-    # Find bar
     # ------------------------------------------------------------------
     def _clear_highlights(self) -> None:
         self._apply_all_selections()
