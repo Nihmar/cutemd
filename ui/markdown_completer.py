@@ -78,6 +78,7 @@ class MarkdownAutoCompleter(QObject):
         # Tag autocomplete state
         self._tag_list: list[str] = []
         self._tag_popup: QFrame | None = None
+        self._tag_filter: QLineEdit | None = None
         self._tag_list_widget: CuteListWidget | None = None
 
         # File autocomplete state
@@ -120,6 +121,8 @@ class MarkdownAutoCompleter(QObject):
         # Popup keyboard handling
         if obj is self._tag_list_widget and event.type() == QEvent.Type.KeyPress:
             return self._handle_tag_popup_key(event)
+        if obj is self._tag_filter and event.type() == QEvent.Type.KeyPress:
+            return self._handle_tag_filter_key(event)
         if obj is self._file_list_widget and event.type() == QEvent.Type.KeyPress:
             return self._handle_file_popup_key(event)
         if obj is self._file_filter and event.type() == QEvent.Type.KeyPress:
@@ -409,12 +412,7 @@ class MarkdownAutoCompleter(QObject):
             return False
 
         partial = block_text[hash_pos + 1:pos_in_block]
-        matching = ([t for t in self._tag_list if partial.lower() in t.lower()]
-                    if partial else list(self._tag_list))
-        _LOG.debug("_show_tag_completer: %d matching (out of %d)",
-                   len(matching), len(self._tag_list))
-        if not matching:
-            return False
+        _LOG.debug("_show_tag_completer: partial=%r", partial)
 
         self._hash_pos = hash_pos
         self._pos_in_block = pos_in_block
@@ -422,25 +420,48 @@ class MarkdownAutoCompleter(QObject):
 
         self._tag_popup = _make_popup(self._editor.viewport())
         layout = self._tag_popup.layout()
+
+        self._tag_filter = QLineEdit(self._tag_popup)
+        self._tag_filter.setPlaceholderText(self._editor.tr("Filter tags\u2026"))
+        self._tag_filter.setText(partial)
+        self._tag_filter.selectAll()
+        self._tag_filter.textChanged.connect(self._on_tag_filter_changed)
+        self._tag_filter.installEventFilter(self)
+        layout.addWidget(self._tag_filter)
+
         self._tag_list_widget = CuteListWidget(self._tag_popup)
         self._tag_list_widget.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        for tag in matching:
-            self._tag_list_widget.addItem(QListWidgetItem(tag))
         self._tag_list_widget.itemClicked.connect(self._on_tag_selected)
         self._tag_list_widget.installEventFilter(self)
         layout.addWidget(self._tag_list_widget)
 
+        self._populate_tag_list(self._tag_list)
+        if self._tag_filter.text():
+            self._on_tag_filter_changed(self._tag_filter.text())
+
         cursor_rect = self._editor.cursorRect(cursor)
         vp = self._editor.viewport()
         global_pos = vp.mapToGlobal(cursor_rect.bottomLeft())
-        w = max(160, self._tag_list_widget.sizeHintForColumn(0) + 20)
-        h = min(len(matching) * 22 + 4, 240)
+        w = max(200, self._tag_list_widget.sizeHintForColumn(0) + 20)
+        h = 280
         self._tag_popup.setGeometry(global_pos.x(), global_pos.y() + 2, w, h)
         self._tag_popup.show()
-        self._tag_list_widget.setFocus()
-        self._tag_list_widget.setCurrentRow(0)
+        self._tag_filter.setFocus()
         return True
+
+    def _populate_tag_list(self, tags: list[str]) -> None:
+        self._tag_list_widget.clear()
+        for tag in tags:
+            self._tag_list_widget.addItem(QListWidgetItem(tag))
+        if self._tag_list_widget.count() > 0:
+            self._tag_list_widget.setCurrentRow(0)
+
+    def _on_tag_filter_changed(self, text: str) -> None:
+        low = text.strip().lower()
+        matching = ([t for t in self._tag_list if low in t.lower()]
+                    if low else list(self._tag_list))
+        self._populate_tag_list(matching)
 
     def _on_tag_selected(self, item: QListWidgetItem) -> None:
         tag = item.text()
@@ -467,6 +488,7 @@ class MarkdownAutoCompleter(QObject):
             self._tag_popup.hide()
             self._tag_popup.deleteLater()
             self._tag_popup = None
+            self._tag_filter = None
             self._tag_list_widget = None
 
     def _handle_tag_popup_key(self, event: QKeyEvent) -> bool:
@@ -475,6 +497,26 @@ class MarkdownAutoCompleter(QObject):
             if item:
                 self._on_tag_selected(item)
             return True
+        if event.key() == Qt.Key.Key_Escape:
+            self._hide_tag_popup()
+            self._editor.setFocus()
+            return True
+        if event.key() == Qt.Key.Key_Down:
+            row = self._tag_list_widget.currentRow()
+            if row < self._tag_list_widget.count() - 1:
+                self._tag_list_widget.setCurrentRow(row + 1)
+            return True
+        if event.key() == Qt.Key.Key_Up:
+            row = self._tag_list_widget.currentRow()
+            if row > 0:
+                self._tag_list_widget.setCurrentRow(row - 1)
+            return True
+        return False
+
+    def _handle_tag_filter_key(self, event: QKeyEvent) -> bool:
+        if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down,
+                           Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            return self._handle_tag_popup_key(event)
         if event.key() == Qt.Key.Key_Escape:
             self._hide_tag_popup()
             self._editor.setFocus()
