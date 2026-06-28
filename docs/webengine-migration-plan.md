@@ -142,7 +142,7 @@ For DOCX, XLSX, PPTX, CBZ, EPUB, CSV, etc.:
 
 | File | Change description |
 |------|--------------------|
-| `pyproject.toml` | Add `pyside6-webengine` dependency |
+| `pyproject.toml` | No change needed — `PySide6.QtWebEngineWidgets` and `QtWebEngineCore` are included in `pyside6-addons` which is a dependency of the existing `pyside6>=6.11.1`. Just verify the imports work at runtime (§1.1). |
 | `ui/preview_browser.py` | Rewrite: replace `PreviewTextBrowser(QTextBrowser)` with `PreviewWebEngineView(QWebEngineView)` + `PreviewWebEnginePage(QWebEnginePage)`. Includes: `QWebEngineSettings.LocalContentCanAccessLocalUrls`, `page().setContent()` (not `setHtml()`), `acceptNavigationRequest()` for link interception, context menu override (Chromium default menu is inappropriate). Keep `get_image_size()` here. |
 | `ui/editor_tab.py` | Replace `PreviewTextBrowser` with `PreviewWebEngineView` in imports and instantiation. Rewrite scroll sync logic (`_on_editor_scrolled`, `_do_preview_scrolled`, `_sync_preview_scroll`) to use `runJavaScript()`. Update `set_preview_visible()` if needed. Update font zoom mechanism. Update event filter on `_preview_viewport`. Add `_preview_scroll_timer` (polling) with start/stop in load cycle. |
 | `main.py` | Add `AA_ShareOpenGLContexts` before `QApplication` creation (§3.12). Required for multi-tab stability. |
@@ -178,16 +178,15 @@ For DOCX, XLSX, PPTX, CBZ, EPUB, CSV, etc.:
 
 ## 3. Detailed Implementation Strategy — Phase 1
 
-### 3.1 Dependency (`pyproject.toml`)
+### 3.1 Dependency
 
-Add to `[project] dependencies`:
-```toml
-"pyside6-webengine>=6.11.1",
-```
+No new dependencies are needed. Both `PySide6.QtWebEngineWidgets` (for `QWebEngineView`,
+`QWebEnginePage`) and `PySide6.QtWebEngineCore` (for `QWebEngineSettings`) are included
+in `pyside6-addons`, which is already a transitive dependency of `pyside6>=6.11.1`.
 
-Install with: `uv sync`
-
-Runtime fallback: if `from PySide6.QtWebEngineWidgets import QWebEngineView` fails, show a `QMessageBox.critical()` and either fall back to QTextBrowser or exit gracefully.
+Runtime fallback: if the import fails (e.g., on a headless system without WebEngine
+support), show a `QMessageBox.critical()` and fall back to QTextBrowser or exit
+gracefully.
 
 ### 3.2 Widget Replacement (`ui/preview_browser.py`)
 
