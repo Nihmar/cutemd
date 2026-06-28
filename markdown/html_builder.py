@@ -149,6 +149,8 @@ def build_html(
     max_width: int,
     get_image_size: SizeProvider,
     attachments_dir: Path | None = None,
+    theme_bg: str = "",
+    theme_fg: str = "",
 ) -> str:
     try:
         body_html = add_heading_ids(render_with_anchors(text, md))
@@ -185,11 +187,20 @@ def build_html(
                 f"body {{ font-family: {font_family}; font-size: {font_size}pt; }}"
             )
 
+    # Theme-specific background/text overrides (from Qt palette).
+    # Must use "body.theme_class" to override the defaults in preview_css
+    # which also use "body.dark" / "body.light" (same specificity).
+    theme_override = ""
+    if theme_bg:
+        theme_override += f"\nbody.{theme_class} {{ background-color: {theme_bg}; }}"
+    if theme_fg:
+        theme_override += f"\nbody.{theme_class} {{ color: {theme_fg}; }}"
+
     return (
         "<!DOCTYPE html>\n"
         "<html>\n<head>\n"
         "<meta charset='utf-8'>\n"
-        f"<style>\n{font_body_css}\n{preview_css}\n</style>\n"
+        f"<style>\n{font_body_css}\n{preview_css}{theme_override}\n</style>\n"
         "</head>\n"
         f"<body class='{theme_class}'>\n"
         f"{body_html}\n"

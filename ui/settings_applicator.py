@@ -33,6 +33,8 @@ class SettingsApplicator:
 
         # --- Theme ---
         new_theme_id = dlg.selected_theme_id()
+        _LOG.debug("DIAG SettingsApplicator: new_theme=%s old=%s match=%s",
+                   new_theme_id, w._theme_id, new_theme_id == w._theme_id)
         if new_theme_id != w._theme_id:
             w._theme_id = new_theme_id
             w._current_theme = (

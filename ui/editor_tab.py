@@ -291,12 +291,27 @@ class EditorTab(QWidget):
     def tooltip(self) -> str:
         return str(self._file_path) if self._file_path else self.tr("Untitled")
 
-    def set_theme(self, theme: str, pygments_style: str = "") -> None:
-        if theme != self._theme:
+    def set_theme(self, theme: str, pygments_style: str = "",
+                  theme_bg: str = "", theme_fg: str = "") -> None:
+        _LOG.debug("DIAG set_theme: theme=%s old=%s pygments=%s old_pygments=%s bg=%s",
+                   theme, self._theme, pygments_style,
+                   getattr(self, '_pygments_style', ''), theme_bg)
+        theme_changed = theme != self._theme
+        pygments_changed = pygments_style and pygments_style != getattr(self, '_pygments_style', '')
+        colors_changed = theme_bg and theme_bg != getattr(self, '_theme_bg', '')
+        if theme_changed or pygments_changed or colors_changed:
             self._theme = theme
+            if pygments_style:
+                self._pygments_style = pygments_style
+            if theme_bg:
+                self._theme_bg = theme_bg
+            if theme_fg:
+                self._theme_fg = theme_fg
             self._last_rendered_hash = 0
             self._highlighter.set_theme(theme)
             self._link_mgr.popup.set_theme(theme)
+            _LOG.debug("DIAG set_theme: calling _update_preview, cached_text_len=%d",
+                       len(self._cached_text))
             self._update_preview()
 
     def set_preview_visible(self, visible: bool) -> None:
@@ -745,6 +760,9 @@ class EditorTab(QWidget):
                 str(base_dir),
                 max(pw, 200),
                 str(self._attachments_dir) if self._attachments_dir else "",
+                getattr(self, '_pygments_style', ''),
+                getattr(self, '_theme_bg', ''),
+                getattr(self, '_theme_fg', ''),
             )
         )
         if params_hash == self._last_rendered_hash:
@@ -764,6 +782,8 @@ class EditorTab(QWidget):
             "max_width": max(pw, 200),
             "get_image_size": get_image_size,
             "attachments_dir": self._attachments_dir,
+            "theme_bg": getattr(self, '_theme_bg', ''),
+            "theme_fg": getattr(self, '_theme_fg', ''),
         }
 
         if self._preview_busy:

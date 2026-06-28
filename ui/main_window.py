@@ -752,6 +752,16 @@ class MainWindow(QMainWindow):
             smart_editing=self._smart_editing,
             cursor_width=getattr(self, "_cursor_width", 2),
         )
+        # Apply theme colors so the preview matches the current palette
+        # (important for tabs created after initial _apply_theme() call).
+        pal = self._current_theme.build_palette()
+        from PySide6.QtGui import QPalette
+        tab.set_theme(
+            "dark" if self._current_theme.is_dark else "light",
+            self._current_theme.pygments_style,
+            theme_bg=pal.color(QPalette.ColorRole.Base).name(),
+            theme_fg=pal.color(QPalette.ColorRole.Text).name(),
+        )
         tab.set_line_number_mode(self._line_number_mode)
         tab.modified_changed.connect(self._on_tab_modified)
         tab.status_changed.connect(self._on_tab_status)
@@ -1087,7 +1097,9 @@ class MainWindow(QMainWindow):
     # Theme
     # ------------------------------------------------------------------
     def _apply_theme(self) -> None:
-        _LOG.debug("_apply_theme: %s", self._theme_id)
+        _LOG.debug("DIAG _apply_theme: theme_id=%s is_dark=%s pygments=%s",
+                   self._theme_id, self._current_theme.is_dark,
+                   self._current_theme.pygments_style)
         from markdown.tools import set_pygments_style
 
         set_pygments_style(self._current_theme.pygments_style)
@@ -1099,12 +1111,18 @@ class MainWindow(QMainWindow):
             app.setStyleSheet(load_qss(pal))
 
         self._recolor_toolbar_icons()
+        # Extract the actual background/text colors from the palette for the preview.
+        from PySide6.QtGui import QPalette
+        bg_color = pal.color(QPalette.ColorRole.Base).name()
+        fg_color = pal.color(QPalette.ColorRole.Text).name()
         for i in range(self._tabs.count()):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab):
                 tab.set_theme(
                     "dark" if self._current_theme.is_dark else "light",
                     self._current_theme.pygments_style,
+                    theme_bg=bg_color,
+                    theme_fg=fg_color,
                 )
 
     def _on_settings(self) -> None:
