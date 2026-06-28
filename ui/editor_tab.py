@@ -211,8 +211,8 @@ class EditorTab(QWidget):
         self._preview_viewport = self.preview  # QWebEngineView is its own viewport
         self._preview_viewport.installEventFilter(self)
 
-        # Track focus changes on the preview to diagnose focus-stealing
-        self.preview.installEventFilter(self)
+        # Wire preview→editor scroll sync
+        self.preview._scroll_anchor_callback = self._on_preview_user_scrolled
 
         self._image_viewer = ImageViewer()
         self._image_viewer.viewport().installEventFilter(self._image_viewer)
@@ -844,6 +844,7 @@ class EditorTab(QWidget):
 
         def on_load(ok: bool) -> None:
             self.preview.loadFinished.disconnect(on_load)
+            self.preview._inject_scroll_listener()
             self._pending_sync_anchor = self._last_anchor
             self._sync_preview_scroll()
 
@@ -922,6 +923,7 @@ class EditorTab(QWidget):
                    self._frontmatter_offset)
 
         self._syncing_scroll += 1
+        self.preview.set_scroll_syncing(True)
         js = (
             f"(function(){{"
             f"var el=document.querySelector('a[name=\"{anchor}\"]');"
@@ -929,15 +931,39 @@ class EditorTab(QWidget):
             f"}})();"
         )
         self.preview.page().runJavaScript(js)
+        QTimer.singleShot(300, lambda: self.preview.set_scroll_syncing(False))
         self._syncing_scroll -= 1
 
         self._pending_sync_anchor = ""
 
-    # ------------------------------------------------------------------
-    # Preview → Editor scroll sync (polling)
-    # ------------------------------------------------------------------
+    def _on_preview_user_scrolled(self, anchor_name: str) -> None:
+        """Called when the user scrolls the preview (JS scroll listener)."""
+        if not anchor_name.startswith("b"):
+            return
+        if self._syncing_scroll > 0:
+            return
+        try:
+            anchor_idx = int(anchor_name[1:])
+        except ValueError:
+            return
+        line_map = self._line_anchor_map
+        target_line = None
+        for line, aidx in enumerate(line_map):
+            if aidx == anchor_idx:
+                target_line = line
+                break
+        if target_line is None:
+            return
+        target_line += self._frontmatter_offset
+        editor_sb = self.editor.verticalScrollBar()
+        if editor_sb.maximum() <= 0:
+            return
+        total_lines = self.editor.document().blockCount()
+        ratio = target_line / max(total_lines - 1, 1)
+        self._syncing_scroll += 1
+        editor_sb.setValue(int(ratio * editor_sb.maximum()))
+        self._syncing_scroll -= 1
 
-    @classmethod
     # ------------------------------------------------------------------
     # Link detection & preview (delegated to LinkManager)
     # ------------------------------------------------------------------

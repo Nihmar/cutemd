@@ -58,9 +58,11 @@ class PreviewWebEnginePage(QWebEnginePage):
     - ``http://cutemd-copy/`` URLs → decode and copy to clipboard
     - External http/https → open in system browser
     - Local file:// or plain paths → emit ``file_link_clicked``
+    - ``cutemd-scroll://`` → emit ``preview_scrolled`` (preview→editor sync)
     - Everything else → blocked (return False)
     """
     file_link_clicked = Signal(str)
+    preview_scrolled = Signal(str)  # anchor name e.g. "b5"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -79,6 +81,13 @@ class PreviewWebEnginePage(QWebEnginePage):
         if nav_type == QWebEnginePage.NavigationType.NavigationTypeTyped:
             _LOG.debug("DIAG acceptNavigationRequest: allowing typed navigation")
             return True
+
+        # Preview scroll sync — user scrolled the preview via mouse/touch
+        if url_str.startswith("cutemd-scroll://"):
+            anchor = url_str.removeprefix("cutemd-scroll://")
+            _LOG.debug("DIAG scroll event: anchor=%s", anchor)
+            self.preview_scrolled.emit(anchor)
+            return False
 
         # Copy-code interception
         if url_str.startswith("http://cutemd-copy/"):
@@ -137,6 +146,12 @@ class PreviewWebEngineView(QWebEngineView):
 
         self._base_dir: Path | None = None
         self._attachments_dir: Path | None = None
+        # JS injected flag — set True after each page load
+        self._js_injected = False
+
+        # Connect preview_scrolled for preview→editor sync
+        self._page.preview_scrolled.connect(self._on_preview_user_scrolled)
+        self._scroll_anchor_callback = None  # set by EditorTab
 
         # Allow loading file:// images from local content
         settings = self.page().settings()
@@ -231,10 +246,52 @@ class PreviewWebEngineView(QWebEngineView):
             _LOG.debug("DIAG setHtml: len=%d written to %s base_tag=%s page_id=%s",
                        len(html), tmp_path, bool(base_tag), id(self.page()))
             self.page().load(QUrl.fromLocalFile(tmp_path))
+            self._js_injected = False  # re-inject after load
         except Exception as exc:
             _LOG.debug("DIAG setHtml: tempfile error: %s", exc)
             import traceback
             traceback.print_exc()
+
+    # ------------------------------------------------------------------
+    # Preview → Editor scroll sync (JS scroll listener)
+    # ------------------------------------------------------------------
+
+    _SCROLL_LISTENER_JS = (
+        "(function(){"
+        "if(window._cutemd_scroll_listener)return;"  # inject only once
+        "window._cutemd_scroll_listener=true;"
+        "window._cutemd_syncing=false;"
+        "window.addEventListener('scroll',function(){"
+        "if(window._cutemd_syncing)return;"  # skip programmatic scrolls
+        "var anchors=document.querySelectorAll('a[name]');"
+        "var best=null;"
+        "anchors.forEach(function(a){"
+        "var r=a.getBoundingClientRect();"
+        "if(r.top<=5)best=a.getAttribute('name');"
+        "});"
+        "if(best)window.location='cutemd-scroll://'+best;"
+        "},{passive:true});"
+        "})();"
+    )
+
+    def _inject_scroll_listener(self) -> None:
+        """Inject the JS scroll listener after page load."""
+        if self._js_injected:
+            return
+        self._js_injected = True
+        self.page().runJavaScript(self._SCROLL_LISTENER_JS)
+
+    def _on_preview_user_scrolled(self, anchor: str) -> None:
+        """Forward the anchor from the JS scroll listener to EditorTab."""
+        if self._scroll_anchor_callback:
+            self._scroll_anchor_callback(anchor)
+
+    def set_scroll_syncing(self, syncing: bool) -> None:
+        """Tell the JS that we're about to programmatically scroll the
+        preview (True), or that we're done (False). While True, the JS
+        scroll listener ignores scroll events."""
+        val = "true" if syncing else "false"
+        self.page().runJavaScript(f"window._cutemd_syncing={val};")
 
     # ------------------------------------------------------------------
     # Context menu — block Chromium defaults
