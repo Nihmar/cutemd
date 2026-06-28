@@ -59,7 +59,7 @@ from ui.link_manager import LinkManager
 from ui.link_preview_popup import LinkPreviewPopup
 from ui.markdown_completer import MarkdownAutoCompleter
 from ui.pdf_viewer import PdfViewer
-from ui.preview_browser import PreviewTextBrowser, get_image_size
+from ui.preview_browser import PreviewWebEngineView, get_image_size
 from ui.preview_worker import PreviewWorker
 from ui.syntax_highlighter import MarkdownHighlighter
 
@@ -138,6 +138,7 @@ class EditorTab(QWidget):
         self._mouse_press_pos: QPoint | None = None
         self._detached_window: QWidget | None = None
         self._splitter_sizes: list[int] = []
+        self._preview_viewport: object = None  # set after preview widget creation
 
         # --- Drop handler (drag&drop + clipboard paste) ---
         self._drop_handler = DropHandler(self)
@@ -198,7 +199,7 @@ class EditorTab(QWidget):
         self._link_style = (smart_editing or {}).get("link_style", "md")
 
         # --- Preview stack ---
-        self.preview = PreviewTextBrowser()
+        self.preview = PreviewWebEngineView()
         self.preview.setReadOnly(True)
         self.preview.setOpenLinks(False)
         self.preview.setOpenExternalLinks(False)
@@ -207,7 +208,7 @@ class EditorTab(QWidget):
         )
         if self._attachments_dir is not None:
             self.preview.set_attachments_dir(self._attachments_dir)
-        self._preview_viewport = self.preview.viewport()
+        self._preview_viewport = self.preview  # QWebEngineView is its own viewport
         self._preview_viewport.installEventFilter(self)
 
         self._image_viewer = ImageViewer()
@@ -229,8 +230,11 @@ class EditorTab(QWidget):
         self._preview_stack.installEventFilter(self)
 
         # --- Scroll sync ---
+        # Editor → Preview: keep for now, will be updated in 1.5
         self.editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
-        self.preview.verticalScrollBar().valueChanged.connect(self._on_preview_scrolled)
+        # Preview → Editor: QWebEngineView has no verticalScrollBar().
+        # Replaced by polling timer in step 1.5.
+        # self.preview.verticalScrollBar().valueChanged.connect(self._on_preview_scrolled)
 
         # --- Async preview worker ---
         self._preview_thread = QThread(self)
@@ -812,55 +816,16 @@ class EditorTab(QWidget):
             self._preview_worker.render_requested.emit(params)
 
     def _sync_preview_scroll(self) -> None:
-        if self._syncing_scroll > 0:
-            return
-        anchor = self._pending_sync_anchor
-        if not anchor:
-            return
-        preview_sb = self.preview.verticalScrollBar()
-        if preview_sb.maximum() > 0:
-            self._syncing_scroll += 1
-            self.preview.scrollToAnchor(anchor)
-            self._syncing_scroll -= 1
-            self._pending_sync_anchor = ""
-        else:
-            if self._sync_retries < 10:
-                self._sync_retries += 1
-                QTimer.singleShot(0, self._sync_preview_scroll)
-            else:
-                self._pending_sync_anchor = ""
-                self._sync_retries = 0
+        # TODO: re-implement with runJavaScript() in step 1.5
+        return
 
     def _on_editor_scrolled(self, _value: int = 0) -> None:
         # Hide link preview when scrolling.
         self._link_mgr.popup.hide()
         self._link_mgr._hovered_link_target = None
         self._link_mgr._link_preview_show_timer.stop()
-
-        if (
-            self._syncing_scroll > 0
-            or not self._preview_visible
-            or self._is_binary_preview
-        ):
-            return
-        line_map = self._line_anchor_map
-        if not line_map:
-            return
-        first_block = self.editor.firstVisibleBlock()
-        current_line = max(0, first_block.blockNumber() - self._frontmatter_offset)
-        if current_line >= len(line_map):
-            return
-        anchor_idx = line_map[current_line]
-        anchor = f"b{anchor_idx}"
-        if anchor == self._last_anchor:
-            return
-        self._last_anchor = anchor
-        preview_sb = self.preview.verticalScrollBar()
-        if preview_sb.maximum() <= 0:
-            return
-        self._syncing_scroll += 1
-        self.preview.scrollToAnchor(anchor)
-        self._syncing_scroll -= 1
+        # TODO: re-implement preview scroll sync with runJavaScript() in step 1.5
+        return
 
     def _on_preview_scrolled(self, _value: int = 0) -> None:
         try:
@@ -872,73 +837,8 @@ class EditorTab(QWidget):
             self._syncing_scroll = 0
 
     def _do_preview_scrolled(self) -> None:
-        """Reverse scroll sync: map the preview's scroll position back to an editor line.
-
-        Uses ``_build_line_anchor_map()`` to convert the current anchor to
-        a line number. Falls back to a ratio-based estimate using the
-        ``scrollRatio`` callback if no anchor mapping is available.
-        """
-        if (
-            self._syncing_scroll > 0
-            or not self._preview_visible
-            or self._is_binary_preview
-        ):
-            return
-
-        # Find which anchor is at the top of the preview viewport.
-        # Scan the first few characters of every block starting from the
-        # one at the viewport top and moving backward.
-        doc = self.preview.document()
-        cursor = self.preview.cursorForPosition(QPoint(2, 2))
-        block = cursor.block()
-        anchor_name = ""
-        for _ in range(5):  # check up to 5 blocks backward
-            if not block.isValid():
-                break
-            block_pos = block.position()
-            for offset in range(10):
-                check_pos = block_pos + offset
-                if check_pos >= doc.characterCount():
-                    break
-                temp = QTextCursor(doc)
-                temp.setPosition(check_pos)
-                for name in temp.charFormat().anchorNames():
-                    if name.startswith("b"):
-                        anchor_name = name
-                        break
-                if anchor_name:
-                    break
-            if anchor_name:
-                break
-            block = block.previous()
-        if not anchor_name:
-            return
-        anchor_idx = int(anchor_name[1:])
-
-        # Reverse map: anchor index → first editor line with that anchor
-        line_map = self._line_anchor_map
-        target_line: int | None = None
-        for line, aidx in enumerate(line_map):
-            if aidx == anchor_idx:
-                target_line = line
-                break
-
-        if target_line is None:
-            return
-
-        # Scroll editor so that line is near the top.
-        # Adjust for frontmatter: target_line is from preprocessed text,
-        # editor blocks include the frontmatter lines.
-        target_line += self._frontmatter_offset
-        editor_sb = self.editor.verticalScrollBar()
-        max_ed = editor_sb.maximum()
-        if max_ed <= 0:
-            return
-        total_lines = self.editor.document().blockCount()
-        ratio = target_line / max(total_lines - 1, 1)
-        self._syncing_scroll += 1
-        editor_sb.setValue(int(ratio * max_ed))
-        self._syncing_scroll -= 1
+        # TODO: re-implement preview → editor sync with JS polling in step 1.5
+        return
 
     # ------------------------------------------------------------------
     # Clickable link navigation (hover underline + click to open)
@@ -1132,7 +1032,7 @@ class EditorTab(QWidget):
                         self.zoom_editor(delta)
                     return True
 
-        elif obj is self._preview_viewport and event.type() == QEvent.Type.Wheel:
+        elif self._preview_viewport is not None and obj is self._preview_viewport and event.type() == QEvent.Type.Wheel:
             we = event  # type: ignore[assignment]
             if we.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 delta = 1 if we.angleDelta().y() > 0 else -1

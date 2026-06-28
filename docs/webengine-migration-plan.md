@@ -143,7 +143,7 @@ For DOCX, XLSX, PPTX, CBZ, EPUB, CSV, etc.:
 | File | Change description |
 |------|--------------------|
 | `pyproject.toml` | No change needed — `PySide6.QtWebEngineWidgets` and `QtWebEngineCore` are included in `pyside6-addons` which is a dependency of the existing `pyside6>=6.11.1`. Just verify the imports work at runtime (§1.1). |
-| `ui/preview_browser.py` | Rewrite: replace `PreviewTextBrowser(QTextBrowser)` with `PreviewWebEngineView(QWebEngineView)` + `PreviewWebEnginePage(QWebEnginePage)`. Includes: `QWebEngineSettings.LocalContentCanAccessLocalUrls`, `page().setContent()` (not `setHtml()`), `acceptNavigationRequest()` for link interception, context menu override (Chromium default menu is inappropriate). Keep `get_image_size()` here. |
+| `ui/preview_browser.py` | Rewrite: replace `PreviewTextBrowser(QTextBrowser)` with `PreviewWebEngineView(QWebEngineView)` + `PreviewWebEnginePage(QWebEnginePage)`. Includes: `QWebEngineSettings.LocalContentCanAccessFileUrls`, `page().setContent()` (not `setHtml()`), `acceptNavigationRequest()` for link interception, context menu override (Chromium default menu is inappropriate). Keep `get_image_size()` here. |
 | `ui/editor_tab.py` | Replace `PreviewTextBrowser` with `PreviewWebEngineView` in imports and instantiation. Rewrite scroll sync logic (`_on_editor_scrolled`, `_do_preview_scrolled`, `_sync_preview_scroll`) to use `runJavaScript()`. Update `set_preview_visible()` if needed. Update font zoom mechanism. Update event filter on `_preview_viewport`. Add `_preview_scroll_timer` (polling) with start/stop in load cycle. |
 | `main.py` | Add `AA_ShareOpenGLContexts` before `QApplication` creation (§3.12). Required for multi-tab stability. |
 | `ui/main_window.py` | No direct changes expected — the preview widget is only referenced through `EditorTab`. However, `_on_toggle_preview` and zoom methods will continue to work if the public API is preserved. |
@@ -428,7 +428,7 @@ from PySide6.QtWebEngineCore import QWebEngineSettings  # NOT QtWebEngineWidgets
 
 settings = self.page().settings()
 settings.setAttribute(
-    QWebEngineSettings.WebAttribute.LocalContentCanAccessLocalUrls, True
+    QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True
 )
 ```
 
@@ -545,7 +545,7 @@ Currently `zoom_preview(delta)` changes `_preview_font_size` and triggers a full
 
 ### 4.5 Risk: Image loading with file:// URLs
 - Chromium's security model restricts file:// access from content loaded via `setContent()`
-- **Mitigation**: Setting `LocalContentCanAccessLocalUrls` (see §3.5.1) is the documented fix.
+- **Mitigation**: Setting `LocalContentCanAccessFileUrls` (see §3.5.1) is the documented fix.
   The `baseUrl` parameter alone is NOT sufficient — Chromium still blocks cross-directory
   file:// access without this setting. Must be applied BEFORE any content is loaded.
 
