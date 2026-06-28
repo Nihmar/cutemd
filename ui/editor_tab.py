@@ -233,12 +233,10 @@ class EditorTab(QWidget):
         self._preview_stack.installEventFilter(self)
 
         # --- Scroll sync ---
-        # Editor → Preview
+        # Editor → Preview only. Bidirectional sync with async runJavaScript()
+        # causes oscillation because scrollIntoView hasn't completed when the
+        # next poll fires, reading an intermediate scroll position.
         self.editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
-        # Preview → Editor: polling timer (QWebEngineView has no scrollbar signal)
-        self._preview_scroll_timer = QTimer(self)
-        self._preview_scroll_timer.setInterval(150)
-        self._preview_scroll_timer.timeout.connect(self._poll_preview_scroll)
 
         # --- Async preview worker ---
         self._preview_thread = QThread(self)
@@ -323,8 +321,6 @@ class EditorTab(QWidget):
         if visible == self._preview_visible:
             return
         self._preview_visible = visible
-        if not visible:
-            self._preview_scroll_timer.stop()
 
         total = self._splitter.width()
         if total <= 0:
@@ -542,7 +538,6 @@ class EditorTab(QWidget):
 
     def _on_doc_rendered(self, html: str) -> None:
         _LOG.debug("DIAG _on_doc_rendered: len=%d", len(html))
-        self._preview_scroll_timer.stop()
         try:
             self.preview.loadFinished.disconnect()
         except RuntimeError:
@@ -551,7 +546,6 @@ class EditorTab(QWidget):
         def on_load(ok: bool) -> None:
             self.preview.loadFinished.disconnect(on_load)
             self._preview_stack.setCurrentIndex(0)
-            self._preview_scroll_timer.start()
 
         self.preview.loadFinished.connect(on_load)
         QTimer.singleShot(0, lambda: self._deferred_set_html(html))
@@ -842,19 +836,16 @@ class EditorTab(QWidget):
         self._syncing_scroll -= 1
 
     def _deferred_set_html(self, html: str) -> None:
-        self._preview_scroll_timer.stop()
-        # Disconnect any stale loadFinished handler from a previous
-        # load that hasn't completed yet (rapid typing scenario).
+        # Disconnect any stale loadFinished handler from a previous load.
         try:
             self.preview.loadFinished.disconnect()
         except RuntimeError:
-            pass  # nothing connected
+            pass
 
         def on_load(ok: bool) -> None:
             self.preview.loadFinished.disconnect(on_load)
             self._pending_sync_anchor = self._last_anchor
             self._sync_preview_scroll()
-            self._preview_scroll_timer.start()
 
         self.preview.loadFinished.connect(on_load)
         self.preview.setHtml(html)
@@ -902,54 +893,6 @@ class EditorTab(QWidget):
         self._syncing_scroll -= 1
         self._pending_sync_anchor = ""
 
-    def _poll_preview_scroll(self) -> None:
-        """Poll the preview for the current visible anchor (150ms timer)."""
-        if self._syncing_scroll > 0:
-            return
-        js = (
-            "(function(){"
-            "var anchors=document.querySelectorAll('a[name]');"
-            "var best=null;"
-            "anchors.forEach(function(a){"
-            "var r=a.getBoundingClientRect();"
-            "if(r.top<=5)best=a.getAttribute('name');"
-            "});"
-            "return best||'';"
-            "})();"
-        )
-        self.preview.page().runJavaScript(js, self._on_preview_anchor_found)
-
-    def _on_preview_anchor_found(self, anchor_name: str) -> None:
-        """Reverse-map a preview anchor back to an editor line and scroll."""
-        if not anchor_name or not anchor_name.startswith("b"):
-            return
-        if self._syncing_scroll > 0:
-            return
-        try:
-            anchor_idx = int(anchor_name[1:])
-        except ValueError:
-            return
-
-        line_map = self._line_anchor_map
-        target_line: int | None = None
-        for line, aidx in enumerate(line_map):
-            if aidx == anchor_idx:
-                target_line = line
-                break
-        if target_line is None:
-            return
-
-        target_line += self._frontmatter_offset
-        editor_sb = self.editor.verticalScrollBar()
-        max_ed = editor_sb.maximum()
-        if max_ed <= 0:
-            return
-        total_lines = self.editor.document().blockCount()
-        ratio = target_line / max(total_lines - 1, 1)
-        self._syncing_scroll += 1
-        editor_sb.setValue(int(ratio * max_ed))
-        self._syncing_scroll -= 1
-
     def _on_editor_scrolled(self, _value: int = 0) -> None:
         # Hide link preview when scrolling.
         self._link_mgr.popup.hide()
@@ -974,6 +917,9 @@ class EditorTab(QWidget):
         if anchor == self._last_anchor:
             return
         self._last_anchor = anchor
+        _LOG.debug("DIAG SCROLL editor→preview: anchor=%s ed_line=%d pre_line=%d offset=%d",
+                   anchor, first_block.blockNumber(), current_line,
+                   self._frontmatter_offset)
 
         self._syncing_scroll += 1
         js = (
