@@ -211,6 +211,9 @@ class EditorTab(QWidget):
         self._preview_viewport = self.preview  # QWebEngineView is its own viewport
         self._preview_viewport.installEventFilter(self)
 
+        # Track focus changes on the preview to diagnose focus-stealing
+        self.preview.installEventFilter(self)
+
         self._image_viewer = ImageViewer()
         self._image_viewer.viewport().installEventFilter(self._image_viewer)
 
@@ -801,9 +804,6 @@ class EditorTab(QWidget):
         self._syncing_scroll -= 1
 
     def _deferred_set_html(self, html: str) -> None:
-        _LOG.debug("DIAG _deferred_set_html: len=%d visible=%s page_valid=%s",
-                   len(html), self.preview.isVisible(),
-                   self.preview.page() is not None)
         self.preview.setHtml(html)
 
         # Compute anchor map from the rendered text (on main thread).

@@ -231,10 +231,19 @@ class FileTreePanel(QWidget):
         self._tree.setRootIndex(self._proxy.mapFromSource(src_idx))
 
     def select_file(self, path: str | Path) -> None:
-        """Highlight *path* in the tree."""
+        """Highlight *path* in the tree without stealing focus."""
         idx = self._model.index(str(Path(path).resolve()))
         if idx.isValid():
-            self._tree.setCurrentIndex(self._proxy.mapFromSource(idx))
+            proxy_idx = self._proxy.mapFromSource(idx)
+            # Use selection model instead of setCurrentIndex to avoid
+            # stealing focus from the editor on every save.
+            from PySide6.QtCore import QItemSelectionModel
+            self._tree.selectionModel().select(
+                proxy_idx,
+                QItemSelectionModel.SelectionFlag.ClearAndSelect
+                | QItemSelectionModel.SelectionFlag.Rows,
+            )
+            self._tree.scrollTo(proxy_idx)
 
     def root_path(self) -> str:
         """Return the current root path (or empty string if none)."""

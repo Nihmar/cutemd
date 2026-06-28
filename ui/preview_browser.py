@@ -124,6 +124,9 @@ class PreviewWebEngineView(QWebEngineView):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        # Prevent the preview from stealing focus from the editor on reload.
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
         self._page = PreviewWebEnginePage(self)
         _LOG.debug("DIAG PreviewWebEngineView.__init__ setting page id=%s", id(self._page))
         self.setPage(self._page)

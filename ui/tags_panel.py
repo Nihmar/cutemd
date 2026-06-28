@@ -295,8 +295,6 @@ class TagsPanel(QWidget):
         self._scan_thread = None
         # Emit tag names so the editor completer can pick them up
         self.tags_updated.emit(sorted(self._tag_items.keys()))
-        # Set focus on the tree so arrow keys work
-        self._tree.setFocus()
 
     def _on_scan_finished(self) -> None:
         """Clean up the finished thread reference."""
