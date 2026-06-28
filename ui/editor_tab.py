@@ -293,7 +293,8 @@ class EditorTab(QWidget):
         return str(self._file_path) if self._file_path else self.tr("Untitled")
 
     def set_theme(self, theme: str, pygments_style: str = "",
-                  theme_bg: str = "", theme_fg: str = "") -> None:
+                  theme_bg: str = "", theme_fg: str = "",
+                  theme_mid: str = "") -> None:
         _LOG.debug("DIAG set_theme: theme=%s old=%s pygments=%s old_pygments=%s bg=%s",
                    theme, self._theme, pygments_style,
                    getattr(self, '_pygments_style', ''), theme_bg)
@@ -308,6 +309,8 @@ class EditorTab(QWidget):
                 self._theme_bg = theme_bg
             if theme_fg:
                 self._theme_fg = theme_fg
+            if theme_mid:
+                self._theme_mid = theme_mid
             self._last_rendered_hash = 0
             self._highlighter.set_theme(theme)
             self._link_mgr.popup.set_theme(theme)
@@ -776,6 +779,7 @@ class EditorTab(QWidget):
                 getattr(self, '_pygments_style', ''),
                 getattr(self, '_theme_bg', ''),
                 getattr(self, '_theme_fg', ''),
+                getattr(self, '_theme_mid', ''),
             )
         )
         if params_hash == self._last_rendered_hash:
@@ -797,6 +801,7 @@ class EditorTab(QWidget):
             "attachments_dir": self._attachments_dir,
             "theme_bg": getattr(self, '_theme_bg', ''),
             "theme_fg": getattr(self, '_theme_fg', ''),
+            "theme_mid": getattr(self, '_theme_mid', ''),
         }
 
         if self._preview_busy:

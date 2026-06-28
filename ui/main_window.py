@@ -761,6 +761,7 @@ class MainWindow(QMainWindow):
             self._current_theme.pygments_style,
             theme_bg=pal.color(QPalette.ColorRole.Base).name(),
             theme_fg=pal.color(QPalette.ColorRole.Text).name(),
+            theme_mid=pal.color(QPalette.ColorRole.Mid).name(),
         )
         tab.set_line_number_mode(self._line_number_mode)
         tab.modified_changed.connect(self._on_tab_modified)
@@ -1115,6 +1116,7 @@ class MainWindow(QMainWindow):
         from PySide6.QtGui import QPalette
         bg_color = pal.color(QPalette.ColorRole.Base).name()
         fg_color = pal.color(QPalette.ColorRole.Text).name()
+        mid_color = pal.color(QPalette.ColorRole.Mid).name()
         for i in range(self._tabs.count()):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab):
@@ -1123,6 +1125,7 @@ class MainWindow(QMainWindow):
                     self._current_theme.pygments_style,
                     theme_bg=bg_color,
                     theme_fg=fg_color,
+                    theme_mid=mid_color,
                 )
 
     def _on_settings(self) -> None:

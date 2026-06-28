@@ -137,6 +137,24 @@ def _cached_file_index(vault_root: Path) -> dict[str, list[Path]]:
     return idx
 
 
+def _lighten(hex_color: str, factor: float = 0.3) -> str:
+    """Lighten a hex color by blending with white."""
+    r, g, b = int(hex_color[1:3], 16), int(hex_color[3:5], 16), int(hex_color[5:7], 16)
+    r = min(255, int(r + (255 - r) * factor))
+    g = min(255, int(g + (255 - g) * factor))
+    b = min(255, int(b + (255 - b) * factor))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _darken(hex_color: str, factor: float = 0.3) -> str:
+    """Darken a hex color by blending with black."""
+    r, g, b = int(hex_color[1:3], 16), int(hex_color[3:5], 16), int(hex_color[5:7], 16)
+    r = max(0, int(r * (1 - factor)))
+    g = max(0, int(g * (1 - factor)))
+    b = max(0, int(b * (1 - factor)))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def build_html(
     *,
     text: str,
@@ -151,6 +169,7 @@ def build_html(
     attachments_dir: Path | None = None,
     theme_bg: str = "",
     theme_fg: str = "",
+    theme_mid: str = "",
 ) -> str:
     try:
         body_html = add_heading_ids(render_with_anchors(text, md))
@@ -195,6 +214,17 @@ def build_html(
         theme_override += f"\nbody.{theme_class} {{ background-color: {theme_bg}; }}"
     if theme_fg:
         theme_override += f"\nbody.{theme_class} {{ color: {theme_fg}; }}"
+
+    # Scrollbar styling to match the theme palette.
+    if theme_bg and theme_mid:
+        thumb_hover = _lighten(theme_mid) if theme == "dark" else _darken(theme_mid)
+        theme_override += (
+            f"\n::-webkit-scrollbar {{ width: 10px; height: 10px; }}"
+            f"\n::-webkit-scrollbar-track {{ background: {theme_bg}; }}"
+            f"\n::-webkit-scrollbar-thumb {{ background: {theme_mid}; border-radius: 5px; }}"
+            f"\n::-webkit-scrollbar-thumb:hover {{ background: {thumb_hover}; }}"
+            f"\n::-webkit-scrollbar-corner {{ background: {theme_bg}; }}"
+        )
 
     return (
         "<!DOCTYPE html>\n"
