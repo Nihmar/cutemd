@@ -233,11 +233,12 @@ class EditorTab(QWidget):
         self._preview_stack.installEventFilter(self)
 
         # --- Scroll sync ---
-        # Editor → Preview: keep for now, will be updated in 1.5
+        # Editor → Preview
         self.editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
-        # Preview → Editor: QWebEngineView has no verticalScrollBar().
-        # Replaced by polling timer in step 1.5.
-        # self.preview.verticalScrollBar().valueChanged.connect(self._on_preview_scrolled)
+        # Preview → Editor: polling timer (QWebEngineView has no scrollbar signal)
+        self._preview_scroll_timer = QTimer(self)
+        self._preview_scroll_timer.setInterval(150)
+        self._preview_scroll_timer.timeout.connect(self._poll_preview_scroll)
 
         # --- Async preview worker ---
         self._preview_thread = QThread(self)
@@ -319,6 +320,8 @@ class EditorTab(QWidget):
         if visible == self._preview_visible:
             return
         self._preview_visible = visible
+        if not visible:
+            self._preview_scroll_timer.stop()
 
         total = self._splitter.width()
         if total <= 0:
@@ -536,9 +539,19 @@ class EditorTab(QWidget):
 
     def _on_doc_rendered(self, html: str) -> None:
         _LOG.debug("DIAG _on_doc_rendered: len=%d", len(html))
-        # Defer — QWebEngineView must be visible before setContent.
+        self._preview_scroll_timer.stop()
+        try:
+            self.preview.loadFinished.disconnect()
+        except RuntimeError:
+            pass
+
+        def on_load(ok: bool) -> None:
+            self.preview.loadFinished.disconnect(on_load)
+            self._preview_stack.setCurrentIndex(0)
+            self._preview_scroll_timer.start()
+
+        self.preview.loadFinished.connect(on_load)
         QTimer.singleShot(0, lambda: self._deferred_set_html(html))
-        self._preview_stack.setCurrentIndex(0)
         self._refresh_link_highlights()
 
     def save(self) -> bool:
@@ -824,6 +837,21 @@ class EditorTab(QWidget):
         self._syncing_scroll -= 1
 
     def _deferred_set_html(self, html: str) -> None:
+        self._preview_scroll_timer.stop()
+        # Disconnect any stale loadFinished handler from a previous
+        # load that hasn't completed yet (rapid typing scenario).
+        try:
+            self.preview.loadFinished.disconnect()
+        except RuntimeError:
+            pass  # nothing connected
+
+        def on_load(ok: bool) -> None:
+            self.preview.loadFinished.disconnect(on_load)
+            self._pending_sync_anchor = self._last_anchor
+            self._sync_preview_scroll()
+            self._preview_scroll_timer.start()
+
+        self.preview.loadFinished.connect(on_load)
         self.preview.setHtml(html)
 
         # Compute anchor map from the rendered text (on main thread).
@@ -853,32 +881,109 @@ class EditorTab(QWidget):
             self._preview_worker.render_requested.emit(params)
 
     def _sync_preview_scroll(self) -> None:
-        # TODO: re-implement with runJavaScript() in step 1.5
-        return
+        if self._syncing_scroll > 0:
+            return
+        anchor = self._pending_sync_anchor
+        if not anchor:
+            return
+        self._syncing_scroll += 1
+        js = (
+            f"(function(){{"
+            f"var el=document.querySelector('a[name=\"{anchor}\"]');"
+            f"if(el)el.scrollIntoView({{block:'start',behavior:'instant'}});"
+            f"}})();"
+        )
+        self.preview.page().runJavaScript(js)
+        self._syncing_scroll -= 1
+        self._pending_sync_anchor = ""
+
+    def _poll_preview_scroll(self) -> None:
+        """Poll the preview for the current visible anchor (150ms timer)."""
+        if self._syncing_scroll > 0:
+            return
+        js = (
+            "(function(){"
+            "var anchors=document.querySelectorAll('a[name]');"
+            "var best=null;"
+            "anchors.forEach(function(a){"
+            "var r=a.getBoundingClientRect();"
+            "if(r.top<=5)best=a.getAttribute('name');"
+            "});"
+            "return best||'';"
+            "})();"
+        )
+        self.preview.page().runJavaScript(js, self._on_preview_anchor_found)
+
+    def _on_preview_anchor_found(self, anchor_name: str) -> None:
+        """Reverse-map a preview anchor back to an editor line and scroll."""
+        if not anchor_name or not anchor_name.startswith("b"):
+            return
+        if self._syncing_scroll > 0:
+            return
+        try:
+            anchor_idx = int(anchor_name[1:])
+        except ValueError:
+            return
+
+        line_map = self._line_anchor_map
+        target_line: int | None = None
+        for line, aidx in enumerate(line_map):
+            if aidx == anchor_idx:
+                target_line = line
+                break
+        if target_line is None:
+            return
+
+        target_line += self._frontmatter_offset
+        editor_sb = self.editor.verticalScrollBar()
+        max_ed = editor_sb.maximum()
+        if max_ed <= 0:
+            return
+        total_lines = self.editor.document().blockCount()
+        ratio = target_line / max(total_lines - 1, 1)
+        self._syncing_scroll += 1
+        editor_sb.setValue(int(ratio * max_ed))
+        self._syncing_scroll -= 1
 
     def _on_editor_scrolled(self, _value: int = 0) -> None:
         # Hide link preview when scrolling.
         self._link_mgr.popup.hide()
         self._link_mgr._hovered_link_target = None
         self._link_mgr._link_preview_show_timer.stop()
-        # TODO: re-implement preview scroll sync with runJavaScript() in step 1.5
-        return
 
-    def _on_preview_scrolled(self, _value: int = 0) -> None:
-        try:
-            self._do_preview_scrolled()
-        except Exception:
-            import traceback
+        if (
+            self._syncing_scroll > 0
+            or not self._preview_visible
+            or self._is_binary_preview
+        ):
+            return
+        line_map = self._line_anchor_map
+        if not line_map:
+            return
+        first_block = self.editor.firstVisibleBlock()
+        current_line = max(0, first_block.blockNumber() - self._frontmatter_offset)
+        if current_line >= len(line_map):
+            return
+        anchor_idx = line_map[current_line]
+        anchor = f"b{anchor_idx}"
+        if anchor == self._last_anchor:
+            return
+        self._last_anchor = anchor
 
-            traceback.print_exc()
-            self._syncing_scroll = 0
+        self._syncing_scroll += 1
+        js = (
+            f"(function(){{"
+            f"var el=document.querySelector('a[name=\"{anchor}\"]');"
+            f"if(el)el.scrollIntoView({{block:'start',behavior:'instant'}});"
+            f"}})();"
+        )
+        self.preview.page().runJavaScript(js)
+        self._syncing_scroll -= 1
 
-    def _do_preview_scrolled(self) -> None:
-        # TODO: re-implement preview → editor sync with JS polling in step 1.5
-        return
+        self._pending_sync_anchor = ""
 
     # ------------------------------------------------------------------
-    # Clickable link navigation (hover underline + click to open)
+    # Preview → Editor scroll sync (polling)
     # ------------------------------------------------------------------
 
     @classmethod
