@@ -62,12 +62,23 @@ class PreviewWebEnginePage(QWebEnginePage):
     """
     file_link_clicked = Signal(str)
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        _LOG.debug("DIAG PreviewWebEnginePage.__init__ id=%s", id(self))
+
     def acceptNavigationRequest(
         self, url: QUrl, nav_type, is_main_frame: bool
     ) -> bool:
         url_str = url.toString()
-        _LOG.debug("acceptNavigationRequest: %s (nav_type=%s)",
-                   url_str[:120], nav_type)
+        _LOG.debug("DIAG acceptNavigationRequest: id=%s url=%s nav_type=%s is_main=%s",
+                   id(self), url_str[:120], nav_type, is_main_frame)
+
+        # Allow the initial page load (NavigationTypeTyped from setContent).
+        # Blocking it causes loadFinished(ok=False) and a blank page.
+        from PySide6.QtWebEngineCore import QWebEnginePage
+        if nav_type == QWebEnginePage.NavigationType.NavigationTypeTyped:
+            _LOG.debug("DIAG acceptNavigationRequest: allowing typed navigation")
+            return True
 
         # Copy-code interception
         if url_str.startswith("http://cutemd-copy/"):
@@ -114,7 +125,11 @@ class PreviewWebEngineView(QWebEngineView):
         super().__init__(parent)
 
         self._page = PreviewWebEnginePage(self)
+        _LOG.debug("DIAG PreviewWebEngineView.__init__ setting page id=%s", id(self._page))
         self.setPage(self._page)
+        # Verify the page was actually set
+        _LOG.debug("DIAG after setPage: page id=%s page_class=%s",
+                   id(self.page()), type(self.page()).__name__)
         self._page.file_link_clicked.connect(self.file_link_clicked)
 
         self._base_dir: Path | None = None
@@ -125,6 +140,16 @@ class PreviewWebEngineView(QWebEngineView):
         settings.setAttribute(
             QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True
         )
+
+        # Diagnostic: log when page finishes loading
+        self.loadFinished.connect(self._on_load_finished)
+
+    # ------------------------------------------------------------------
+    # Diagnostics
+    # ------------------------------------------------------------------
+
+    def _on_load_finished(self, ok: bool) -> None:
+        _LOG.debug("DIAG loadFinished: ok=%s", ok)
 
     # ------------------------------------------------------------------
     # Public API — compatible with the old PreviewTextBrowser
@@ -167,16 +192,46 @@ class PreviewWebEngineView(QWebEngineView):
             .replace(">", "&gt;")
         )
         html = f"<!DOCTYPE html><html><body style='padding:16px'>{escaped}</body></html>"
-        self.page().setContent(html.encode("utf-8"), "text/html;charset=utf-8")
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(suffix=".html")
+        with open(fd, "w", encoding="utf-8") as f:
+            f.write(html)
+        self.page().load(QUrl.fromLocalFile(tmp_path))
 
     def setHtml(self, html: str) -> None:
-        """Load HTML content. Uses setContent() internally to avoid the
-        2 MB truncation limit of QWebEngineView.setHtml().
+        """Load HTML content.
+
+        Writes to a temp file and loads via file:// URL to avoid the
+        size limits of both QWebEngineView.setHtml() (2 MB) and
+        page().setContent() / data: URLs (~2-3 MB).
         """
-        base_url = QUrl.fromLocalFile(str(self._base_dir)) if self._base_dir else QUrl()
-        self.page().setContent(
-            html.encode("utf-8"), "text/html;charset=utf-8", base_url
-        )
+        import tempfile
+
+        # Inject <base> tag so relative links (wikilinks) resolve to the
+        # vault directory, not the temp file's directory.
+        base_tag = ""
+        if self._base_dir is not None:
+            base_url = QUrl.fromLocalFile(str(self._base_dir) + "/")
+            base_tag = f'<base href="{base_url.toString()}">'
+
+        # Insert <base> after <head> if present, otherwise at start.
+        head_pos = html.find("<head>")
+        if head_pos >= 0:
+            html = html[:head_pos + 6] + base_tag + html[head_pos + 6:]
+        else:
+            html = base_tag + html
+
+        fd, tmp_path = tempfile.mkstemp(suffix=".html")
+        try:
+            with open(fd, "w", encoding="utf-8") as f:
+                f.write(html)
+            _LOG.debug("DIAG setHtml: len=%d written to %s base_tag=%s page_id=%s",
+                       len(html), tmp_path, bool(base_tag), id(self.page()))
+            self.page().load(QUrl.fromLocalFile(tmp_path))
+        except Exception as exc:
+            _LOG.debug("DIAG setHtml: tempfile error: %s", exc)
+            import traceback
+            traceback.print_exc()
 
     # ------------------------------------------------------------------
     # Context menu — block Chromium defaults

@@ -44,7 +44,7 @@ class PreviewWorker(QObject):
         import traceback
 
         text = params.get("text", "")
-        _LOG.debug("_do_render: text_bytes=%d", len(text))
+        _LOG.debug("DIAG _do_render: text_bytes=%d busy=%s", len(text), self._md is not None)
 
         try:
             if self._md is None:

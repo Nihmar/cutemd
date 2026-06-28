@@ -517,7 +517,9 @@ class EditorTab(QWidget):
         self._doc_thread.start()
 
     def _on_doc_rendered(self, html: str) -> None:
-        self.preview.setHtml(html)
+        _LOG.debug("DIAG _on_doc_rendered: len=%d", len(html))
+        # Defer — QWebEngineView must be visible before setContent.
+        QTimer.singleShot(0, lambda: self._deferred_set_html(html))
         self._preview_stack.setCurrentIndex(0)
         self._refresh_link_highlights()
 
@@ -694,6 +696,9 @@ class EditorTab(QWidget):
         unnecessary re-renders when typing quickly. Hash-based change
         detection prevents re-rendering identical content.
         """
+        _LOG.debug("DIAG _update_preview: visible=%s binary=%s large=%s text_len=%d",
+                   self._preview_visible, self._is_binary_preview,
+                   self._large_file, len(self._cached_text))
         if not self._preview_visible or self._is_binary_preview or self._large_file:
             return
         raw_text = self._cached_text
@@ -778,7 +783,10 @@ class EditorTab(QWidget):
         self._link_mgr.schedule_broken_refresh()
 
     def _on_preview_ready(self, html: str) -> None:
-        _LOG.debug("_on_preview_ready: html_len=%d preview=%s", len(html) if html else 0, html[:80] if html else "EMPTY")
+        _LOG.debug("DIAG _on_preview_ready: len=%d preview_visible=%s stack_index=%d",
+                   len(html) if html else 0,
+                   self._preview_visible,
+                   self._preview_stack.currentIndex())
         self._preview_busy = False
         # Cancel spinner if it hasn't fired yet.
         if hasattr(self, "_spinner_timer"):
@@ -786,8 +794,17 @@ class EditorTab(QWidget):
 
         self._syncing_scroll += 1
         self._preview_stack.setCurrentIndex(0)  # back to preview
-        self.preview.setHtml(html)
+        # Defer setHtml by one event loop iteration so that the QStackedWidget
+        # has time to actually show the QWebEngineView before Chromium loads.
+        # Without this, the widget is still hidden and loadFinished returns False.
+        QTimer.singleShot(0, lambda: self._deferred_set_html(html))
         self._syncing_scroll -= 1
+
+    def _deferred_set_html(self, html: str) -> None:
+        _LOG.debug("DIAG _deferred_set_html: len=%d visible=%s page_valid=%s",
+                   len(html), self.preview.isVisible(),
+                   self.preview.page() is not None)
+        self.preview.setHtml(html)
 
         # Compute anchor map from the rendered text (on main thread).
         # Use the *preprocessed* text that was sent to the worker.
