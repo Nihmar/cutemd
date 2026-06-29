@@ -56,3 +56,7 @@ Based on architecture-analysis.md and visual-consistency-analysis.md.
 
 - Consider `devicePixelRatio()` for fixed widget sizes
 - Increase minimum dialog sizes or make them relative
+
+## Phase 5 - Unit Testing
+
+Add a full suit of uit testing to run before each commit.

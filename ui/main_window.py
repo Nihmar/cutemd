@@ -1278,7 +1278,6 @@ class MainWindow(QMainWindow):
             return
 
         _LOG.debug("_on_settings: applying changes")
-        _LOG.debug("_on_settings: applying changes")
 
         self._settings_applicator.apply(dlg)
 
@@ -1474,74 +1473,14 @@ class MainWindow(QMainWindow):
     def _on_show_shortcuts(self) -> None:
         from ui.shortcuts_dialog import ShortcutsDialog
 
-        actions = {
-            "act_open_folder": self.act_open_folder,
-            "act_close_folder": self.act_close_folder,
-            "act_new": self.act_new,
-            "act_new_from_template": self.act_new_from_template,
-            "act_daily_note": self.act_daily_note,
-            "act_toggle_zen_mode": self.act_toggle_zen_mode,
-            "act_save": self.act_save,
-            "act_save_as": self.act_save_as,
-            "act_close_tab": self.act_close_tab,
-            "act_exit": self.act_exit,
-            "act_undo": self.act_undo,
-            "act_redo": self.act_redo,
-            "act_find": self.act_find,
-            "act_find_files": self.act_find_files,
-            "act_replace_files": self.act_replace_files,
-            "act_toggle_preview": self.act_toggle_preview,
-            "act_toggle_split": self.act_toggle_split,
-            "act_toggle_tree": self.act_toggle_tree,
-            "act_toggle_statusbar": self.act_toggle_statusbar,
-            "act_zoom_in": self.act_zoom_in,
-            "act_zoom_out": self.act_zoom_out,
-            "act_zoom_reset": self.act_zoom_reset,
-            "act_zoom_preview_in": self.act_zoom_preview_in,
-            "act_zoom_preview_out": self.act_zoom_preview_out,
-            "act_webdav_sync": self.act_webdav_sync,
-            "act_check_update": self.act_check_update,
-            "act_command_palette": self.act_command_palette,
-            "act_settings": self.act_settings,
-            "act_shortcuts": self.act_shortcuts,
-        }
-        dlg = ShortcutsDialog(actions, self)
+        dlg = ShortcutsDialog(self._all_actions, self)
         dlg.exec()
 
     def _on_command_palette(self) -> None:
         _LOG.debug("_on_command_palette called")
         from ui.command_palette import CommandPalette
 
-        actions = {
-            "act_open_folder": self.act_open_folder,
-            "act_close_folder": self.act_close_folder,
-            "act_new": self.act_new,
-            "act_new_from_template": self.act_new_from_template,
-            "act_daily_note": self.act_daily_note,
-            "act_toggle_zen_mode": self.act_toggle_zen_mode,
-            "act_save": self.act_save,
-            "act_save_as": self.act_save_as,
-            "act_close_tab": self.act_close_tab,
-            "act_exit": self.act_exit,
-            "act_undo": self.act_undo,
-            "act_redo": self.act_redo,
-            "act_find": self.act_find,
-            "act_find_files": self.act_find_files,
-            "act_replace_files": self.act_replace_files,
-            "act_toggle_preview": self.act_toggle_preview,
-            "act_toggle_tree": self.act_toggle_tree,
-            "act_toggle_statusbar": self.act_toggle_statusbar,
-            "act_zoom_in": self.act_zoom_in,
-            "act_zoom_out": self.act_zoom_out,
-            "act_zoom_reset": self.act_zoom_reset,
-            "act_zoom_preview_in": self.act_zoom_preview_in,
-            "act_zoom_preview_out": self.act_zoom_preview_out,
-            "act_webdav_sync": self.act_webdav_sync,
-            "act_check_update": self.act_check_update,
-            "act_settings": self.act_settings,
-            "act_shortcuts": self.act_shortcuts,
-        }
-        dlg = CommandPalette(actions, self)
+        dlg = CommandPalette(self._all_actions, self)
         dlg.exec()
 
     def _check_for_updates(self, silent: bool = False) -> None:
@@ -2075,14 +2014,6 @@ class MainWindow(QMainWindow):
             self._trigger_tags_scan()
             if saved_tab is not None:
                 self._update_metadata(saved_tab)
-
-    def _on_new(self) -> None:
-        tab = self._current_tab()
-        if tab is not None and tab.file_path is None and not tab.is_modified:
-            self._tabs.setCurrentIndex(self._tabs.indexOf(tab))
-            return
-        self._add_tab()
-        self._update_window_title()
 
     def _on_toggle_zen_mode(self, enabled: bool) -> None:
         """Enter / leave zen mode: hide all chrome, center the editor."""

@@ -256,7 +256,7 @@ class SettingsDialog(QDialog):
                 all_langs = set(enchant.list_languages())
             except Exception:
                 all_langs = set()
-            from core.dict_manager import AVAILABLE_DICTS, is_dict_installed
+            from ui.dict_manager import AVAILABLE_DICTS, is_dict_installed
 
             # Show UI languages first
             for ui_code, hunspell_code in AVAILABLE_DICTS.items():
@@ -299,7 +299,7 @@ class SettingsDialog(QDialog):
 
             self._dict_status_labels: dict[str, QLabel] = {}
             self._dict_buttons: dict[str, QPushButton] = {}
-            from core.dict_manager import AVAILABLE_DICTS, is_dict_installed
+            from ui.dict_manager import AVAILABLE_DICTS, is_dict_installed
 
             for ui_code, hunspell_code in AVAILABLE_DICTS.items():
                 row = QHBoxLayout()
@@ -1342,8 +1342,38 @@ class SettingsDialog(QDialog):
     # Sync helpers
     # ==================================================================
 
+    # ==================================================================
+    # Browse helpers
+    # ==================================================================
+
+    def _browse_relative_path(
+        self, line_edit: QLineEdit, title: str, is_file: bool = False,
+    ) -> None:
+        """Open a dir/file dialog, store result as vault-relative path."""
+        from PySide6.QtWidgets import QFileDialog
+
+        cur = line_edit.text().strip()
+        if cur and self._current_folder and not Path(cur).is_absolute():
+            cur = str(Path(self._current_folder) / cur)
+        start_dir = cur or self._current_folder or str(Path.home())
+
+        if is_file:
+            path, _ = QFileDialog.getOpenFileName(
+                self, title, start_dir,
+                self.tr("Markdown files (*.md);;All files (*)"),
+            )
+        else:
+            path = QFileDialog.getExistingDirectory(self, title, start_dir)
+
+        if path:
+            if self._current_folder:
+                try:
+                    path = str(Path(path).resolve().relative_to(self._current_folder))
+                except (ValueError, OSError):
+                    pass
+            line_edit.setText(path)
+
     def _on_browse_backup_dir(self) -> None:
-        """Open a directory picker for the backup directory."""
         from PySide6.QtWidgets import QFileDialog
         path = QFileDialog.getExistingDirectory(
             self, self.tr("Select backup directory"),
@@ -1353,79 +1383,24 @@ class SettingsDialog(QDialog):
             self._webdav_backup_edit.setText(path)
 
     def _on_browse_templates_dir(self) -> None:
-        from PySide6.QtWidgets import QFileDialog
-        cur = self._templates_dir_edit.text().strip() if self._templates_dir_edit else ""
-        if cur and self._current_folder and not Path(cur).is_absolute():
-            cur = str(Path(self._current_folder) / cur)
-        start_dir = cur or self._current_folder or str(Path.home())
-        path = QFileDialog.getExistingDirectory(
-            self, self.tr("Select templates folder"), start_dir,
+        self._browse_relative_path(
+            self._templates_dir_edit, self.tr("Select templates folder")
         )
-        if path:
-            # Show relative path when inside the open folder.
-            if self._current_folder:
-                try:
-                    path = str(Path(path).resolve().relative_to(self._current_folder))
-                except (ValueError, OSError):
-                    pass
-            self._templates_dir_edit.setText(path)
 
     def _on_browse_attachments_dir(self) -> None:
-        from PySide6.QtWidgets import QFileDialog
-        # Resolve current value for start dir.
-        cur = self._attachments_dir_edit.text().strip() if self._attachments_dir_edit else ""
-        if cur and self._current_folder and not Path(cur).is_absolute():
-            cur = str(Path(self._current_folder) / cur)
-        start_dir = cur or self._current_folder or str(Path.home())
-        path = QFileDialog.getExistingDirectory(
-            self, self.tr("Select attachments folder"), start_dir,
+        self._browse_relative_path(
+            self._attachments_dir_edit, self.tr("Select attachments folder")
         )
-        if path:
-            if self._current_folder:
-                try:
-                    path = str(Path(path).resolve().relative_to(self._current_folder))
-                except (ValueError, OSError):
-                    pass
-            self._attachments_dir_edit.setText(path)
 
     def _on_browse_daily_folder(self) -> None:
-        from PySide6.QtWidgets import QFileDialog
-        cur = self._daily_folder_edit.text().strip() if hasattr(self, "_daily_folder_edit") else ""
-        if cur and self._current_folder and not Path(cur).is_absolute():
-            cur = str(Path(self._current_folder) / cur)
-        start_dir = cur or self._current_folder or str(Path.home())
-        path = QFileDialog.getExistingDirectory(
-            self, self.tr("Select daily notes folder"), start_dir,
+        self._browse_relative_path(
+            self._daily_folder_edit, self.tr("Select daily notes folder")
         )
-        if path:
-            if self._current_folder:
-                try:
-                    path = str(Path(path).resolve().relative_to(self._current_folder))
-                except (ValueError, OSError):
-                    pass
-            self._daily_folder_edit.setText(path)
 
     def _on_browse_daily_template(self) -> None:
-        from PySide6.QtWidgets import QFileDialog
-        # Start from templates folder, or vault root.
-        start = (
-            self._templates_dir_edit.text().strip() if hasattr(self, "_templates_dir_edit") and self._templates_dir_edit.text().strip() else ""
+        self._browse_relative_path(
+            self._daily_template_edit, self.tr("Select daily note template"), is_file=True
         )
-        if start and self._current_folder and not Path(start).is_absolute():
-            start = str(Path(self._current_folder) / start)
-        start = start or self._current_folder or str(Path.home())
-
-        path, _ = QFileDialog.getOpenFileName(
-            self, self.tr("Select daily note template"), start,
-            self.tr("Markdown files (*.md);;All files (*)"),
-        )
-        if path:
-            if self._current_folder:
-                try:
-                    path = str(Path(path).resolve().relative_to(self._current_folder))
-                except (ValueError, OSError):
-                    pass
-            self._daily_template_edit.setText(path)
 
     def _on_test_webdav(self) -> None:
         url = self._webdav_url_edit.text().strip() if self._webdav_url_edit else ""
@@ -1468,7 +1443,7 @@ class SettingsDialog(QDialog):
     # ==================================================================
 
     def _on_install_dict(self, hunspell_code: str) -> None:
-        from core.dict_manager import AVAILABLE_DICTS, DictDownloader
+        from ui.dict_manager import AVAILABLE_DICTS, DictDownloader
 
         ui_code = next(k for k, v in AVAILABLE_DICTS.items() if v == hunspell_code)
         self._dict_buttons[hunspell_code].setEnabled(False)
@@ -1484,7 +1459,7 @@ class SettingsDialog(QDialog):
         self._downloader.start()
 
     def _on_uninstall_dict(self, hunspell_code: str) -> None:
-        from core.dict_manager import AVAILABLE_DICTS, uninstall_dict
+        from ui.dict_manager import AVAILABLE_DICTS, uninstall_dict
 
         uninstall_dict(hunspell_code)
         ui_code = next(k for k, v in AVAILABLE_DICTS.items() if v == hunspell_code)
@@ -1498,7 +1473,7 @@ class SettingsDialog(QDialog):
         )
 
     def _on_dict_downloaded(self, hunspell_code: str, ok: bool, err: str) -> None:
-        from core.dict_manager import AVAILABLE_DICTS
+        from ui.dict_manager import AVAILABLE_DICTS
 
         ui_code = next(k for k, v in AVAILABLE_DICTS.items() if v == hunspell_code)
         if ok:

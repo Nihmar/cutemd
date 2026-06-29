@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from typing import Any
 
 from core.logging import setup_logging
@@ -123,28 +122,3 @@ def is_available() -> bool:
         return True
     except ImportError:
         return False
-
-
-def _user_dicts_dir() -> Path:
-    from PySide6.QtCore import QStandardPaths
-    data = QStandardPaths.writableLocation(
-        QStandardPaths.StandardLocation.AppDataLocation
-    )
-    return Path(data) / "dictionaries"
-
-
-_dict_path_set = False
-
-
-def _ensure_env_dict_path() -> None:
-    global _dict_path_set
-    import os
-    dirs = str(_user_dicts_dir())
-    os.makedirs(dirs, exist_ok=True)
-    existing = os.environ.get("ENCHANT_MYSPELL_DICT_PATH", "")
-    if existing:
-        dirs = dirs + os.pathsep + existing
-    os.environ["ENCHANT_MYSPELL_DICT_PATH"] = dirs
-    if not _dict_path_set:
-        _LOG.debug("ENCHANT_MYSPELL_DICT_PATH=%s", dirs)
-        _dict_path_set = True
