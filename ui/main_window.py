@@ -277,6 +277,7 @@ class MainWindow(QMainWindow):
             "new": self._on_new,
             "new_from_template": self._on_new_from_template,
             "daily_note": self._on_daily_note,
+            "toggle_zen_mode": self._on_toggle_zen_mode,
             "save": self._on_save,
             "save_as": self._on_save_as,
             "close_tab": self._on_close_tab,
@@ -1183,6 +1184,7 @@ class MainWindow(QMainWindow):
             current_daily_folder=self._s.daily_notes_folder(),
             current_daily_template=self._s.daily_notes_template(),
             current_daily_date_format=self._s.daily_notes_date_format(),
+            current_zen_mode_max_width=self._s.zen_mode_max_width(),
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -1222,6 +1224,17 @@ class MainWindow(QMainWindow):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab):
                 tab.set_preview_visible(checked)
+        # In Zen mode, double the editor width when preview is visible.
+        if hasattr(self, "_zen_saved"):
+            max_w = self._s.zen_mode_max_width()
+            if checked:
+                max_w = max_w * 2
+            self._tabs.setMaximumWidth(max_w)
+            ep = self._splitter.widget(1)
+            if ep:
+                total = self._splitter.width()
+                margin = max(0, (total - max_w) // 2)
+                ep.layout().setContentsMargins(margin, 0, margin, 0)
 
     def _on_webdav_sync(self, auto_triggered: bool = False) -> None:
         """Run WebDAV sync in a background thread with progress feedback.
@@ -1370,6 +1383,7 @@ class MainWindow(QMainWindow):
             "act_new": self.act_new,
             "act_new_from_template": self.act_new_from_template,
             "act_daily_note": self.act_daily_note,
+            "act_toggle_zen_mode": self.act_toggle_zen_mode,
             "act_save": self.act_save,
             "act_save_as": self.act_save_as,
             "act_close_tab": self.act_close_tab,
@@ -1407,6 +1421,7 @@ class MainWindow(QMainWindow):
             "act_new": self.act_new,
             "act_new_from_template": self.act_new_from_template,
             "act_daily_note": self.act_daily_note,
+            "act_toggle_zen_mode": self.act_toggle_zen_mode,
             "act_save": self.act_save,
             "act_save_as": self.act_save_as,
             "act_close_tab": self.act_close_tab,
@@ -1964,6 +1979,119 @@ class MainWindow(QMainWindow):
         # Debounced tags scan on autosave
         if saved_any:
             self._trigger_tags_scan()
+
+    def _on_new(self) -> None:
+        tab = self._current_tab()
+        if tab is not None and tab.file_path is None and not tab.is_modified:
+            self._tabs.setCurrentIndex(self._tabs.indexOf(tab))
+            return
+        self._add_tab()
+        self._update_window_title()
+
+    def _on_toggle_zen_mode(self, enabled: bool) -> None:
+        """Enter / leave zen mode: hide all chrome, center the editor."""
+        # Stop any running animation
+        if hasattr(self, "_zen_anim") and self._zen_anim is not None:
+            self._zen_anim.stop()
+        if enabled:
+            self._zen_saved = {
+                "left": self._side_panel.is_left_panel_open(),
+                "right": self._right_splitter.isVisible(),
+                "menu": self.menuBar().isVisible(),
+                "status": self._status_file.parent().isVisible(),
+                "preview": self._preview_visible,
+                "tabs_bar": self._tabs.tabBar().isVisible(),
+                "splitter_sizes": list(self._splitter.sizes()),
+            }
+            self._left_tb.hide()
+            self._right_tb.hide()
+            self._editor_toolbar.hide()
+            self._tabs.tabBar().hide()
+            self._status_file.parent().hide()
+            self.menuBar().hide()
+
+            if self._preview_visible:
+                self._preview_visible = False
+                for i in range(self._tabs.count()):
+                    t = self._tabs.widget(i)
+                    if isinstance(t, EditorTab):
+                        t.set_preview_visible(False)
+                self.act_toggle_preview.setChecked(False)
+
+            max_w = self._s.zen_mode_max_width()
+            self._tabs.setMaximumWidth(max_w)
+
+            # Animate splitter panels to 0
+            start = self._splitter.sizes()
+            end = [0, 1, 0]
+            self._zen_anim = QVariantAnimation(self)
+            self._zen_anim.setDuration(200)
+            self._zen_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+            self._zen_anim.setStartValue(0.0)
+            self._zen_anim.setEndValue(1.0)
+            def _step(p):
+                self._splitter.setSizes([
+                    int(start[0] + (end[0] - start[0]) * p),
+                    int(start[1] + (end[1] - start[1]) * p),
+                    int(start[2] + (end[2] - start[2]) * p),
+                ])
+            def _done():
+                self._right_splitter.hide()
+                self._side_panel._left_stack.hide()
+            self._zen_anim.valueChanged.connect(_step)
+            self._zen_anim.finished.connect(_done)
+            self._zen_anim.start()
+        else:
+            saved = getattr(self, "_zen_saved", None)
+            if saved is None:
+                return
+            lw, rw = saved.get("left"), saved.get("right")
+            tv, sv, mv = saved.get("tabs_bar", True), saved.get("status", True), saved.get("menu", True)
+            pv = saved.get("preview", True)
+            sz = saved.get("splitter_sizes", [220, 726, 220])
+            del self._zen_saved
+
+            self._tabs.setMaximumWidth(16777215)
+            ep = self._splitter.widget(1)
+            if ep and ep.layout():
+                ep.layout().setContentsMargins(0, 0, 0, 0)
+            self._right_splitter.show()
+            if lw:
+                self._side_panel._left_stack.show()
+            if tv:
+                self._tabs.tabBar().show()
+            if sv:
+                self._status_file.parent().show()
+            if mv:
+                self.menuBar().show()
+            if pv:
+                self._preview_visible = True
+                for i in range(self._tabs.count()):
+                    t = self._tabs.widget(i)
+                    if isinstance(t, EditorTab):
+                        t.set_preview_visible(True)
+                self.act_toggle_preview.setChecked(True)
+            self._left_tb.show()
+            self._right_tb.show()
+            self._editor_toolbar.show()
+
+            # Animate splitter back to original sizes
+            def _do_exit_anim():
+                start_sz = self._splitter.sizes()
+                self._zen_anim = QVariantAnimation(self)
+                self._zen_anim.setDuration(200)
+                self._zen_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+                self._zen_anim.setStartValue(0.0)
+                self._zen_anim.setEndValue(1.0)
+                def _step2(p):
+                    self._splitter.setSizes([
+                        int(start_sz[0] + (sz[0] - start_sz[0]) * p),
+                        int(start_sz[1] + (sz[1] - start_sz[1]) * p),
+                        int(start_sz[2] + (sz[2] - start_sz[2]) * p),
+                    ])
+                self._zen_anim.valueChanged.connect(_step2)
+                self._zen_anim.start()
+            QTimer.singleShot(0, _do_exit_anim)
 
     def _on_new(self) -> None:
         tab = self._current_tab()

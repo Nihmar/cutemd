@@ -36,6 +36,7 @@ SHORTCUT_CATEGORIES: dict[str, str] = {
     "act_new": "File",
     "act_new_from_template": "File",
     "act_daily_note": "File",
+    "act_toggle_zen_mode": "View",
     "act_save": "File",
     "act_save_as": "File",
     "act_close_tab": "File",

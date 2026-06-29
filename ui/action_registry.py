@@ -66,6 +66,10 @@ class ActionRegistry:
         self._acts["act_daily_note"] = self._action(
             "Open &Daily Note", None, cb.get("daily_note")
         )
+        self._acts["act_toggle_zen_mode"] = self._action(
+            "Toggle &Zen Mode", None, cb.get("toggle_zen_mode"),
+            checkable=True, checked=False,
+        )
         self._acts["act_save"] = self._action(
             "&Save", QKeySequence.StandardKey.Save, cb.get("save")
         )
@@ -219,6 +223,8 @@ class ActionRegistry:
         vm.addSeparator()
         vm.addAction(self._acts["act_toggle_tree"])
         vm.addAction(self._acts["act_toggle_statusbar"])
+        vm.addSeparator()
+        vm.addAction(self._acts["act_toggle_zen_mode"])
         vm.addSeparator()
         vm.addAction(self._acts["act_zoom_in"])
         vm.addAction(self._acts["act_zoom_out"])

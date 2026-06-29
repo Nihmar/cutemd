@@ -219,5 +219,8 @@ class SettingsApplicator:
         w._s.set_daily_notes_template(dlg.selected_daily_template())
         w._s.set_daily_notes_date_format(dlg.selected_daily_date_format())
 
+        # Zen mode
+        w._s.set_zen_mode_max_width(dlg.selected_zen_mode_max_width())
+
         w._update_auto_sync_timer()
         w._update_menu_state()

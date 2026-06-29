@@ -208,6 +208,13 @@ class AppSettings(QObject):
     def set_daily_notes_date_format(self, value: str) -> None:
         self._s.setValue("daily_notes_date_format", value)
 
+    def zen_mode_max_width(self, default: int = 800) -> int:
+        val = self._s.value("zen_mode_max_width", default)
+        return int(val) if val else default
+
+    def set_zen_mode_max_width(self, value: int) -> None:
+        self._s.setValue("zen_mode_max_width", value)
+
     # ------------------------------------------------------------------
     # Auto-update
     # ------------------------------------------------------------------

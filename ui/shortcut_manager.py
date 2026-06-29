@@ -27,6 +27,7 @@ DEFAULT_SHORTCUTS: dict[str, str] = {
     "act_new": "Ctrl+N",
     "act_new_from_template": "Ctrl+Shift+N",
     "act_daily_note": "Ctrl+Shift+D",
+    "act_toggle_zen_mode": "F11",
     "act_save": "Ctrl+S",
     "act_save_as": "Ctrl+Shift+S",
     "act_close_tab": "Ctrl+W",

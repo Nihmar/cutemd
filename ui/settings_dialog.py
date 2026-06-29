@@ -126,6 +126,7 @@ class SettingsDialog(QDialog):
         current_daily_folder: str = "daily",
         current_daily_template: str = "",
         current_daily_date_format: str = "%Y-%m-%d",
+        current_zen_mode_max_width: int = 800,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -603,6 +604,23 @@ class SettingsDialog(QDialog):
                 self.tr("Date format"),
                 self._daily_date_format_edit,
                 self.tr("Python strftime (default: %Y-%m-%d)"),
+            )
+        )
+        stor_lay.addWidget(card)
+
+        stor_lay.addSpacing(12)
+
+        # Zen Mode
+        card, card_lay = self._make_card()
+        self._zen_mode_max_width = QSpinBox()
+        self._zen_mode_max_width.setRange(300, 3000)
+        self._zen_mode_max_width.setSuffix(" px")
+        self._zen_mode_max_width.setValue(current_zen_mode_max_width)
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Zen mode max width"),
+                self._zen_mode_max_width,
+                self.tr("Maximum editor column width in Zen mode"),
             )
         )
         stor_lay.addWidget(card)
@@ -1153,6 +1171,11 @@ class SettingsDialog(QDialog):
         if hasattr(self, "_daily_date_format_edit") and self._daily_date_format_edit is not None:
             return self._daily_date_format_edit.text().strip()
         return "%Y-%m-%d"
+
+    def selected_zen_mode_max_width(self) -> int:
+        if hasattr(self, "_zen_mode_max_width") and self._zen_mode_max_width is not None:
+            return self._zen_mode_max_width.value()
+        return 800
 
     # ==================================================================
     # Storage
