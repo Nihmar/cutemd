@@ -638,6 +638,14 @@ class MainWindow(QMainWindow):
         """Show right splitter if any panel button is checked, hide if all
         unchecked.  Uses button state (not widget visibility) to avoid
         deadlock when parent is hidden."""
+        # Sync button check states with actual panel visibility
+        if hasattr(self, "_metadata_panel") and hasattr(self, "_right_metadata_btn"):
+            self._right_metadata_btn.setChecked(self._metadata_panel.isVisible())
+        if hasattr(self, "_toc_panel") and hasattr(self, "_right_toc_btn"):
+            self._right_toc_btn.setChecked(self._toc_panel.isVisible())
+        if hasattr(self, "_backlinks_panel") and hasattr(self, "_right_backlinks_btn"):
+            self._right_backlinks_btn.setChecked(self._backlinks_panel.isVisible())
+
         toc_on = self._right_toc_btn.isChecked()
         bl_on = self._right_backlinks_btn.isChecked()
         md_on = self._right_metadata_btn.isChecked()
@@ -2120,6 +2128,7 @@ class MainWindow(QMainWindow):
             self._left_tb.show()
             self._right_tb.show()
             self._editor_toolbar.show()
+            self._sync_right_dock_visibility()
 
             # Animate splitter back to original sizes
             def _do_exit_anim():
