@@ -118,6 +118,7 @@ class MarkdownAutoCompleter(QObject):
                 if self._inside_file_link():
                     return self._show_file_completer()
                 if self._inside_frontmatter_tags():
+                    _LOG.debug("eventFilter: inside frontmatter tags, showing tag completer")
                     return self._show_tag_completer()
                 # Fallback: if there's a # before cursor, try tags
                 return self._show_tag_completer()
@@ -409,14 +410,16 @@ class MarkdownAutoCompleter(QObject):
         block_text = cursor.block().text().strip()
         block_num = cursor.block().blockNumber()
 
-        # Is this line tags: or an indented list continuation?
+        _LOG.debug("_inside_frontmatter_tags: block_text=%r block_num=%d", block_text, block_num)
+
         if block_text.startswith("tags:"):
+            _LOG.debug("_inside_frontmatter_tags: matched 'tags:'")
             return True
         if block_text.startswith("- ") or block_text.startswith("  - "):
-            # Check if we're inside a frontmatter tags list
             doc = self._editor.document()
             for n in range(block_num - 1, -1, -1):
                 b = doc.findBlockByNumber(n).text().strip()
+                _LOG.debug("_inside_frontmatter_tags: walk back n=%d b=%r", n, b)
                 if b.startswith("tags:"):
                     return True
                 if b == "---" or b == "..." or b.startswith("#"):
