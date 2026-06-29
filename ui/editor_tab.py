@@ -910,7 +910,12 @@ class EditorTab(QWidget):
         nrows, ncols = dlg.dimensions()
         rows = [["" for _ in range(ncols)] for _ in range(nrows)]
         md = rows_to_markdown(rows).rstrip("\n")
-        self.editor.textCursor().insertText("\n" + md + "\n")
+        cursor = self.editor.textCursor()
+        start = cursor.position()
+        cursor.insertText("\n" + md + "\n")
+        # Place cursor in the first data cell (past leading "\n| ")
+        cursor.setPosition(start + 3)
+        self.editor.setTextCursor(cursor)
 
     def insert_toolbar(self, toolbar: QWidget) -> None:
         """Insert *toolbar* above find bar (index 0)."""
