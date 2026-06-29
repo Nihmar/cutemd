@@ -486,25 +486,25 @@ class SettingsDialog(QDialog):
 
         # Templates directory
         card, card_lay = self._make_card()
+        lbl_tmpl = QLabel(self.tr("Templates folder"))
+        lbl_tmpl.setStyleSheet("font-size: 12px; font-weight: bold;")
+        hint_tmpl = QLabel(self.tr("Markdown files used as templates for new notes"))
+        hint_tmpl.setStyleSheet("font-size: 11px;")
+        card_lay.addWidget(lbl_tmpl)
+        card_lay.addWidget(hint_tmpl)
+        tmpl_row = QHBoxLayout()
         self._templates_dir_edit = QLineEdit()
         self._templates_dir_edit.setPlaceholderText(
             self.tr("Select a folder for .md templates…")
         )
         self._templates_dir_edit.setText(current_templates_dir)
-        card_lay.addLayout(
-            self._field_row(
-                self.tr("Templates folder"),
-                self._templates_dir_edit,
-                self.tr("Markdown files used as templates for new notes"),
-            )
-        )
+        tmpl_row.addWidget(self._templates_dir_edit)
         browse_tmpl = QPushButton("...")
         browse_tmpl.setFixedWidth(40)
         browse_tmpl.setCursor(Qt.CursorShape.PointingHandCursor)
         browse_tmpl.clicked.connect(self._on_browse_templates_dir)
-        row = card_lay.itemAt(card_lay.count() - 1).layout()  # last row
-        if row is not None:
-            row.addWidget(browse_tmpl)
+        tmpl_row.addWidget(browse_tmpl)
+        card_lay.addLayout(tmpl_row)
         stor_lay.addWidget(card)
 
         stor_lay.addSpacing(12)
