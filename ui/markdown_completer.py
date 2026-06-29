@@ -117,6 +117,8 @@ class MarkdownAutoCompleter(QObject):
                     return self._show_tag_completer()
                 if self._inside_file_link():
                     return self._show_file_completer()
+                if self._inside_frontmatter_tags():
+                    return self._show_tag_completer()
                 # Fallback: if there's a # before cursor, try tags
                 return self._show_tag_completer()
             return self._handle_key(key_event)
@@ -401,6 +403,26 @@ class MarkdownAutoCompleter(QObject):
 
         return False
 
+    def _inside_frontmatter_tags(self) -> bool:
+        """Check if cursor is in the frontmatter ``tags:`` line/block."""
+        cursor = self._editor.textCursor()
+        block_text = cursor.block().text().strip()
+        block_num = cursor.block().blockNumber()
+
+        # Is this line tags: or an indented list continuation?
+        if block_text.startswith("tags:"):
+            return True
+        if block_text.startswith("- ") or block_text.startswith("  - "):
+            # Check if we're inside a frontmatter tags list
+            doc = self._editor.document()
+            for n in range(block_num - 1, -1, -1):
+                b = doc.findBlockByNumber(n).text().strip()
+                if b.startswith("tags:"):
+                    return True
+                if b == "---" or b == "..." or b.startswith("#"):
+                    break
+        return False
+
     # ------------------------------------------------------------------
     # Tag autocomplete
     # ------------------------------------------------------------------
@@ -415,24 +437,34 @@ class MarkdownAutoCompleter(QObject):
         block_text = cursor.block().text()
         pos_in_block = cursor.positionInBlock()
 
-        hash_pos = -1
-        for i in range(pos_in_block - 1, -1, -1):
-            ch = block_text[i]
-            if ch == "#":
-                hash_pos = i
-                break
-            if ch.isspace():
-                break
+        frontmatter_mode = self._inside_frontmatter_tags()
+        if frontmatter_mode:
+            # Extract partial: text after "- " or after "tags: "
+            if block_text.strip().startswith("tags:"):
+                partial = block_text[block_text.find("tags:") + 5:pos_in_block].strip().strip(",")
+            else:
+                dash = block_text.find("- ")
+                partial = block_text[dash + 2:pos_in_block].strip().strip(",") if dash >= 0 else ""
+            self._hash_pos = -1  # signal frontmatter mode
+        else:
+            hash_pos = -1
+            for i in range(pos_in_block - 1, -1, -1):
+                ch = block_text[i]
+                if ch == "#":
+                    hash_pos = i
+                    break
+                if ch.isspace():
+                    break
+            if hash_pos < 0:
+                return False
+            partial = block_text[hash_pos + 1:pos_in_block]
+            self._hash_pos = hash_pos
 
-        if hash_pos < 0:
-            return False
+        _LOG.debug("_show_tag_completer: partial=%r fm_mode=%s", partial, frontmatter_mode)
 
-        partial = block_text[hash_pos + 1:pos_in_block]
-        _LOG.debug("_show_tag_completer: partial=%r", partial)
-
-        self._hash_pos = hash_pos
         self._pos_in_block = pos_in_block
         self._hash_block = cursor.block()
+        self._frontmatter_mode = frontmatter_mode
 
         self._tag_popup = _make_popup(self._editor.viewport())
         layout = self._tag_popup.layout()
@@ -491,11 +523,19 @@ class MarkdownAutoCompleter(QObject):
         if not block.isValid():
             return
         cursor = self._editor.textCursor()
-        block_start = block.position()
-        cursor.setPosition(block_start + self._hash_pos)
-        cursor.setPosition(block_start + self._pos_in_block,
-                          QTextCursor.MoveMode.KeepAnchor)
-        cursor.insertText("#" + tag)
+
+        if getattr(self, "_frontmatter_mode", False):
+            # Frontmatter tags: insert without #
+            block_start = block.position()
+            cursor.setPosition(block_start + self._pos_in_block)
+            cursor.insertText(tag)
+        else:
+            block_start = block.position()
+            cursor.setPosition(block_start + self._hash_pos)
+            cursor.setPosition(block_start + self._pos_in_block,
+                              QTextCursor.MoveMode.KeepAnchor)
+            cursor.insertText("#" + tag)
+
         self._editor.setTextCursor(cursor)
         self._editor.setFocus()
 
