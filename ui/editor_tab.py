@@ -689,6 +689,7 @@ class EditorTab(QWidget):
         self._cached_text = self.editor.toPlainText()
         self._cached_text_hash = hash(self._cached_text)
         self._link_mgr.invalidate_cache()
+        self._cum_heights = None  # invalidate cumulative height cache
 
     def _emit_status(self) -> None:
         cursor = self.editor.textCursor()
@@ -992,24 +993,39 @@ class EditorTab(QWidget):
             return
         self._last_poll_line = target_line
 
-        # ensureCursorVisible forces QPlainTextEdit to lay out the
-        # target block. After that, blockBoundingRect is accurate.
-        target_block = self.editor.document().findBlockByNumber(target_line)
-        if not target_block.isValid():
-            return
+        # Accumulate block heights to get pixel-precise Y position.
+        # Use cached cumulative heights (rebuilt on textChanged).
+        cum_heights = getattr(self, '_cum_heights', None)
+        if cum_heights is None or target_line >= len(cum_heights):
+            # Rebuild cache (shouldn't normally happen)
+            doc = self.editor.document()
+            count = doc.blockCount()
+            cum = [0.0]
+            for i in range(count):
+                block = doc.findBlockByNumber(i)
+                rect = self.editor.blockBoundingRect(block)
+                cum.append(cum[-1] + rect.height())
+            cum_heights = cum
+            self._cum_heights = cum
+
+        px_y = cum_heights[target_line]
+        total_h = cum_heights[-1]
+
         self._syncing_scroll += 1
-        cursor = self.editor.textCursor()
-        cursor.setPosition(target_block.position())
-        self.editor.setTextCursor(cursor)
-        self.editor.ensureCursorVisible()
-        rect = self.editor.blockBoundingRect(target_block)
         sb = self.editor.verticalScrollBar()
-        sb.setValue(max(0, rect.top()))
+        if sb.maximum() > 0 and total_h > 0:
+            ratio = px_y / total_h
+            new_val = int(ratio * sb.maximum())
+            # If target is the last block, or within 5% of the end,
+            # snap to the very bottom so the editor fully reaches the end.
+            count = self.editor.document().blockCount()
+            if target_line >= count - 1 or ratio > 0.95:
+                new_val = sb.maximum()
+            sb.setValue(new_val)
         self._syncing_scroll -= 1
-        _LOG.debug("SYNC line=%-4d first=%d rect=%d",
-                   target_line,
-                   self.editor.firstVisibleBlock().blockNumber(),
-                   rect.top())
+        _LOG.debug("SYNC line=%-4d px=%d/%d first=%d",
+                   target_line, px_y, total_h,
+                   self.editor.firstVisibleBlock().blockNumber())
 
         self._pending_sync_anchor = ""
 
