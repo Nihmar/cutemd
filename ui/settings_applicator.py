@@ -225,6 +225,17 @@ class SettingsApplicator:
         # TOC in preview
         w._s.set_toc_in_preview(dlg.selected_toc_in_preview())
 
+        # Trash & history
+        w._s.set_trash_enabled(dlg.selected_trash_enabled())
+        w._s.set_history_enabled(dlg.selected_history_enabled())
+        w._s.set_history_max_snapshots(dlg.selected_history_max_snapshots())
+
+        # Propagate to tree panel
+        if w._folder_settings is not None:
+            w._tree_panel.set_trash_config(
+                w._s.trash_enabled(), w._folder_settings.folder
+            )
+
         # Spell check
         w._s.set_spell_check_langs(
             [x.strip() for x in dlg.selected_spell_check_langs().split(",") if x.strip()]

@@ -345,3 +345,29 @@ class AppSettings(QObject):
     # ------------------------------------------------------------------
     def remove_recent_folders(self) -> None:
         self._s.remove("recent_folders")
+
+    # ------------------------------------------------------------------
+    # Trash bin
+    # ------------------------------------------------------------------
+    def trash_enabled(self, default: bool = True) -> bool:
+        val = self._s.value("trash_enabled", default)
+        return str(val).lower() == "true" if isinstance(val, str) else bool(val)
+
+    def set_trash_enabled(self, value: bool) -> None:
+        self._s.setValue("trash_enabled", value)
+
+    # ------------------------------------------------------------------
+    # File history
+    # ------------------------------------------------------------------
+    def history_enabled(self, default: bool = True) -> bool:
+        val = self._s.value("history_enabled", default)
+        return str(val).lower() == "true" if isinstance(val, str) else bool(val)
+
+    def set_history_enabled(self, value: bool) -> None:
+        self._s.setValue("history_enabled", value)
+
+    def history_max_snapshots(self, default: int = 50) -> int:
+        return int(self._s.value("history_max_snapshots", default))
+
+    def set_history_max_snapshots(self, value: int) -> None:
+        self._s.setValue("history_max_snapshots", value)

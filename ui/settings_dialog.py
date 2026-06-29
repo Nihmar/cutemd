@@ -138,6 +138,9 @@ class SettingsDialog(QDialog):
         current_zen_mode_max_width: int = 800,
         current_toc_in_preview: bool = False,
         current_spell_check_lang: str = "",
+        current_trash_enabled: bool = True,
+        current_history_enabled: bool = True,
+        current_history_max_snapshots: int = 50,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -742,6 +745,43 @@ class SettingsDialog(QDialog):
         )
         stor_lay.addWidget(card)
 
+        stor_lay.addSpacing(12)
+
+        # Trash bin
+        card, card_lay = self._make_card()
+        self._trash_enabled_toggle = ToggleSwitch(current_trash_enabled)
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Trash bin"),
+                self._trash_enabled_toggle,
+                self.tr("Move deleted files to .trash/ instead of permanent deletion"),
+            )
+        )
+        stor_lay.addWidget(card)
+
+        stor_lay.addSpacing(12)
+
+        # File history
+        card, card_lay = self._make_card()
+        self._history_enabled_toggle = ToggleSwitch(current_history_enabled)
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("File history"),
+                self._history_enabled_toggle,
+                self.tr("Save snapshots on every save to .cutemd/history/"),
+            )
+        )
+        self._history_max_snapshots_spin = QSpinBox()
+        self._history_max_snapshots_spin.setRange(1, 500)
+        self._history_max_snapshots_spin.setValue(current_history_max_snapshots)
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Max snapshots per file"),
+                self._history_max_snapshots_spin,
+            )
+        )
+        stor_lay.addWidget(card)
+
         stor_lay.addStretch()
         self._stack.addWidget(stor_scroll)
 
@@ -1298,6 +1338,21 @@ class SettingsDialog(QDialog):
         if hasattr(self, "_toc_in_preview_toggle") and self._toc_in_preview_toggle is not None:
             return self._toc_in_preview_toggle.isChecked()
         return False
+
+    def selected_trash_enabled(self) -> bool:
+        if hasattr(self, "_trash_enabled_toggle") and self._trash_enabled_toggle is not None:
+            return self._trash_enabled_toggle.isChecked()
+        return True
+
+    def selected_history_enabled(self) -> bool:
+        if hasattr(self, "_history_enabled_toggle") and self._history_enabled_toggle is not None:
+            return self._history_enabled_toggle.isChecked()
+        return True
+
+    def selected_history_max_snapshots(self) -> int:
+        if hasattr(self, "_history_max_snapshots_spin") and self._history_max_snapshots_spin is not None:
+            return self._history_max_snapshots_spin.value()
+        return 50
 
     def selected_spell_check_langs(self) -> str:
         if hasattr(self, "_spell_check_lang_cbs"):

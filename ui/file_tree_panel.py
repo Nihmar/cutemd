@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
 )
 
 from core.logging import setup_logging
+from core.trash import permanent_delete as trash_permanent_delete
+from core.trash import trash_file
 
 _LOG = setup_logging("cutemd.file_tree")
 
@@ -177,6 +179,9 @@ class FileTreePanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+
+        self._trash_enabled = False
+        self._vault_root: Path | None = None
 
         self._model = QFileSystemModel()
         self._model.setReadOnly(True)
@@ -372,10 +377,17 @@ class FileTreePanel(QWidget):
                 self.tr("Could not duplicate:\n{}").format(e),
             )
 
+    def set_trash_config(self, enabled: bool, vault_root: Path | None) -> None:
+        self._trash_enabled = enabled
+        self._vault_root = vault_root
+
     def _delete_item(self, path_str: str) -> None:
         p = Path(path_str)
         is_dir = p.is_dir()
-        if is_dir:
+        if self._trash_enabled and self._vault_root is not None and not is_dir:
+            # Single files go to trash
+            msg = self.tr("Move '{}' to trash?").format(p.name)
+        elif is_dir:
             msg = self.tr("Delete folder '{}' and all its contents?").format(p.name)
         else:
             msg = self.tr("Delete '{}'?").format(p.name)
@@ -386,7 +398,9 @@ class FileTreePanel(QWidget):
         if ret != QMessageBox.StandardButton.Yes:
             return
         try:
-            if is_dir:
+            if self._trash_enabled and self._vault_root is not None and not is_dir:
+                trash_file(p, self._vault_root)
+            elif is_dir:
                 shutil.rmtree(p)
             else:
                 p.unlink()

@@ -1247,6 +1247,9 @@ class MainWindow(QMainWindow):
             current_zen_mode_max_width=self._s.zen_mode_max_width(),
             current_toc_in_preview=self._s.toc_in_preview(),
             current_spell_check_lang=self._s.spell_check_langs_str(),
+            current_trash_enabled=self._s.trash_enabled(),
+            current_history_enabled=self._s.history_enabled(),
+            current_history_max_snapshots=self._s.history_max_snapshots(),
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -1305,6 +1308,16 @@ class MainWindow(QMainWindow):
                 total = self._splitter.width()
                 margin = max(0, (total - max_w) // 2)
                 ep.layout().setContentsMargins(margin, 0, margin, 0)
+
+    def _save_history_snapshot(self, file_path: Path) -> None:
+        if not self._s.history_enabled() or self._folder_path is None:
+            return
+        from core.file_history import cleanup_snapshots, save_snapshot
+
+        save_snapshot(file_path, self._folder_path)
+        cleanup_snapshots(
+            file_path, self._folder_path, self._s.history_max_snapshots()
+        )
 
     def _on_webdav_sync(self, auto_triggered: bool = False) -> None:
         """Run WebDAV sync in a background thread with progress feedback.
@@ -1668,6 +1681,9 @@ class MainWindow(QMainWindow):
             self._tabs.removeTab(i)
         self._add_tab()
         self._tree_panel.set_root_path(path)
+        self._tree_panel.set_trash_config(
+            self._s.trash_enabled(), self._folder_path
+        )
         self._search_panel.set_folder(path)
         self._add_recent_folder(path)
         self._s.set_last_folder(path)
@@ -1982,6 +1998,8 @@ class MainWindow(QMainWindow):
                 if tab.auto_save() is not False:
                     saved_any = True
                     saved_tab = tab
+                    if tab.file_path:
+                        self._save_history_snapshot(tab.file_path)
         if saved_any and self._s.sync_on_save():
             self._on_webdav_sync(auto_triggered=True)
         if saved_any:
@@ -2076,6 +2094,7 @@ class MainWindow(QMainWindow):
                 if tab.file_path:
                     self._tree_panel.select_file(tab.file_path)
                     self._trigger_tags_scan()
+                    self._save_history_snapshot(tab.file_path)
                 self._update_metadata(tab)
                 # Sync-on-save for manual saves
                 if self._s.sync_on_save():

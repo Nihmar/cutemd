@@ -76,6 +76,9 @@ class TagScanner(QThread):
                 if self.isInterruptionRequested():
                     _LOG.debug("TagScanner: interrupted")
                     return
+                # Skip trashed and history files
+                if ".trash" in md_file.parts or ".cutemd" in md_file.parts:
+                    continue
                 try:
                     text = md_file.read_text(encoding="utf-8", errors="ignore")
                 except OSError:

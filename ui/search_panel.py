@@ -217,11 +217,15 @@ class SearchPanel(QWidget):
 
         for _ in range(_CHUNK_SIZE):
             try:
-                md_path = next(self._generator)  # type: ignore[arg-type]
+                md_path = next(self._generator)
             except StopIteration:
                 self._timer.stop()
                 self._generator = None
                 self._update_count()
+                return
+
+            if ".trash" in md_path.parts or ".cutemd" in md_path.parts:
+                continue
                 _LOG.debug("_process_chunk: found %d matches", results.count())
                 return
 
