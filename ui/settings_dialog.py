@@ -513,18 +513,25 @@ class SettingsDialog(QDialog):
         self._attachments_dir_edit: QLineEdit | None = None
         if folder_settings is not None:
             card, card_lay = self._make_card()
+            lbl_att = QLabel(self.tr("Attachments folder"))
+            lbl_att.setStyleSheet("font-size: 12px; font-weight: bold;")
+            hint_att = QLabel(self.tr("Where pasted images are saved"))
+            hint_att.setStyleSheet("font-size: 11px;")
+            card_lay.addWidget(lbl_att)
+            card_lay.addWidget(hint_att)
+            att_row = QHBoxLayout()
             self._attachments_dir_edit = QLineEdit()
             self._attachments_dir_edit.setText(
                 folder_settings.load().get("attachments_dir", "attachments")
             )
             self._attachments_dir_edit.setPlaceholderText(self.tr("attachments"))
-            card_lay.addLayout(
-                self._field_row(
-                    self.tr("Attachments folder"),
-                    self._attachments_dir_edit,
-                    self.tr("Where pasted images are saved"),
-                )
-            )
+            att_row.addWidget(self._attachments_dir_edit)
+            browse_att = QPushButton("...")
+            browse_att.setFixedWidth(40)
+            browse_att.setCursor(Qt.CursorShape.PointingHandCursor)
+            browse_att.clicked.connect(self._on_browse_attachments_dir)
+            att_row.addWidget(browse_att)
+            card_lay.addLayout(att_row)
             stor_lay.addWidget(card)
 
         stor_lay.addStretch()
@@ -1118,6 +1125,19 @@ class SettingsDialog(QDialog):
         )
         if path:
             self._templates_dir_edit.setText(path)
+
+    def _on_browse_attachments_dir(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        start_dir = (
+            self._attachments_dir_edit.text()
+            or self._current_folder
+            or str(Path.home())
+        )
+        path = QFileDialog.getExistingDirectory(
+            self, self.tr("Select attachments folder"), start_dir,
+        )
+        if path:
+            self._attachments_dir_edit.setText(path)
 
     def _on_test_webdav(self) -> None:
         url = self._webdav_url_edit.text().strip() if self._webdav_url_edit else ""
