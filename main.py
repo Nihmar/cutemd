@@ -31,6 +31,22 @@ _LOG = setup_logging("cutemd.main")
 def main() -> None:
     _LOG.debug("CuteMD v%s starting (Python %s, %s)", __version__, sys.version.split()[0], sys.platform)
 
+    # Verify WebEngine is available — required for the preview pane.
+    try:
+        from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: F401
+        from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings  # noqa: F401
+    except ImportError as exc:
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.critical(
+            None,
+            "CuteMD — WebEngine missing",
+            "Qt WebEngine is required for the preview pane but could not be loaded.\n\n"
+            f"{exc}\n\n"
+            "On Linux, install qt6-webengine (or the equivalent package for your distribution).\n"
+            "On Windows, ensure the PySide6 package includes QtWebEngineWidgets."
+        )
+        sys.exit(1)
+
     # Required for multi-tab QWebEngineView stability.
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 

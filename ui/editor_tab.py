@@ -213,6 +213,7 @@ class EditorTab(QWidget):
         self.preview.file_link_clicked.connect(
             lambda target: self.file_link_clicked.emit(target, "")
         )
+        self.preview.checkbox_toggled.connect(self._on_checkbox_toggled)
         if self._attachments_dir is not None:
             self.preview.set_attachments_dir(self._attachments_dir)
         self._preview_viewport = self.preview  # QWebEngineView is its own viewport
@@ -561,18 +562,40 @@ class EditorTab(QWidget):
 
     def _on_doc_rendered(self, html: str) -> None:
         _LOG.debug("DIAG _on_doc_rendered: len=%d", len(html))
-        try:
-            self.preview.loadFinished.disconnect()
-        except RuntimeError:
-            pass
-
-        def on_load(ok: bool) -> None:
-            self.preview.loadFinished.disconnect(on_load)
-            self._preview_stack.setCurrentIndex(0)
-
-        self.preview.loadFinished.connect(on_load)
+        self._preview_stack.setCurrentIndex(0)
         QTimer.singleShot(0, lambda: self._deferred_set_html(html))
         self._refresh_link_highlights()
+
+    def _on_checkbox_toggled(self, payload: str) -> None:
+        """Handle checkbox toggle from preview: payload is "LINE|STATE"."""
+        _LOG.debug("_on_checkbox_toggled: %s payload=%s", payload, self._cached_text[:50] if self._cached_text else '')
+        if self._is_binary_preview:
+            return
+        try:
+            line_part, state = payload.split("|", 1)
+            line = int(line_part)
+        except (ValueError, TypeError):
+            return
+        doc = self.editor.document()
+        if line >= doc.blockCount():
+            _LOG.debug("_on_checkbox_toggled: line %d >= blockCount %d", line, doc.blockCount())
+            return
+        block = doc.findBlockByNumber(line)
+        text = block.text()
+        _LOG.debug("_on_checkbox_toggled: block text=%s", text)
+        new_text = text.replace("- [ ]", "- [x]", 1) if state == "checked" else text.replace("- [x]", "- [ ]", 1)
+        if new_text == text:
+            _LOG.debug("_on_checkbox_toggled: no change needed")
+            return
+        cursor = QTextCursor(block)
+        cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+        cursor.insertText(new_text)
+        self._dirty = self.is_modified
+        self.modified_changed.emit(self._dirty)
+        # Don't re-render — the browser already toggled the checkbox in the DOM.
+        # Cancel any pending debounce so a stale render doesn't undo it.
+        self._preview_timer.stop()
 
     def save(self) -> bool:
         _LOG.debug("save: %s", self.file_path)
@@ -923,10 +946,11 @@ class EditorTab(QWidget):
         js = (
             f"(function(){{"
             f"var el=document.querySelector('a[name=\"{anchor}\"]');"
-            f"if(el)el.scrollIntoView({{block:'start',behavior:'instant'}});"
+            f"if(el){{window._cutemd_suppress=Date.now()+300;el.scrollIntoView({{block:'start',behavior:'instant'}});}}"
             f"}})();"
         )
         self.preview.page().runJavaScript(js)
+        self._poll_blocked_until = __import__('time').monotonic() + 0.5
         self._syncing_scroll -= 1
         self._pending_sync_anchor = ""
 
@@ -951,6 +975,12 @@ class EditorTab(QWidget):
             return
         anchor_idx = line_map[current_line]
         anchor = f"b{anchor_idx}"
+
+        # Block poll while the user is actively scrolling — even within
+        # the same section.  Without this the poll fires before the user
+        # lifts the scrollbar and snaps the editor to a stale heading line.
+        self._poll_blocked_until = __import__('time').monotonic() + 0.5
+
         if anchor == self._last_anchor:
             return
         self._last_anchor = anchor
@@ -959,13 +989,10 @@ class EditorTab(QWidget):
         js = (
             f"(function(){{"
             f"var el=document.querySelector('a[name=\"{anchor}\"]');"
-            f"if(el)el.scrollIntoView({{block:'start',behavior:'instant'}});"
+            f"if(el){{window._cutemd_suppress=Date.now()+300;el.scrollIntoView({{block:'start',behavior:'instant'}});}}"
             f"}})();"
         )
         self.preview.page().runJavaScript(js)
-        # Block poll processing for 500ms so scrollIntoView doesn't
-        # trigger a stale JS report that fights back.
-        self._poll_blocked_until = __import__('time').monotonic() + 0.5
         self._syncing_scroll -= 1
 
         self._pending_sync_anchor = ""

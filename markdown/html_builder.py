@@ -15,6 +15,8 @@ from markdown.image_utils import (
     fix_image_paragraphs,
 )
 
+from core.paths import resolve_path
+
 from core.logging import setup_logging
 
 _LOG = setup_logging("cutemd.html_builder")
@@ -35,6 +37,15 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n.*?\n(?:---|\.\.\.)\s*\n", re.DOTALL)
 
 # Inline #tag (not at line start to avoid matching headings)
 _INLINE_TAG_RE = re.compile(r"(?<=\s)#([\w\u0080-\uFFFF][\w\u0080-\uFFFF-]*)")
+
+# Task list items: - [ ] / - [x] → checkboxes
+# Anchors (<a name="bN">) may be injected inside <li> by render_with_anchors.
+_TASK_ITEM_RE = re.compile(
+    r"(<li>(?:<a[^>]*></a>)?)\s*\[ \]\s*(.*?</li>)", re.DOTALL
+)
+_TASK_DONE_RE = re.compile(
+    r"(<li>(?:<a[^>]*></a>)?)\s*\[[xX]\]\s*(.*?</li>)", re.DOTALL
+)
 
 _CODE_BLOCK_RE = re.compile(
     r"(<pre><code[^>]*>)(.*?)(</code></pre>)", re.DOTALL
@@ -69,6 +80,19 @@ def _inject_copy_buttons(html: str) -> str:
         )
         return f"{copy_link}{open_tag}{inner}{close_tag}"
     return _CODE_BLOCK_RE.sub(_replace, html)
+
+
+def _convert_task_items(html: str) -> str:
+    """Replace [ ] / [x] in list items with interactive checkboxes."""
+    html = _TASK_ITEM_RE.sub(
+        r'<li style="list-style-type:none"><input type="checkbox" class="task-list-item-checkbox">\2',
+        html,
+    )
+    html = _TASK_DONE_RE.sub(
+        r'<li style="list-style-type:none"><input type="checkbox" checked class="task-list-item-checkbox">\2',
+        html,
+    )
+    return html
 
 
 def preprocess_wikilink_images(text: str) -> str:
@@ -191,6 +215,7 @@ def build_html(
         body_html, base_dir, max_width, get_image_size, attachments_dir, file_index
     )
     body_html = fix_image_paragraphs(body_html)
+    body_html = _convert_task_items(body_html)
 
     body_html = _TABLE_TAG_RE.sub(_fix_table_tag, body_html)
     body_html = _IMG_FILE_URL_RE.sub(r'<a href="\1">\g<0></a>', body_html)
@@ -229,10 +254,19 @@ def build_html(
             f"\n::-webkit-scrollbar-corner {{ background: {theme_bg}; }}"
         )
 
+    # KaTeX CSS/JS for client-side math rendering.
+    katex_css_path = resolve_path("resources", "katex", "katex.min.css")
+    katex_js_path = resolve_path("resources", "katex", "katex.min.js")
+    katex_head = (
+        f'<link rel="stylesheet" href="{katex_css_path.as_uri()}">\n'
+        f'<script src="{katex_js_path.as_uri()}"></script>\n'
+    )
+
     return (
         "<!DOCTYPE html>\n"
         "<html>\n<head>\n"
         "<meta charset='utf-8'>\n"
+        f"{katex_head}"
         f"<style>\n{font_body_css}\n{preview_css}{theme_override}\n</style>\n"
         "</head>\n"
         f"<body class='{theme_class}'>\n"

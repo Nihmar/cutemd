@@ -10,6 +10,8 @@ Provides:
 from __future__ import annotations
 
 import base64
+import os
+import tempfile
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, Signal
@@ -58,15 +60,19 @@ class PreviewWebEnginePage(QWebEnginePage):
     """Custom QWebEnginePage that intercepts link/wikilink navigation.
 
     - ``http://cutemd-copy/`` URLs → decode and copy to clipboard
+    - ``cutemd-toggle://`` URLs → emit ``checkbox_toggled`` signal
+    - In-page fragment links (``#id``) → scroll to element
     - External http/https → open in system browser
     - Local file:// or plain paths → emit ``file_link_clicked``
     - Everything else → blocked (return False)
     """
 
     file_link_clicked = Signal(str)
+    checkbox_toggled = Signal(str)  # "LINE|STATE" — e.g. "42|checked" or "42|unchecked"
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._base_dir: str = ""
         _LOG.debug("DIAG PreviewWebEnginePage.__init__ id=%s", id(self))
 
     def javaScriptConsoleMessage(self, level, message, line, source):
@@ -90,6 +96,25 @@ class PreviewWebEnginePage(QWebEnginePage):
         if nav_type == QWebEnginePage.NavigationType.NavigationTypeTyped:
             _LOG.debug("DIAG acceptNavigationRequest: allowing typed navigation")
             return True
+
+        # Handle in-page fragment links (TOC, footnotes, etc.)
+        if url.hasFragment() and url.path() in ("", "/", self._base_dir):
+            fragment = url.fragment()
+            if fragment:
+                self.runJavaScript(
+                    f'var el=document.getElementById("{fragment}");'
+                    f'if(el)el.scrollIntoView({{block:"start",behavior:"instant"}});'
+                )
+            return False
+
+        # Checkbox toggle interception
+        if url_str.startswith("http://cutemd-toggle/"):
+            parts = url_str.removeprefix("http://cutemd-toggle/").split("/")
+            if len(parts) == 2:
+                payload = f"{parts[0]}|{parts[1]}"
+                _LOG.debug("cutemd-toggle payload: %s", payload)
+                self.checkbox_toggled.emit(payload)
+            return False
 
         # Copy-code interception
         if url_str.startswith("http://cutemd-copy/"):
@@ -130,9 +155,11 @@ class PreviewWebEngineView(QWebEngineView):
 
     Signals:
         file_link_clicked(str) — a local file path was clicked.
+        checkbox_toggled(str)  — "LINE|STATE" for task list toggle.
     """
 
     file_link_clicked = Signal(str)
+    checkbox_toggled = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -152,11 +179,13 @@ class PreviewWebEngineView(QWebEngineView):
             type(self.page()).__name__,
         )
         self._page.file_link_clicked.connect(self.file_link_clicked)
+        self._page.checkbox_toggled.connect(self.checkbox_toggled)
 
         self._base_dir: Path | None = None
         self._attachments_dir: Path | None = None
         # JS injected flag — set True after each page load
         self._js_injected = False
+        self._prev_temp_paths: list[str] = []
 
         # Allow loading file:// images from local content
         settings = self.page().settings()
@@ -182,6 +211,7 @@ class PreviewWebEngineView(QWebEngineView):
         resolved = d.resolve()
         if self._base_dir != resolved:
             self._base_dir = resolved
+            self._page._base_dir = str(resolved)
 
     def set_attachments_dir(self, d: Path | None) -> None:
         resolved = d.resolve() if d is not None else None
@@ -213,9 +243,9 @@ class PreviewWebEngineView(QWebEngineView):
         html = (
             f"<!DOCTYPE html><html><body style='padding:16px'>{escaped}</body></html>"
         )
-        import tempfile
-
+        self._cleanup_temp_files()
         fd, tmp_path = tempfile.mkstemp(suffix=".html")
+        self._prev_temp_paths.append(tmp_path)
         with open(fd, "w", encoding="utf-8") as f:
             f.write(html)
         self.page().load(QUrl.fromLocalFile(tmp_path))
@@ -227,8 +257,6 @@ class PreviewWebEngineView(QWebEngineView):
         size limits of both QWebEngineView.setHtml() (2 MB) and
         page().setContent() / data: URLs (~2-3 MB).
         """
-        import tempfile
-
         # Inject <base> tag so relative links (wikilinks) resolve to the
         # vault directory, not the temp file's directory.
         base_tag = ""
@@ -243,7 +271,9 @@ class PreviewWebEngineView(QWebEngineView):
         else:
             html = base_tag + html
 
+        self._cleanup_temp_files()
         fd, tmp_path = tempfile.mkstemp(suffix=".html")
+        self._prev_temp_paths.append(tmp_path)
         try:
             with open(fd, "w", encoding="utf-8") as f:
                 f.write(html)
@@ -262,6 +292,15 @@ class PreviewWebEngineView(QWebEngineView):
 
             traceback.print_exc()
 
+    def _cleanup_temp_files(self) -> None:
+        """Remove previous temp files created by setHtml / setPlainText."""
+        for p in self._prev_temp_paths:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+        self._prev_temp_paths.clear()
+
     # ------------------------------------------------------------------
     # Preview → Editor scroll sync (JS scroll listener)
     # ------------------------------------------------------------------
@@ -272,7 +311,9 @@ class PreviewWebEngineView(QWebEngineView):
         "window._cutemd_listener=1;"
         "window._cutemd_line='';"
         "window._cutemd_at_bottom=false;"
+        "window._cutemd_suppress=0;"
         "window.addEventListener('scroll',function(){"
+        "if(window._cutemd_suppress&&Date.now()<window._cutemd_suppress)return;"
         "var a=document.querySelectorAll('a[data-line]');"
         "var best='';"
         "for(var i=a.length-1;i>=0;i--){"
@@ -287,12 +328,73 @@ class PreviewWebEngineView(QWebEngineView):
         "})();"
     )
 
+    _CHECKBOX_JS = (
+        "(function(){"
+        "if(window._cutemd_checkboxes)return;"
+        "window._cutemd_checkboxes=1;"
+        "var _last_toggle=0;"
+        "document.addEventListener('click',function(e){"
+        "var cb=e.target;"
+        "if(!cb.classList||!cb.classList.contains('task-list-item-checkbox'))return;"
+        "var now=Date.now();"
+        "if(now-_last_toggle<80)return;"
+        "_last_toggle=now;"
+        "console.log('cutemd: checkbox click, checked='+cb.checked);"
+        "var li=cb.closest('li');"
+        "if(!li)return;"
+        "e.stopPropagation();"
+        "var anchor=li.querySelector('a[data-line]');"
+        "if(!anchor){"
+        "var prev=li.previousElementSibling;"
+        "while(prev){"
+        "anchor=prev.querySelector('a[data-line]');"
+        "if(!anchor)anchor=prev.matches('a[data-line]')?prev:null;"
+        "if(anchor)break;"
+        "prev=prev.previousElementSibling;"
+        "}"
+        "}"
+        "var line=anchor?anchor.getAttribute('data-line'):'0';"
+        "var state=cb.checked?'checked':'unchecked';"
+        "console.log('cutemd: toggle line='+line+' state='+state);"
+        "var a=document.createElement('a');"
+        "a.href='http://cutemd-toggle/'+line+'/'+state;"
+        "a.style.display='none';"
+        "document.body.appendChild(a);"
+        "a.click();"
+        "document.body.removeChild(a);"
+        "},{capture:true});"
+        "})();"
+    )
+
+    _KATEX_JS = (
+        "(function(){"
+        "if(window._cutemd_katex)return;"
+        "window._cutemd_katex=1;"
+        "if(!window.katex)return;"
+        "try{"
+        "var els=document.querySelectorAll('.math-katex[data-latex]');"
+        "els.forEach(function(el){"
+        "var latex=el.getAttribute('data-latex');"
+        "if(!latex)return;"
+        "var display=el.classList.contains('math-block')||el.classList.contains('math-block-fallback');"
+        "try{"
+        "katex.render(latex,el,{displayMode:display,throwOnError:false});"
+        "el.classList.remove('math-block-fallback','math-inline-fallback');"
+        "}catch(e){console.warn('kaTeX error:',e);}"
+        "});"
+        "}catch(e){console.warn('kaTeX init error:',e);}"
+        "})();"
+    )
+
     def _inject_scroll_listener(self) -> None:
-        """Inject the JS scroll listener after page load."""
+        """Inject the JS scroll listener, checkbox handler, and KaTeX after page load."""
         if self._js_injected:
             return
         self._js_injected = True
         self.page().runJavaScript(self._SCROLL_LISTENER_JS)
+        self.page().runJavaScript(self._CHECKBOX_JS)
+        # Delay KaTeX slightly so the external script has time to load.
+        self.page().runJavaScript(self._KATEX_JS)
 
     # ------------------------------------------------------------------
     # Context menu — block Chromium defaults

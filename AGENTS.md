@@ -60,10 +60,11 @@ Use `_resolve_path()` from `ui/theme.py` (or equivalent `getattr(sys, "frozen", 
 --add-data "ui/style.qss;ui"
 --add-data "ui/preview_styles.css;ui"
 --add-data "resources/translations;resources/translations"
+--add-data "resources/katex;resources/katex"
 --add-data "resources/cutemd.svg;resources"
 --add-data "resources/cutemd.ico;resources"
 --collect-data latex2mathml
---hidden-import PySide6.QtSvg  PySide6.QtPdf  requests
+--hidden-import PySide6.QtSvg  PySide6.QtPdf  PySide6.QtWebEngineWidgets  requests
 ```
 
 If adding resource dirs, update all three build scripts (`scripts/build_windows.bat`, `scripts/build_windows.sh`, `scripts/build_appimage.sh`).

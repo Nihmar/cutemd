@@ -212,8 +212,7 @@ hr {
     vertical-align: sub;
 }
 .math-frac {
-    display: inline-flex;
-    flex-direction: column;
+    display: inline-table;
     vertical-align: middle;
     text-align: center;
     padding: 0 0.15em;

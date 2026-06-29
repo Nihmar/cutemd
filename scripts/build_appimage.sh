@@ -44,10 +44,12 @@ uv run pyinstaller \
     --add-data "ui/style.qss:ui" \
     --add-data "ui/preview_styles.css:ui" \
     --add-data "resources/translations:resources/translations" \
+    --add-data "resources/katex:resources/katex" \
     --add-data "resources/cutemd.svg:resources" \
     --collect-data latex2mathml \
     --hidden-import PySide6.QtSvg \
     --hidden-import PySide6.QtPdf \
+    --hidden-import PySide6.QtWebEngineWidgets \
     --hidden-import requests \
     main.py
 

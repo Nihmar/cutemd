@@ -99,12 +99,14 @@ def _tex_to_html(tex: str, display: str) -> str:
         root = ET.fromstring(mathml_str)
         inner = _mathml_to_html(root)
         cls = "math-block" if display == "block" else "math-inline"
-        return f'<span class="{cls}">{inner}</span>'
+        escaped_tex = _escape_html(tex)
+        return f'<span class="{cls} math-katex" data-latex="{escaped_tex}">{inner}</span>'
     except Exception:
         escaped = _escape_html(tex)
+        escaped_tex_val = escaped.replace('"', '&quot;')
         if display == "block":
-            return f'<pre class="math-block-fallback">$$\n{escaped}\n$$</pre>'
-        return f'<span class="math-inline-fallback">${escaped}$</span>'
+            return f'<pre class="math-block-fallback math-katex" data-latex="{escaped_tex_val}">$$\n{escaped}\n$$</pre>'
+        return f'<span class="math-inline-fallback math-katex" data-latex="{escaped_tex_val}">${escaped}$</span>'
 
 
 def render_math_inline(tokens, idx, options, env):
