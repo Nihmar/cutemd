@@ -173,14 +173,29 @@ class MarkdownHighlighter(QSyntaxHighlighter):
 
         self.setCurrentBlockState(self.STATE_NORMAL)
 
-        # Skip expensive inline patterns on very large documents.
-        if self.document() is not None and self.document().blockCount() > self._LARGE_DOC_BLOCKS:
+        # Spell-check first — only sets underline style, won't touch foreground.
+        # Applying it before syntax patterns lets the patterns overwrite the
+        # default foreground / bold / italic while preserving the red underline.
+        self._spell_check_block(text)
+
+        # Syntax patterns (applied after spell-check so they win on colour).
+        doc_large = (
+            self.document() is not None
+            and self.document().blockCount() > self._LARGE_DOC_BLOCKS
+        )
+        if doc_large:
             self._apply_rule(self.HEADING_RE, text, self.heading_fmt)
             self._apply_rule(self.LIST_RE, text, self.list_fmt)
+        else:
+            self._apply_rule(self.HEADING_RE, text, self.heading_fmt)
+            self._apply_rule(self.BOLD_RE, text, self.bold_fmt)
+            self._apply_rule(self.ITALIC_RE, text, self.italic_fmt)
+            self._apply_rule(self.INLINE_CODE_RE, text, self.inline_code_fmt)
+            self._apply_rule(self.MATH_INLINE_RE, text, self.math_fmt)
+            self._apply_rule(self.LINK_RE, text, self.link_fmt)
+            self._apply_rule(self.WIKILINK_RE, text, self.wikilink_fmt)
+            self._apply_rule(self.LIST_RE, text, self.list_fmt)
         self._apply_rule(self.BLOCKQUOTE_RE, text, self.blockquote_fmt)
-
-        # Spell-check after all syntax patterns
-        self._spell_check_block(text)
 
     _WORD_RE = re.compile(r"\b\w{3,}\b", re.UNICODE)
 
@@ -201,18 +216,6 @@ class MarkdownHighlighter(QSyntaxHighlighter):
                 _LOG.debug("spell err: %r (langs=%s)", word, self._spell_checker.langs)
         if errors:
             _LOG.debug("spell block %d: %d errors", self.currentBlock().blockNumber(), errors)
-            return
-
-        # --- Inline patterns ---
-        self._apply_rule(self.HEADING_RE, text, self.heading_fmt)
-        self._apply_rule(self.BOLD_RE, text, self.bold_fmt)
-        self._apply_rule(self.ITALIC_RE, text, self.italic_fmt)
-        self._apply_rule(self.INLINE_CODE_RE, text, self.inline_code_fmt)
-        self._apply_rule(self.MATH_INLINE_RE, text, self.math_fmt)
-        self._apply_rule(self.LINK_RE, text, self.link_fmt)
-        self._apply_rule(self.WIKILINK_RE, text, self.wikilink_fmt)
-        self._apply_rule(self.LIST_RE, text, self.list_fmt)
-        self._apply_rule(self.BLOCKQUOTE_RE, text, self.blockquote_fmt)
 
     def _fmt_frontmatter(self, text: str) -> None:
         """Highlight YAML key: value pairs in the frontmatter block."""

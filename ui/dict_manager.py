@@ -8,6 +8,7 @@ and PyInstaller builds.
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 from pathlib import Path
 
@@ -105,14 +106,31 @@ class DictDownloader(QThread):
 
 
 def _get_enchant_hunspell_dir() -> Path | None:
+    """Return the directory where enchant's hunspell backend looks for
+    dictionary files, creating it if possible."""
+    # Try the canonical user config directory first (works on Linux / BSD).
+    config_home = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+    user_huns = Path(config_home) / "enchant" / "hunspell"
+    user_huns.mkdir(parents=True, exist_ok=True)
+    if user_huns.is_dir():
+        return user_huns
+
+    # Fallback: try to locate the system hunspell dir via the enchant lib path.
     try:
-        import enchant._enchant as _e
-        dll = _e.enchant_lib_path
-        huns = Path(dll).resolve().parent.parent / "share" / "enchant" / "hunspell"
-        if huns.is_dir():
-            return huns
+        import ctypes.util
+        lib = ctypes.util.find_library("enchant-2")
+        if lib:
+            resolved = Path(lib).resolve()
+            if "site-packages" in str(resolved):
+                # pip-installed pyenchant — use user config dir.
+                return user_huns
+            huns = resolved.parent.parent / "share" / "enchant" / "hunspell"
+            huns.mkdir(parents=True, exist_ok=True)
+            if huns.is_dir():
+                return huns
     except Exception:
         pass
+
     return None
 
 
