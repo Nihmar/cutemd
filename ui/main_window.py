@@ -53,6 +53,7 @@ from ui.action_registry import ActionRegistry
 from ui.window_state import WindowStateManager
 from ui.backlinks_panel import BacklinksPanel
 from ui.editor_context_menu import show_editor_context_menu
+from ui.icon_provider import IconProvider
 from ui.editor_tab import EditorTab
 from ui.editor_toolbar import EditorToolbar
 from ui.file_tree_panel import FileTreePanel
@@ -72,8 +73,6 @@ from ui.update_dialog import UpdateAvailableDialog
 # Paths (supports PyInstaller one-file bundles)
 # ---------------------------------------------------------------------------
 _CSS_PATH = resolve_path("ui", "preview_styles.css")
-_ICONS_DIR = resolve_path("ui", "icons")
-_ICON_CACHE: dict[tuple[str, str, int], QIcon] = {}
 
 _LOG = setup_logging("cutemd.main_window")
 
@@ -119,6 +118,8 @@ class MainWindow(QMainWindow):
         self._editor_font_size = self._s.editor_font_size(13)
         self._preview_font_family = self._s.preview_font_family("System")
         self._preview_font_size = self._s.preview_font_size(13)
+
+        self._icon_provider = IconProvider()
         _LOG.debug(
             "__init__: editor_font=%s %d preview_font=%s %d",
             self._editor_font_family,
@@ -348,7 +349,7 @@ class MainWindow(QMainWindow):
             name: str, tip: str, checkable: bool = True, slot=None
         ) -> QToolButton:
             b = QToolButton()
-            b.setIcon(self._make_colored_icon(name, icon_color))
+            b.setIcon(self._icon_provider.make(name, icon_color))
             b.setToolTip(tip)
             b.setAutoRaise(True)
             b.setIconSize(QSize(18, 18))
@@ -383,7 +384,7 @@ class MainWindow(QMainWindow):
 
         self._side_folder_btn = QToolButton()
         self._side_folder_btn.setIcon(
-            self._make_colored_icon("folder_switch", icon_color)
+            self._icon_provider.make("folder_switch", icon_color)
         )
         self._side_folder_btn.setToolTip(self.tr("Switch folder"))
         self._side_folder_btn.setAutoRaise(True)
@@ -482,7 +483,7 @@ class MainWindow(QMainWindow):
         # --- Editor toolbar ---
         self._editor_toolbar = EditorToolbar(
             icon_color,
-            lambda name, color, size=18: self._make_colored_icon(name, color, size),
+            lambda name, color, size=18: self._icon_provider.make(name, color, size),
         )
         self._editor_toolbar.format_requested.connect(self._insert_md)
         self._editor_toolbar.image_requested.connect(self._on_insert_image)
@@ -967,40 +968,11 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Editor toolbar
     # ------------------------------------------------------------------
-    def _make_colored_icon(self, name: str, color: QColor, size: int = 18) -> QIcon:
-        """Render an SVG icon tinted with *color*. Results are cached."""
-        cache_key = (name, color.name(), size)
-        cached = _ICON_CACHE.get(cache_key)
-        if cached is not None:
-            return cached
-
-        from PySide6.QtSvg import QSvgRenderer
-
-        path = str(_ICONS_DIR / f"{name}.svg")
-        renderer = QSvgRenderer(path)
-
-        svg = QPixmap(size, size)
-        svg.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(svg)
-        renderer.render(painter)
-        painter.end()
-
-        result = QPixmap(size, size)
-        result.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(result)
-        painter.drawPixmap(0, 0, svg)
-        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-        painter.fillRect(result.rect(), color)
-        painter.end()
-
-        icon = QIcon(result)
-        _ICON_CACHE[cache_key] = icon
-        return icon
-
     def _recolor_toolbar_icons(self) -> None:
         icon_color = self._current_theme.icon_color
+        provider = self._icon_provider
         for button, name in getattr(self, "_sidebar_buttons", []):
-            button.setIcon(self._make_colored_icon(name, icon_color))
+            button.setIcon(provider.make(name, icon_color))
         if hasattr(self, "_editor_toolbar"):
             self._editor_toolbar.recolor(icon_color)
 
@@ -1064,7 +1036,7 @@ class MainWindow(QMainWindow):
             self,
             point,
             self._current_theme.icon_color,
-            lambda name, color, size=18: self._make_colored_icon(name, color, size),
+            lambda name, color, size=18: self._icon_provider.make(name, color, size),
             self._insert_md,
             self._on_insert_image,
             spell_checker=self._current_tab()._spell_checker if self._current_tab() and hasattr(self._current_tab(), "_spell_checker") else None,
