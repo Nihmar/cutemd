@@ -1177,6 +1177,8 @@ class MainWindow(QMainWindow):
             current_show_hidden_files=self._show_hidden_files,
             current_webdav_backup_dir=webdav_backup,
             current_templates_dir=self._s.templates_dir(),
+            current_folder=str(self._folder_settings.folder())
+            if self._folder_settings is not None else "",
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return

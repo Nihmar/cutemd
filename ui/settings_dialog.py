@@ -122,12 +122,14 @@ class SettingsDialog(QDialog):
         current_show_hidden_files: bool = False,
         current_webdav_backup_dir: str = "",
         current_templates_dir: str = "",
+        current_folder: str = "",
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
         self.setFixedSize(self._DIALOG_W, self._DIALOG_H)
         self._folder_settings = folder_settings
         self._app_settings = app_settings
+        self._current_folder = current_folder
 
         smart = dict(DEFAULT_SMART_EDITING)
         if current_smart_editing:
@@ -324,24 +326,6 @@ class SettingsDialog(QDialog):
                 self.tr("Display dotfiles in the sidebar"),
             )
         )
-
-        # Per-folder: attachments directory
-        self._attachments_dir_edit: QLineEdit | None = None
-        if folder_settings is not None:
-            card_lay.addWidget(self._separator())
-            self._attachments_dir_edit = QLineEdit()
-            self._attachments_dir_edit.setText(
-                folder_settings.load().get("attachments_dir", "attachments")
-            )
-            self._attachments_dir_edit.setPlaceholderText(self.tr("attachments"))
-            self._attachments_dir_edit.setMaximumWidth(180)
-            card_lay.addLayout(
-                self._field_row(
-                    self.tr("Attachments folder"),
-                    self._attachments_dir_edit,
-                    self.tr("Where pasted images are saved"),
-                )
-            )
         editor_lay.addWidget(card)
 
         # Section: Smart editing
@@ -522,6 +506,26 @@ class SettingsDialog(QDialog):
         if row is not None:
             row.addWidget(browse_tmpl)
         stor_lay.addWidget(card)
+
+        stor_lay.addSpacing(12)
+
+        # Per-folder: attachments directory
+        self._attachments_dir_edit: QLineEdit | None = None
+        if folder_settings is not None:
+            card, card_lay = self._make_card()
+            self._attachments_dir_edit = QLineEdit()
+            self._attachments_dir_edit.setText(
+                folder_settings.load().get("attachments_dir", "attachments")
+            )
+            self._attachments_dir_edit.setPlaceholderText(self.tr("attachments"))
+            card_lay.addLayout(
+                self._field_row(
+                    self.tr("Attachments folder"),
+                    self._attachments_dir_edit,
+                    self.tr("Where pasted images are saved"),
+                )
+            )
+            stor_lay.addWidget(card)
 
         stor_lay.addStretch()
         self._stack.addWidget(stor_scroll)
@@ -1104,10 +1108,13 @@ class SettingsDialog(QDialog):
 
     def _on_browse_templates_dir(self) -> None:
         from PySide6.QtWidgets import QFileDialog
+        start_dir = (
+            self._templates_dir_edit.text()
+            or self._current_folder
+            or str(Path.home())
+        )
         path = QFileDialog.getExistingDirectory(
-            self, self.tr("Select templates folder"),
-            getattr(self, "_templates_dir_edit", None)
-            and self._templates_dir_edit.text() or str(Path.home()),
+            self, self.tr("Select templates folder"), start_dir,
         )
         if path:
             self._templates_dir_edit.setText(path)

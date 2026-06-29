@@ -326,6 +326,7 @@ class EditorTab(QWidget):
                 self._pygments_style = pygments_style
             if theme_bg:
                 self._theme_bg = theme_bg
+                self.preview.set_page_background(theme_bg)
             if theme_fg:
                 self._theme_fg = theme_fg
             if theme_mid:

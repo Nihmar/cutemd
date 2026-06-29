@@ -16,6 +16,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import (
+    QColor,
     QDesktopServices,
     QImage,
 )
@@ -196,6 +197,14 @@ class PreviewWebEngineView(QWebEngineView):
 
         # Diagnostic: log when page finishes loading
         self.loadFinished.connect(self._on_load_finished)
+
+        # Default dark background until theme colors are applied.
+        self.page().setBackgroundColor(QColor("#1e1e1e"))
+
+    def set_page_background(self, color_hex: str) -> None:
+        """Set the Chromium page background (visible while loading)."""
+        if color_hex:
+            self.page().setBackgroundColor(QColor(color_hex))
 
     # ------------------------------------------------------------------
     # Diagnostics
