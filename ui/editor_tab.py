@@ -1,6 +1,7 @@
 """Single editor+preview tab for the tabbed interface."""
 
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -950,7 +951,7 @@ class EditorTab(QWidget):
             f"}})();"
         )
         self.preview.page().runJavaScript(js)
-        self._poll_blocked_until = __import__('time').monotonic() + 0.5
+        self._poll_blocked_until = time.monotonic() + 0.5
         self._syncing_scroll -= 1
         self._pending_sync_anchor = ""
 
@@ -979,7 +980,7 @@ class EditorTab(QWidget):
         # Block poll while the user is actively scrolling — even within
         # the same section.  Without this the poll fires before the user
         # lifts the scrollbar and snaps the editor to a stale heading line.
-        self._poll_blocked_until = __import__('time').monotonic() + 0.5
+        self._poll_blocked_until = time.monotonic() + 0.5
 
         if anchor == self._last_anchor:
             return
@@ -1002,7 +1003,7 @@ class EditorTab(QWidget):
         if self._syncing_scroll > 0:
             return
         blocked = getattr(self, '_poll_blocked_until', 0.0)
-        if __import__('time').monotonic() < blocked:
+        if time.monotonic() < blocked:
             return
         js = "JSON.stringify({l:window._cutemd_line||'',b:!!window._cutemd_at_bottom})"
         self.preview.page().runJavaScript(js, self._on_poll_result)
@@ -1011,6 +1012,7 @@ class EditorTab(QWidget):
         if self._syncing_scroll > 0:
             return
         if not line_str:
+            _LOG.debug("POLL empty result (page not loaded?)")
             return
         try:
             import json
@@ -1019,8 +1021,32 @@ class EditorTab(QWidget):
             at_bottom = data.get("b", False)
         except (ValueError, json.JSONDecodeError):
             return
-        if target_line == getattr(self, "_last_poll_line", -1) and not at_bottom:
+        _last = getattr(self, "_last_poll_line", None)
+        _LOG.debug("POLL target_line=%d at_bottom=%s last=%s",
+                   target_line, at_bottom, _last)
+        if _last is not None and target_line == _last and not at_bottom:
             return
+
+        # Guard: if the preview reports a line that is much earlier than
+        # the last known position, wait one extra tick before acting.
+        # This prevents false syncs caused by browser reflows (e.g. KaTeX
+        # rendering temporarily zeroes the page height, Chromium clamps
+        # scrollY to 0, the scroll listener sets _cutemd_line = 0, and
+        # the poll would otherwise snap the editor to line 0).
+        if (
+            _last is not None
+            and target_line < _last - 50
+            and not at_bottom
+            and _last > 0
+        ):
+            if not getattr(self, "_poll_confirm_pending", False):
+                self._poll_confirm_pending = True
+                _LOG.debug("POLL jump guard: target=%d last=%d diff=%d — waiting 1 tick",
+                          target_line, _last, _last - target_line)
+                return
+            _LOG.debug("POLL jump guard: confirmed after 1 tick, target=%d", target_line)
+        self._poll_confirm_pending = False
+
         self._last_poll_line = target_line
 
         # Accumulate block heights to get pixel-precise Y position.
