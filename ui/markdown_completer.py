@@ -492,27 +492,27 @@ class MarkdownAutoCompleter(QObject):
         pos_in_block = cursor.positionInBlock()
         block_text = cursor.block().text()
 
-        # The > was just typed, so cursor is AFTER it.  Find the preceding <
-        gt_pos = pos_in_block - 1  # position of the just-typed >
-        lt = block_text.rfind("<", 0, gt_pos)
+        # The > has NOT been inserted yet (we're in eventFilter returning True).
+        # Find the preceding <
+        lt = block_text.rfind("<", 0, pos_in_block)
         if lt < 0:
             return False
-        tag_part = block_text[lt + 1:gt_pos].strip().lower()
+        tag_part = block_text[lt + 1:pos_in_block].strip().lower()
         if not tag_part:
             return False
-        # Only trigger for known HTML tags
-        if tag_part not in self._HTML_TAGS and tag_part.split()[0] not in self._HTML_TAGS:
-            return False
-
         base_tag = tag_part.split()[0]
+        if base_tag not in self._HTML_TAGS:
+            return False
         if base_tag in self._VOID_TAGS:
             return False
 
-        closing = f"</{base_tag}>"
+        # Insert > + closing tag
+        closing = f"></{base_tag}>"
         cursor.insertText(closing)
-        # Move cursor back between tags
+        # Move cursor back between > and </tag>
         cursor.movePosition(QTextCursor.MoveOperation.Left,
-                          QTextCursor.MoveMode.MoveAnchor, len(closing))
+                          QTextCursor.MoveMode.MoveAnchor,
+                          len(closing) - 1)  # after >
         self._editor.setTextCursor(cursor)
         return True
 
@@ -992,6 +992,36 @@ class MarkdownAutoCompleter(QObject):
         if event.key() == Qt.Key.Key_Escape:
             self._hide_html_popup()
             self._editor.setFocus()
+            return True
+        if event.key() == Qt.Key.Key_Down:
+            row = self._html_list_widget.currentRow()
+            if row < self._html_list_widget.count() - 1:
+                self._html_list_widget.setCurrentRow(row + 1)
+            return True
+        if event.key() == Qt.Key.Key_Up:
+            row = self._html_list_widget.currentRow()
+            if row > 0:
+                self._html_list_widget.setCurrentRow(row - 1)
+            return True
+        if event.key() == Qt.Key.Key_Home:
+            if self._html_list_widget.count() > 0:
+                self._html_list_widget.setCurrentRow(0)
+            return True
+        if event.key() == Qt.Key.Key_End:
+            cnt = self._html_list_widget.count()
+            if cnt > 0:
+                self._html_list_widget.setCurrentRow(cnt - 1)
+            return True
+        if event.key() == Qt.Key.Key_PageUp:
+            row = self._html_list_widget.currentRow()
+            page = max(5, self._html_list_widget.height() // 22)
+            self._html_list_widget.setCurrentRow(max(0, row - page))
+            return True
+        if event.key() == Qt.Key.Key_PageDown:
+            row = self._html_list_widget.currentRow()
+            cnt = self._html_list_widget.count()
+            page = max(5, self._html_list_widget.height() // 22)
+            self._html_list_widget.setCurrentRow(min(cnt - 1, row + page))
             return True
         return False
 
