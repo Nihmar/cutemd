@@ -159,8 +159,14 @@ Guardar alterações?</translation>
         <location filename="../../ui/file_tree_panel.py" line="300" />
         <source>Open in file explorer</source>
         <translation>Abrir no explorador de ficheiros</translation>
+    </message></message>
+    <message>
+        <location filename="../../ui/file_tree_panel.py" line="326" />
+        <source>Copy location</source>
+        <translation>Copiar localização</translation>
     </message>
     <message>
+
         <location filename="../../ui/file_tree_panel.py" line="286" />
         <source>Open in new tab</source>
         <translation>Abrir em novo separador</translation>

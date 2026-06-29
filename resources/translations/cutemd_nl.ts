@@ -159,8 +159,14 @@ Wijzigingen opslaan?</translation>
         <location filename="../../ui/file_tree_panel.py" line="300" />
         <source>Open in file explorer</source>
         <translation>Openen in bestandsverkenner</translation>
+    </message></message>
+    <message>
+        <location filename="../../ui/file_tree_panel.py" line="326" />
+        <source>Copy location</source>
+        <translation>Locatie kopiëren</translation>
     </message>
     <message>
+
         <location filename="../../ui/file_tree_panel.py" line="286" />
         <source>Open in new tab</source>
         <translation>Openen in nieuw tabblad</translation>

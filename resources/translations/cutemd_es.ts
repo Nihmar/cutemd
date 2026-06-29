@@ -159,8 +159,14 @@ Save changes?</source>
         <location filename="../../ui/file_tree_panel.py" line="300" />
         <source>Open in file explorer</source>
         <translation>Abrir en el explorador de archivos</translation>
+    </message></message>
+    <message>
+        <location filename="../../ui/file_tree_panel.py" line="326" />
+        <source>Copy location</source>
+        <translation>Copiar ubicación</translation>
     </message>
     <message>
+
         <location filename="../../ui/file_tree_panel.py" line="286" />
         <source>Open in new tab</source>
         <translation>Abrir en nueva pestaña</translation>

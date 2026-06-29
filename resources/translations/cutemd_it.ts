@@ -161,6 +161,11 @@ Salvare le modifiche?</translation>
         <translation>Apri nel file explorer</translation>
     </message>
     <message>
+        <location filename="../../ui/file_tree_panel.py" line="326" />
+        <source>Copy location</source>
+        <translation>Copia percorso</translation>
+    </message>
+    <message>
         <location filename="../../ui/file_tree_panel.py" line="286" />
         <source>Open in new tab</source>
         <translation>Apri in nuova scheda</translation>
