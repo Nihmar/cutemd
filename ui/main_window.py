@@ -2003,20 +2003,19 @@ class MainWindow(QMainWindow):
         """Autosave: silently save all modified tabs with a file path."""
         _LOG.debug("_on_autosave: triggering")
         saved_any = False
+        saved_tab = None
         for i in range(self._tabs.count()):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab):
                 if tab.auto_save() is not False:
                     saved_any = True
-        # Sync-on-save: trigger sync if enabled and something was saved
+                    saved_tab = tab
         if saved_any and self._s.sync_on_save():
             self._on_webdav_sync(auto_triggered=True)
-        # Sync-on-save: trigger sync if enabled and something was saved
-        if saved_any and self._s.sync_on_save():
-            self._on_webdav_sync(auto_triggered=True)
-        # Debounced tags scan on autosave
         if saved_any:
             self._trigger_tags_scan()
+            if saved_tab is not None:
+                self._update_metadata(saved_tab)
 
     def _on_new(self) -> None:
         tab = self._current_tab()
@@ -2214,6 +2213,7 @@ class MainWindow(QMainWindow):
                 if tab.file_path:
                     self._tree_panel.select_file(tab.file_path)
                     self._trigger_tags_scan()
+                self._update_metadata(tab)
                 # Sync-on-save for manual saves
                 if self._s.sync_on_save():
                     self._on_webdav_sync(auto_triggered=True)
