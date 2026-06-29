@@ -288,6 +288,7 @@ class MainWindow(QMainWindow):
             "find": self._on_find,
             "find_files": self._on_find_in_files,
             "replace_files": self._on_replace_in_files,
+            "insert_table": self._on_insert_table,
             "toggle_split": self._toggle_split,
             "toggle_tags": self._on_toggle_tags,
             "settings": self._on_settings,
@@ -1680,6 +1681,12 @@ class MainWindow(QMainWindow):
         tab.set_preview_font(self._preview_font_family, self._preview_font_size)
 
     # ------------------------------------------------------------------
+    def _on_insert_table(self) -> None:
+        """Open the insert-table dimensions dialog on the current tab."""
+        tab = self._current_tab()
+        if tab is not None:
+            tab.insert_table_dialog()
+
     # File operations
     # ------------------------------------------------------------------
     def _on_open_folder(self) -> None:
@@ -2238,6 +2245,7 @@ class MainWindow(QMainWindow):
         self.act_find.setText(self.tr("&Find…"))
         self.act_find_files.setText(self.tr("Find in &Files…"))
         self.act_replace_files.setText(self.tr("Replace in &Files…"))
+        self.act_insert_table.setText(self.tr("Insert &Table…"))
         self.act_toggle_preview.setText(self.tr("Toggle &Preview"))
         self.act_toggle_split.setText(self.tr("Toggle Split &Orientation"))
         self.act_toggle_tree.setText(self.tr("Toggle &File Tree"))

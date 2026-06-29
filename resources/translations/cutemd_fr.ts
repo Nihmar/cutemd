@@ -677,6 +677,12 @@ Configurez-la dans Paramètres → Synchronisation.</translation>
         <translation>Mode édition</translation>
     </message>
     <message>
+            <message>
+        <location filename="../../ui/action_registry.py" line="109" />
+        <source>Insert &amp;Table…</source>
+        <translation>Insérer un &Tableau…</translation>
+    </message>
+    <message>
         <location filename="../../ui/action_registry.py" line="141" />
         <source>E&amp;xport as</source>
         <translation>E&amp;xporter comme</translation>
@@ -1346,6 +1352,21 @@ Vous serez invité à choisir un dossier au prochain démarrage.</translation>
         <location filename="../../ui/editor_context_menu.py" line="123" />
         <source>Add to dictionary</source>
         <translation>Ajouter au dictionnaire</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="103" />
+        <source>Edit Table…</source>
+        <translation>Modifier le Tableau…</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="104" />
+        <source>Add Row</source>
+        <translation>Ajouter une Ligne</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="105" />
+        <source>Add Column</source>
+        <translation>Ajouter une Colonne</translation>
     </message>
 </context>
 </TS>

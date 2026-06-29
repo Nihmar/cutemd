@@ -677,6 +677,11 @@ Configurala in Impostazioni → Sincronizzazione.</translation>
         <translation>&amp;Aiuto</translation>
     </message>
     <message>
+        <location filename="../../ui/action_registry.py" line="109" />
+        <source>Insert &amp;Table…</source>
+        <translation>Inserisci &amp;Tabella…</translation>
+    </message>
+    <message>
         <location filename="../../ui/action_registry.py" line="141" />
         <source>E&amp;xport as</source>
         <translation>E&amp;xporta come</translation>
@@ -1346,6 +1351,21 @@ All'avvio ti verrà chiesto di scegliere una cartella.</translation>
         <location filename="../../ui/editor_context_menu.py" line="123" />
         <source>Add to dictionary</source>
         <translation>Aggiungi al dizionario</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="103" />
+        <source>Edit Table…</source>
+        <translation>Modifica Tabella…</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="104" />
+        <source>Add Row</source>
+        <translation>Aggiungi Riga</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="105" />
+        <source>Add Column</source>
+        <translation>Aggiungi Colonna</translation>
     </message>
 </context>
 </TS>

@@ -819,6 +819,98 @@ class EditorTab(QWidget):
         self._spell_checker.add_word(word)
         self._highlighter.rehighlight()
 
+    # ------------------------------------------------------------------
+    # Table editing
+    # ------------------------------------------------------------------
+
+    def edit_table(self) -> None:
+        """Open the table popup editor for the table at cursor."""
+        from ui.table_editor import TablePopupEditor, parse_table, rows_to_markdown
+
+        cursor = self.editor.textCursor()
+        parsed = parse_table(cursor)
+        if parsed is None:
+            return
+        rows, sep_idx, _cur_col = parsed
+
+        dlg = TablePopupEditor(rows, self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        new_rows = dlg.result_rows()
+
+        # Replace the table in the document
+        from ui.table_editor import _find_table_range
+        rng = _find_table_range(cursor)
+        if rng is None:
+            return
+        top, bottom = rng
+        doc = self.editor.document()
+        start_block = doc.findBlockByNumber(top)
+        end_block = doc.findBlockByNumber(bottom)
+        edit_cursor = QTextCursor(start_block)
+        edit_cursor.setPosition(
+            end_block.position() + end_block.length() - 1,
+            QTextCursor.MoveMode.KeepAnchor,
+        )
+        edit_cursor.insertText(rows_to_markdown(new_rows).rstrip("\n"))
+
+    def add_table_row(self) -> None:
+        """Append a new row to the table at cursor."""
+        from ui.table_editor import _find_table_range, _ROW_RE
+
+        cursor = self.editor.textCursor()
+        rng = _find_table_range(cursor)
+        if rng is None:
+            return
+        _top, bottom = rng
+        doc = self.editor.document()
+        last_block = doc.findBlockByNumber(bottom)
+        line = last_block.text()
+        m = _ROW_RE.match(line)
+        if not m:
+            return
+        ncols = len(m.group(1).split("|"))
+        cells = " | ".join(" " for _ in range(ncols))
+        new_cursor = QTextCursor(last_block)
+        new_cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+        new_cursor.insertText("\n| " + cells + " |")
+
+    def add_table_column(self) -> None:
+        """Append a new column to the right of the table at cursor."""
+        from ui.table_editor import _find_table_range, _ROW_RE, _SEP_RE
+
+        cursor = self.editor.textCursor()
+        rng = _find_table_range(cursor)
+        if rng is None:
+            return
+        top, bottom = rng
+        doc = self.editor.document()
+        for n in range(top, bottom + 1):
+            block = doc.findBlockByNumber(n)
+            text = block.text()
+            if _SEP_RE.match(text):
+                new_text = text.rstrip() + " ---|"
+            elif _ROW_RE.match(text):
+                new_text = text.rstrip() + "  |"
+            else:
+                continue
+            tc = QTextCursor(block)
+            tc.movePosition(QTextCursor.MoveOperation.EndOfBlock)
+            tc.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.KeepAnchor)
+            tc.insertText(new_text)
+
+    def insert_table_dialog(self) -> None:
+        """Open the new-table dimensions dialog and insert a table skeleton."""
+        from ui.table_editor import InsertTableDialog, rows_to_markdown
+
+        dlg = InsertTableDialog(self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        nrows, ncols = dlg.dimensions()
+        rows = [["" for _ in range(ncols)] for _ in range(nrows)]
+        md = rows_to_markdown(rows).rstrip("\n")
+        self.editor.textCursor().insertText("\n" + md + "\n")
+
     def insert_toolbar(self, toolbar: QWidget) -> None:
         """Insert *toolbar* above find bar (index 0)."""
         self._toolbar_slot.insertWidget(0, toolbar)
@@ -1309,6 +1401,15 @@ class EditorTab(QWidget):
                 ):
                     if self._paste_image_from_clipboard():
                         return True
+                # Tab navigation inside tables
+                if key_event.key() == Qt.Key.Key_Tab:
+                    from ui.table_editor import move_to_next_cell, move_to_prev_cell
+                    if key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                        if move_to_prev_cell(self.editor):
+                            return True
+                    elif not key_event.modifiers():
+                        if move_to_next_cell(self.editor):
+                            return True
 
         elif obj is self._viewport:
             if event.type() == QEvent.Type.MouseMove:

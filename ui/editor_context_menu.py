@@ -96,6 +96,17 @@ def show_editor_context_menu(
     if insert_menu:
         insert_menu.addAction(_icon("image"), parent.tr("&Image")).triggered.connect(on_image)
 
+    # Table actions (only when cursor is inside a table)
+    from ui.table_editor import is_in_table
+    if is_in_table(sender.textCursor()):
+        menu.addSeparator()
+        # Try to reach the EditorTab via the parent window
+        tab = getattr(parent, "_current_tab", lambda: None)()
+        if tab is not None:
+            menu.addAction(parent.tr("Edit Table…")).triggered.connect(tab.edit_table)
+            menu.addAction(parent.tr("Add Row")).triggered.connect(tab.add_table_row)
+            menu.addAction(parent.tr("Add Column")).triggered.connect(tab.add_table_column)
+
     # Spell-check suggestions
     if spell_checker is not None and getattr(spell_checker, "available", False):
         cursor = sender.cursorForPosition(point)

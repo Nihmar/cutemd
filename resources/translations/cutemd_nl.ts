@@ -677,6 +677,12 @@ Instellen in Instellingen → Synchronisatie.</translation>
         <translation>Bewerkingsmodus</translation>
     </message>
     <message>
+            <message>
+        <location filename="../../ui/action_registry.py" line="109" />
+        <source>Insert &amp;Table…</source>
+        <translation>Tabel &Invoegen…</translation>
+    </message>
+    <message>
         <location filename="../../ui/action_registry.py" line="141" />
         <source>E&amp;xport as</source>
         <translation>E&amp;xporteren als</translation>
@@ -1346,6 +1352,21 @@ U wordt gevraagd een map te kiezen bij de volgende start.</translation>
         <location filename="../../ui/editor_context_menu.py" line="123" />
         <source>Add to dictionary</source>
         <translation>Aan woordenboek toevoegen</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="103" />
+        <source>Edit Table…</source>
+        <translation>Tabel Bewerken…</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="104" />
+        <source>Add Row</source>
+        <translation>Rij Toevoegen</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="105" />
+        <source>Add Column</source>
+        <translation>Kolom Toevoegen</translation>
     </message>
 </context>
 </TS>

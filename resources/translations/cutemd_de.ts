@@ -677,6 +677,10 @@ Einrichten in Einstellungen → Synchronisation.</translation>
         <translation>Bearbeitungsmodus</translation>
     </message>
     <message>
+        <source>Insert &amp;Table…</source>
+        <translation>Tabelle &amp;einfügen…</translation>
+    </message>
+    <message>
         <location filename="../../ui/action_registry.py" line="141" />
         <source>E&amp;xport as</source>
         <translation>E&amp;xportieren als</translation>
@@ -1346,6 +1350,21 @@ Beim nächsten Start werden Sie aufgefordert, einen Ordner auszuwählen.</transl
         <location filename="../../ui/editor_context_menu.py" line="123" />
         <source>Add to dictionary</source>
         <translation>Zum Wörterbuch hinzufügen</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="103" />
+        <source>Edit Table…</source>
+        <translation>Tabelle bearbeiten…</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="104" />
+        <source>Add Row</source>
+        <translation>Zeile hinzufügen</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="105" />
+        <source>Add Column</source>
+        <translation>Spalte hinzufügen</translation>
     </message>
 </context>
 </TS>

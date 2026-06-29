@@ -104,6 +104,9 @@ class ActionRegistry:
             QKeySequence(Qt.Modifier.CTRL | Qt.Modifier.SHIFT | Qt.Key.Key_H),
             cb.get("replace_files"),
         )
+        self._acts["act_insert_table"] = self._action(
+            "Insert &Table…", None, cb.get("insert_table")
+        )
 
         # View
         self._acts["act_toggle_preview"] = self._action(
@@ -242,6 +245,8 @@ class ActionRegistry:
         em.addAction(self._acts["act_find"])
         em.addAction(self._acts["act_find_files"])
         em.addAction(self._acts["act_replace_files"])
+        em.addSeparator()
+        em.addAction(self._acts["act_insert_table"])
         self._menus["edit"] = em  # type: ignore[assignment]
 
         vm = _menu("&View")
