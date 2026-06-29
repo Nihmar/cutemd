@@ -733,7 +733,8 @@ class EditorTab(QWidget):
             )
 
     def _on_text_changed(self) -> None:
-        _LOG.debug("_on_text_changed")
+        _LOG.debug("TEXT_CHANGED editor_line=%d",
+                   self.editor.firstVisibleBlock().blockNumber())
         # Large files: disable preview and skip expensive work.
         if self._large_file:
             return
@@ -874,10 +875,9 @@ class EditorTab(QWidget):
 
     def _on_preview_ready(self, html: str) -> None:
         _LOG.debug(
-            "DIAG _on_preview_ready: len=%d preview_visible=%s stack_index=%d",
+            "PREVIEW_READY len=%d editor_line=%d",
             len(html) if html else 0,
-            self._preview_visible,
-            self._preview_stack.currentIndex(),
+            self.editor.firstVisibleBlock().blockNumber(),
         )
         self._preview_busy = False
         # Cancel spinner if it hasn't fired yet.
@@ -893,6 +893,9 @@ class EditorTab(QWidget):
         self._syncing_scroll -= 1
 
     def _deferred_set_html(self, html: str) -> None:
+        _LOG.debug("SET_HTML len=%d editor_line=%d",
+                   len(html),
+                   self.editor.firstVisibleBlock().blockNumber())
         # Disconnect any stale loadFinished handler from a previous load.
         try:
             self.preview.loadFinished.disconnect()
@@ -901,6 +904,8 @@ class EditorTab(QWidget):
 
         def on_load(ok: bool) -> None:
             self.preview.loadFinished.disconnect(on_load)
+            _LOG.debug("LOAD_DONE ok=%s editor_line=%d",
+                       ok, self.editor.firstVisibleBlock().blockNumber())
             self.preview._inject_scroll_listener()
             self._inject_anchor_map()  # ← aggiunto qui
             self._pending_sync_anchor = self._last_anchor
@@ -943,6 +948,7 @@ class EditorTab(QWidget):
         anchor = self._pending_sync_anchor
         if not anchor:
             return
+        _LOG.debug("PREVIEW_SCROLL anchor=%s", anchor)
         self._syncing_scroll += 1
         js = (
             f"(function(){{"
@@ -984,8 +990,22 @@ class EditorTab(QWidget):
 
         if anchor == self._last_anchor:
             return
+        _LOG.debug("EDITOR_SCROLL line=%d anchor=%s", current_line, anchor)
         self._last_anchor = anchor
+        self._pending_scroll_anchor = anchor
 
+        if not hasattr(self, "_editor_scroll_timer"):
+            self._editor_scroll_timer = QTimer(self)
+            self._editor_scroll_timer.setSingleShot(True)
+            self._editor_scroll_timer.setInterval(50)
+            self._editor_scroll_timer.timeout.connect(self._do_editor_scroll_preview)
+
+        self._editor_scroll_timer.start()
+
+    def _do_editor_scroll_preview(self) -> None:
+        anchor = getattr(self, "_pending_scroll_anchor", "")
+        if not anchor or self._syncing_scroll > 0:
+            return
         self._syncing_scroll += 1
         js = (
             f"(function(){{"
@@ -995,8 +1015,6 @@ class EditorTab(QWidget):
         )
         self.preview.page().runJavaScript(js)
         self._syncing_scroll -= 1
-
-        self._pending_sync_anchor = ""
 
     def _poll_preview_line(self) -> None:
         """Poll window._cutemd_line at 30fps and scroll the editor to match."""
