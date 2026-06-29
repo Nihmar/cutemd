@@ -16,6 +16,7 @@ __version__ = "1.3.0"
 import sys
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -29,6 +30,9 @@ _LOG = setup_logging("cutemd.main")
 
 def main() -> None:
     _LOG.debug("CuteMD v%s starting (Python %s, %s)", __version__, sys.version.split()[0], sys.platform)
+
+    # Required for multi-tab QWebEngineView stability.
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
 
     app = QApplication(sys.argv)
 

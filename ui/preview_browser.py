@@ -83,10 +83,14 @@ class PreviewWebEnginePage(QWebEnginePage):
             return True
 
         # Preview scroll sync — user scrolled the preview via mouse/touch
-        if url_str.startswith("cutemd-scroll://"):
-            anchor = url_str.removeprefix("cutemd-scroll://")
-            _LOG.debug("DIAG scroll event: anchor=%s", anchor)
-            self.preview_scrolled.emit(anchor)
+        if url_str.startswith("https://cutemd-scroll/"):
+            anchor = url_str.removeprefix("https://cutemd-scroll/")
+            # Dedup: Chromium may call acceptNavigationRequest multiple times
+            # for the same navigation (main frame + sub-resource checks).
+            last_anchor = getattr(self, '_last_scroll_anchor', '')
+            if anchor != last_anchor:
+                self._last_scroll_anchor = anchor
+                self.preview_scrolled.emit(anchor)
             return False
 
         # Copy-code interception
@@ -258,18 +262,18 @@ class PreviewWebEngineView(QWebEngineView):
 
     _SCROLL_LISTENER_JS = (
         "(function(){"
-        "if(window._cutemd_scroll_listener)return;"  # inject only once
+        "if(window._cutemd_scroll_listener){return;}"
         "window._cutemd_scroll_listener=true;"
         "window._cutemd_syncing=false;"
         "window.addEventListener('scroll',function(){"
-        "if(window._cutemd_syncing)return;"  # skip programmatic scrolls
+        "if(window._cutemd_syncing)return;"
         "var anchors=document.querySelectorAll('a[name]');"
         "var best=null;"
         "anchors.forEach(function(a){"
         "var r=a.getBoundingClientRect();"
         "if(r.top<=5)best=a.getAttribute('name');"
         "});"
-        "if(best)window.location='cutemd-scroll://'+best;"
+        "if(best)window.location='https://cutemd-scroll/'+best;"
         "},{passive:true});"
         "})();"
     )
