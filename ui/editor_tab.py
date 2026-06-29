@@ -1403,13 +1403,14 @@ class EditorTab(QWidget):
                         return True
                 # Tab navigation inside tables
                 if key_event.key() == Qt.Key.Key_Tab:
-                    from ui.table_editor import move_to_next_cell, move_to_prev_cell
-                    if key_event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                        if move_to_prev_cell(self.editor):
-                            return True
-                    elif not key_event.modifiers():
+                    from ui.table_editor import move_to_next_cell
+                    if not key_event.modifiers():
                         if move_to_next_cell(self.editor):
                             return True
+                elif key_event.key() == Qt.Key.Key_Backtab:
+                    from ui.table_editor import move_to_prev_cell
+                    if move_to_prev_cell(self.editor):
+                        return True
 
         elif obj is self._viewport:
             if event.type() == QEvent.Type.MouseMove:

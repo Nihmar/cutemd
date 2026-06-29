@@ -189,7 +189,9 @@ class TablePopupEditor(QDialog):
         # Table widget
         self._table = QTableWidget(self)
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self._table.verticalHeader().setVisible(False)
+        self._table.verticalHeader().setVisible(True)
+        self._table.setShowGrid(True)
+        self._table.setAlternatingRowColors(True)
         layout.addWidget(self._table)
 
         # Buttons
