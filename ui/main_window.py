@@ -2012,7 +2012,14 @@ class MainWindow(QMainWindow):
         file_path = daily_dir / f"{today_str}.md"
 
         if file_path.exists():
-            self._open_file(str(file_path))
+            idx = self._find_tab_for_file(file_path)
+            if idx >= 0:
+                self._tabs.setCurrentIndex(idx)
+                return
+            tab = self._add_tab()
+            tab.load_file(file_path)
+            self._refresh_tab_title(tab)
+            self._update_window_title()
             return
 
         # Create new daily note from template (if configured).
@@ -2026,7 +2033,10 @@ class MainWindow(QMainWindow):
                 content = TemplatePicker.resolve_content(p, title=today_str)
 
         file_path.write_text(content, encoding="utf-8")
-        self._open_file(str(file_path))
+        tab = self._add_tab()
+        tab.load_file(file_path)
+        self._refresh_tab_title(tab)
+        self._update_window_title()
 
     def _on_save(self) -> None:
         tab = self._current_tab()
