@@ -251,20 +251,19 @@ class PreviewWebEngineView(QWebEngineView):
         self.page().load(QUrl.fromLocalFile(tmp_path))
 
     def setHtml(self, html: str) -> None:
-        """Load HTML content.
+        """Load HTML content via setContent() — in-place, no temp file.
 
-        Writes to a temp file and loads via file:// URL to avoid the
-        size limits of both QWebEngineView.setHtml() (2 MB) and
-        page().setContent() / data: URLs (~2-3 MB).
+        QWebEngineView.setHtml() silently truncates above 2 MB.
+        page().setContent() has no size limit and replaces content
+        without a full page navigation (no flash).
         """
         # Inject <base> tag so relative links (wikilinks) resolve to the
-        # vault directory, not the temp file's directory.
+        # vault directory.
         base_tag = ""
         if self._base_dir is not None:
             base_url = QUrl.fromLocalFile(str(self._base_dir) + "/")
             base_tag = f'<base href="{base_url.toString()}">'
 
-        # Insert <base> after <head> if present, otherwise at start.
         head_pos = html.find("<head>")
         if head_pos >= 0:
             html = html[: head_pos + 6] + base_tag + html[head_pos + 6 :]
@@ -272,25 +271,11 @@ class PreviewWebEngineView(QWebEngineView):
             html = base_tag + html
 
         self._cleanup_temp_files()
-        fd, tmp_path = tempfile.mkstemp(suffix=".html")
-        self._prev_temp_paths.append(tmp_path)
-        try:
-            with open(fd, "w", encoding="utf-8") as f:
-                f.write(html)
-            _LOG.debug(
-                "DIAG setHtml: len=%d written to %s base_tag=%s page_id=%s",
-                len(html),
-                tmp_path,
-                bool(base_tag),
-                id(self.page()),
-            )
-            self.page().load(QUrl.fromLocalFile(tmp_path))
-            self._js_injected = False  # re-inject after load
-        except Exception as exc:
-            _LOG.debug("DIAG setHtml: tempfile error: %s", exc)
-            import traceback
-
-            traceback.print_exc()
+        self._js_injected = False
+        base_url = QUrl.fromLocalFile(str(self._base_dir)) if self._base_dir else QUrl()
+        self.page().setContent(
+            html.encode("utf-8"), "text/html;charset=utf-8", base_url
+        )
 
     def _cleanup_temp_files(self) -> None:
         """Remove previous temp files created by setHtml / setPlainText."""
@@ -398,19 +383,28 @@ class PreviewWebEngineView(QWebEngineView):
         "console.log('cutemd: katex visible init '+rendered.size+'/'+all.length);"
         "var observer=new IntersectionObserver(function(entries){"
         "if(!entries.length)return;"
+        "var batch=[];"
         "entries.forEach(function(entry){"
         "if(!entry.isIntersecting)return;"
         "var el=entry.target;"
         "if(rendered.has(el))return;"
+        "batch.push(el);"
+        "observer.unobserve(el);"
+        "});"
+        "if(!batch.length)return;"
+        "var i=0;"
+        "function renderNext(){"
+        "if(i>=batch.length)return;"
+        "var el=batch[i++];"
         "var latex=el.getAttribute('data-latex');"
-        "if(!latex)return;"
+        "if(!latex){renderNext();return;}"
         "var display=el.classList.contains('math-block');"
         "try{katex.render(latex,el,{displayMode:display,throwOnError:false});rendered.add(el);"
         "}catch(e){console.warn('kaTeX error:',e);}"
-        "observer.unobserve(el);"
-        "});"
-        "console.log('cutemd: katex lazy rendered, total='+rendered.size+'/'+all.length);"
-        "},{rootMargin:'200px'});"
+        "if(i<batch.length)requestAnimationFrame(renderNext);"
+        "}"
+        "requestAnimationFrame(renderNext);"
+        "},{rootMargin:'50px'});"
         "all.forEach(function(el){if(!rendered.has(el))observer.observe(el);});"
         "}catch(e){console.warn('kaTeX init error:',e);}"
         "})();"
