@@ -39,6 +39,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from core.animation_speed import animation_duration_ms
+from core.constants import (
+    BROKEN_LINK_LINE_LIMIT,
+    DOC_EXTS,
+    IMG_EXTS,
+    LARGE_FILE_THRESHOLD,
+    MD_EXTS,
+    PDF_EXTS,
+)
+from core.file_utils import read_file_with_encoding
+from core.link_resolution import build_line_anchor_map, resolve_link_target
 from core.logging import setup_logging
 from markdown.html_builder import (
     preprocess_tags,
@@ -46,10 +57,6 @@ from markdown.html_builder import (
     preprocess_wikilinks,
     strip_frontmatter,
 )
-from core.animation_speed import animation_duration_ms
-from core.constants import BROKEN_LINK_LINE_LIMIT, DOC_EXTS, IMG_EXTS, LARGE_FILE_THRESHOLD, MD_EXTS, PDF_EXTS
-from core.file_utils import read_file_with_encoding
-from core.link_resolution import build_line_anchor_map, resolve_link_target
 from ui.async_doc_renderer import AsyncDocRenderer
 from ui.drop_handler import DropHandler
 from ui.find_bar import FindBar
@@ -87,7 +94,7 @@ class EditorTab(QWidget):
     title_changed = Signal()
     file_link_clicked = Signal(str, str)  # target, display_text
     encoding_changed = Signal(str)
-    preview_detached = Signal(bool)       # True when preview is detached
+    preview_detached = Signal(bool)  # True when preview is detached
 
     _MD_EXTS = MD_EXTS
     _IMG_EXTS = IMG_EXTS
@@ -211,9 +218,6 @@ class EditorTab(QWidget):
         self._preview_viewport = self.preview  # QWebEngineView is its own viewport
         self._preview_viewport.installEventFilter(self)
 
-        # Wire preview→editor scroll sync
-        self.preview._page.preview_scrolled.connect(self._on_preview_user_scrolled)
-
         self._image_viewer = ImageViewer()
         self._image_viewer.viewport().installEventFilter(self._image_viewer)
 
@@ -233,10 +237,13 @@ class EditorTab(QWidget):
         self._preview_stack.installEventFilter(self)
 
         # --- Scroll sync ---
-        # Editor → Preview only. Bidirectional sync with async runJavaScript()
-        # causes oscillation because scrollIntoView hasn't completed when the
-        # next poll fires, reading an intermediate scroll position.
+        # Editor → Preview
         self.editor.verticalScrollBar().valueChanged.connect(self._on_editor_scrolled)
+        # Preview → Editor: 30fps polling — JS stores position in _cutemd_line,
+        # Python reads it. Much lighter than URL navigation per frame.
+        self._preview_poll_timer = QTimer(self)
+        self._preview_poll_timer.setInterval(33)  # ~30fps
+        self._preview_poll_timer.timeout.connect(self._poll_preview_line)
 
         # --- Async preview worker ---
         self._preview_thread = QThread(self)
@@ -290,15 +297,27 @@ class EditorTab(QWidget):
     def tooltip(self) -> str:
         return str(self._file_path) if self._file_path else self.tr("Untitled")
 
-    def set_theme(self, theme: str, pygments_style: str = "",
-                  theme_bg: str = "", theme_fg: str = "",
-                  theme_mid: str = "") -> None:
-        _LOG.debug("DIAG set_theme: theme=%s old=%s pygments=%s old_pygments=%s bg=%s",
-                   theme, self._theme, pygments_style,
-                   getattr(self, '_pygments_style', ''), theme_bg)
+    def set_theme(
+        self,
+        theme: str,
+        pygments_style: str = "",
+        theme_bg: str = "",
+        theme_fg: str = "",
+        theme_mid: str = "",
+    ) -> None:
+        _LOG.debug(
+            "DIAG set_theme: theme=%s old=%s pygments=%s old_pygments=%s bg=%s",
+            theme,
+            self._theme,
+            pygments_style,
+            getattr(self, "_pygments_style", ""),
+            theme_bg,
+        )
         theme_changed = theme != self._theme
-        pygments_changed = pygments_style and pygments_style != getattr(self, '_pygments_style', '')
-        colors_changed = theme_bg and theme_bg != getattr(self, '_theme_bg', '')
+        pygments_changed = pygments_style and pygments_style != getattr(
+            self, "_pygments_style", ""
+        )
+        colors_changed = theme_bg and theme_bg != getattr(self, "_theme_bg", "")
         if theme_changed or pygments_changed or colors_changed:
             self._theme = theme
             if pygments_style:
@@ -312,8 +331,10 @@ class EditorTab(QWidget):
             self._last_rendered_hash = 0
             self._highlighter.set_theme(theme)
             self._link_mgr.popup.set_theme(theme)
-            _LOG.debug("DIAG set_theme: calling _update_preview, cached_text_len=%d",
-                       len(self._cached_text))
+            _LOG.debug(
+                "DIAG set_theme: calling _update_preview, cached_text_len=%d",
+                len(self._cached_text),
+            )
             self._update_preview()
 
     def set_preview_visible(self, visible: bool) -> None:
@@ -321,6 +342,8 @@ class EditorTab(QWidget):
         if visible == self._preview_visible:
             return
         self._preview_visible = visible
+        if not visible:
+            self._preview_poll_timer.stop()
 
         total = self._splitter.width()
         if total <= 0:
@@ -724,18 +747,20 @@ class EditorTab(QWidget):
         unnecessary re-renders when typing quickly. Hash-based change
         detection prevents re-rendering identical content.
         """
-        _LOG.debug("DIAG _update_preview: visible=%s binary=%s large=%s text_len=%d",
-                   self._preview_visible, self._is_binary_preview,
-                   self._large_file, len(self._cached_text))
+        _LOG.debug(
+            "DIAG _update_preview: visible=%s binary=%s large=%s text_len=%d",
+            self._preview_visible,
+            self._is_binary_preview,
+            self._large_file,
+            len(self._cached_text),
+        )
         if not self._preview_visible or self._is_binary_preview or self._large_file:
             return
         raw_text = self._cached_text
         if not raw_text.strip():
             return  # nothing to preview
         text = strip_frontmatter(raw_text)
-        text = preprocess_tags(
-            preprocess_wikilinks(preprocess_wikilink_images(text))
-        )
+        text = preprocess_tags(preprocess_wikilinks(preprocess_wikilink_images(text)))
         # Debug: count inline tags
         _tag_count = text.count('<span style="color:#d19a66')
         if _tag_count:
@@ -770,10 +795,10 @@ class EditorTab(QWidget):
                 str(base_dir),
                 max(pw, 200),
                 str(self._attachments_dir) if self._attachments_dir else "",
-                getattr(self, '_pygments_style', ''),
-                getattr(self, '_theme_bg', ''),
-                getattr(self, '_theme_fg', ''),
-                getattr(self, '_theme_mid', ''),
+                getattr(self, "_pygments_style", ""),
+                getattr(self, "_theme_bg", ""),
+                getattr(self, "_theme_fg", ""),
+                getattr(self, "_theme_mid", ""),
             )
         )
         if params_hash == self._last_rendered_hash:
@@ -793,9 +818,10 @@ class EditorTab(QWidget):
             "max_width": max(pw, 200),
             "get_image_size": get_image_size,
             "attachments_dir": self._attachments_dir,
-            "theme_bg": getattr(self, '_theme_bg', ''),
-            "theme_fg": getattr(self, '_theme_fg', ''),
-            "theme_mid": getattr(self, '_theme_mid', ''),
+            "theme_bg": getattr(self, "_theme_bg", ""),
+            "theme_fg": getattr(self, "_theme_fg", ""),
+            "theme_mid": getattr(self, "_theme_mid", ""),
+            "frontmatter_offset": self._frontmatter_offset,
         }
 
         if self._preview_busy:
@@ -805,7 +831,11 @@ class EditorTab(QWidget):
             return
 
         self._preview_busy = True
-        _LOG.debug("_update_preview: emitting render_requested, text_bytes=%d params_hash=%s", len(text), params_hash)
+        _LOG.debug(
+            "_update_preview: emitting render_requested, text_bytes=%d params_hash=%s",
+            len(text),
+            params_hash,
+        )
         # Delay spinner — fast renders don't need it.
         self._spinner_timer = QTimer(self)
         self._spinner_timer.setSingleShot(True)
@@ -818,10 +848,12 @@ class EditorTab(QWidget):
         self._link_mgr.schedule_broken_refresh()
 
     def _on_preview_ready(self, html: str) -> None:
-        _LOG.debug("DIAG _on_preview_ready: len=%d preview_visible=%s stack_index=%d",
-                   len(html) if html else 0,
-                   self._preview_visible,
-                   self._preview_stack.currentIndex())
+        _LOG.debug(
+            "DIAG _on_preview_ready: len=%d preview_visible=%s stack_index=%d",
+            len(html) if html else 0,
+            self._preview_visible,
+            self._preview_stack.currentIndex(),
+        )
         self._preview_busy = False
         # Cancel spinner if it hasn't fired yet.
         if hasattr(self, "_spinner_timer"):
@@ -845,8 +877,11 @@ class EditorTab(QWidget):
         def on_load(ok: bool) -> None:
             self.preview.loadFinished.disconnect(on_load)
             self.preview._inject_scroll_listener()
+            self._inject_anchor_map()  # ← aggiunto qui
             self._pending_sync_anchor = self._last_anchor
             self._sync_preview_scroll()
+            if self._preview_visible:
+                self._preview_poll_timer.start()
 
         self.preview.loadFinished.connect(on_load)
         self.preview.setHtml(html)
@@ -927,29 +962,54 @@ class EditorTab(QWidget):
             f"}})();"
         )
         self.preview.page().runJavaScript(js)
+        # Block poll processing for 500ms so scrollIntoView doesn't
+        # trigger a stale JS report that fights back.
+        self._poll_blocked_until = __import__('time').monotonic() + 0.5
         self._syncing_scroll -= 1
 
         self._pending_sync_anchor = ""
 
-    def _on_preview_user_scrolled(self, line_str: str) -> None:
-        """Called when the user scrolls the preview (JS scroll listener).
-        *line_str* is the preprocessed line number from data-line."""
+    def _poll_preview_line(self) -> None:
+        """Poll window._cutemd_line at 30fps and scroll the editor to match."""
         if self._syncing_scroll > 0:
             return
+        blocked = getattr(self, '_poll_blocked_until', 0.0)
+        if __import__('time').monotonic() < blocked:
+            return
+        js = "window._cutemd_line||''"
+        self.preview.page().runJavaScript(js, self._on_poll_result)
+
+    def _on_poll_result(self, line_str: str) -> None:
+        if self._syncing_scroll > 0:
+            return
+        if not line_str:
+            return
         try:
-            pre_line = int(line_str)
+            target_line = int(line_str)
         except ValueError:
             return
-        target_line = pre_line + self._frontmatter_offset
-
-        editor_sb = self.editor.verticalScrollBar()
-        if editor_sb.maximum() <= 0:
+        if target_line == getattr(self, "_last_poll_line", -1):
             return
-        total_lines = self.editor.document().blockCount()
-        ratio = target_line / max(total_lines - 1, 1)
+        self._last_poll_line = target_line
+
+        # ensureCursorVisible forces QPlainTextEdit to lay out the
+        # target block. After that, blockBoundingRect is accurate.
+        target_block = self.editor.document().findBlockByNumber(target_line)
+        if not target_block.isValid():
+            return
         self._syncing_scroll += 1
-        editor_sb.setValue(int(ratio * editor_sb.maximum()))
+        cursor = self.editor.textCursor()
+        cursor.setPosition(target_block.position())
+        self.editor.setTextCursor(cursor)
+        self.editor.ensureCursorVisible()
+        rect = self.editor.blockBoundingRect(target_block)
+        sb = self.editor.verticalScrollBar()
+        sb.setValue(max(0, rect.top()))
         self._syncing_scroll -= 1
+        _LOG.debug("SYNC line=%-4d first=%d rect=%d",
+                   target_line,
+                   self.editor.firstVisibleBlock().blockNumber(),
+                   rect.top())
 
         self._pending_sync_anchor = ""
 
@@ -1140,7 +1200,11 @@ class EditorTab(QWidget):
                         self.zoom_editor(delta)
                     return True
 
-        elif self._preview_viewport is not None and obj is self._preview_viewport and event.type() == QEvent.Type.Wheel:
+        elif (
+            self._preview_viewport is not None
+            and obj is self._preview_viewport
+            and event.type() == QEvent.Type.Wheel
+        ):
             we = event  # type: ignore[assignment]
             if we.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 delta = 1 if we.angleDelta().y() > 0 else -1
@@ -1174,3 +1238,21 @@ class EditorTab(QWidget):
     def changeEvent(self, event) -> None:
         if event.type() == QEvent.Type.LanguageChange:
             self.title_changed.emit()
+
+    # ------------------------------------------------------------------
+    # Scroll listener
+    # ------------------------------------------------------------------
+
+    def _inject_anchor_map(self) -> None:
+        """Inject window._cutemd_anchor_map = {anchor_idx: src_line} for preview→editor sync."""
+        if not self._line_anchor_map:
+            return
+        rev: dict[int, int] = {}
+        for src_line, anc_idx in enumerate(self._line_anchor_map):
+            if anc_idx not in rev:  # prima riga per ogni anchor
+                rev[anc_idx] = src_line
+        import json
+
+        self.preview.page().runJavaScript(
+            f"window._cutemd_anchor_map={json.dumps(rev)};"
+        )

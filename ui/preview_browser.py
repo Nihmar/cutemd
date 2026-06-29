@@ -30,6 +30,7 @@ _LOG = setup_logging("cutemd.preview_browser")
 # Image size provider (unchanged — used by markdown/html_builder.py)
 # ---------------------------------------------------------------------------
 
+
 def _fit_image(img: QImage, max_width: int) -> QImage:
     if img.width() <= max_width:
         return img
@@ -52,6 +53,7 @@ def get_image_size(path_str: str, max_width: int) -> tuple[int, int] | None:
 # Custom QWebEnginePage — navigation interception
 # ---------------------------------------------------------------------------
 
+
 class PreviewWebEnginePage(QWebEnginePage):
     """Custom QWebEnginePage that intercepts link/wikilink navigation.
 
@@ -60,8 +62,8 @@ class PreviewWebEnginePage(QWebEnginePage):
     - Local file:// or plain paths → emit ``file_link_clicked``
     - Everything else → blocked (return False)
     """
+
     file_link_clicked = Signal(str)
-    preview_scrolled = Signal(str)  # anchor name e.g. "b5"
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -71,33 +73,23 @@ class PreviewWebEnginePage(QWebEnginePage):
         if "cutemd:" in message:
             _LOG.debug("JS: %s", message)
 
-    def acceptNavigationRequest(
-        self, url: QUrl, nav_type, is_main_frame: bool
-    ) -> bool:
+    def acceptNavigationRequest(self, url: QUrl, nav_type, is_main_frame: bool) -> bool:
         url_str = url.toString()
-        _LOG.debug("DIAG acceptNavigationRequest: id=%s url=%s nav_type=%s is_main=%s",
-                   id(self), url_str[:120], nav_type, is_main_frame)
+        _LOG.debug(
+            "DIAG acceptNavigationRequest: id=%s url=%s nav_type=%s is_main=%s",
+            id(self),
+            url_str[:120],
+            nav_type,
+            is_main_frame,
+        )
 
         # Allow the initial page load (NavigationTypeTyped from setContent).
         # Blocking it causes loadFinished(ok=False) and a blank page.
         from PySide6.QtWebEngineCore import QWebEnginePage
+
         if nav_type == QWebEnginePage.NavigationType.NavigationTypeTyped:
             _LOG.debug("DIAG acceptNavigationRequest: allowing typed navigation")
             return True
-
-        # Preview scroll sync — user scrolled the preview via mouse/touch
-        if url_str.startswith("https://cutemd-scroll/line/"):
-            line_str = url_str.removeprefix("https://cutemd-scroll/line/")
-            try:
-                line_num = int(line_str)
-            except ValueError:
-                return False
-            # Dedup
-            last = getattr(self, '_last_scroll_line', -1)
-            if line_num != last:
-                self._last_scroll_line = line_num
-                self.preview_scrolled.emit(str(line_num))
-            return False
 
         # Copy-code interception
         if url_str.startswith("http://cutemd-copy/"):
@@ -132,12 +124,14 @@ class PreviewWebEnginePage(QWebEnginePage):
 # Custom QWebEngineView — drop-in replacement for PreviewTextBrowser
 # ---------------------------------------------------------------------------
 
+
 class PreviewWebEngineView(QWebEngineView):
     """QWebEngineView with the same public API as the old QTextBrowser preview.
 
     Signals:
         file_link_clicked(str) — a local file path was clicked.
     """
+
     file_link_clicked = Signal(str)
 
     def __init__(self, parent=None):
@@ -147,11 +141,16 @@ class PreviewWebEngineView(QWebEngineView):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         self._page = PreviewWebEnginePage(self)
-        _LOG.debug("DIAG PreviewWebEngineView.__init__ setting page id=%s", id(self._page))
+        _LOG.debug(
+            "DIAG PreviewWebEngineView.__init__ setting page id=%s", id(self._page)
+        )
         self.setPage(self._page)
         # Verify the page was actually set
-        _LOG.debug("DIAG after setPage: page id=%s page_class=%s",
-                   id(self.page()), type(self.page()).__name__)
+        _LOG.debug(
+            "DIAG after setPage: page id=%s page_class=%s",
+            id(self.page()),
+            type(self.page()).__name__,
+        )
         self._page.file_link_clicked.connect(self.file_link_clicked)
 
         self._base_dir: Path | None = None
@@ -210,13 +209,12 @@ class PreviewWebEngineView(QWebEngineView):
 
     def setPlainText(self, text: str) -> None:
         """Display plain text (used for "Rendering…" placeholder)."""
-        escaped = (
-            text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
+        escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        html = (
+            f"<!DOCTYPE html><html><body style='padding:16px'>{escaped}</body></html>"
         )
-        html = f"<!DOCTYPE html><html><body style='padding:16px'>{escaped}</body></html>"
         import tempfile
+
         fd, tmp_path = tempfile.mkstemp(suffix=".html")
         with open(fd, "w", encoding="utf-8") as f:
             f.write(html)
@@ -241,7 +239,7 @@ class PreviewWebEngineView(QWebEngineView):
         # Insert <base> after <head> if present, otherwise at start.
         head_pos = html.find("<head>")
         if head_pos >= 0:
-            html = html[:head_pos + 6] + base_tag + html[head_pos + 6:]
+            html = html[: head_pos + 6] + base_tag + html[head_pos + 6 :]
         else:
             html = base_tag + html
 
@@ -249,13 +247,19 @@ class PreviewWebEngineView(QWebEngineView):
         try:
             with open(fd, "w", encoding="utf-8") as f:
                 f.write(html)
-            _LOG.debug("DIAG setHtml: len=%d written to %s base_tag=%s page_id=%s",
-                       len(html), tmp_path, bool(base_tag), id(self.page()))
+            _LOG.debug(
+                "DIAG setHtml: len=%d written to %s base_tag=%s page_id=%s",
+                len(html),
+                tmp_path,
+                bool(base_tag),
+                id(self.page()),
+            )
             self.page().load(QUrl.fromLocalFile(tmp_path))
             self._js_injected = False  # re-inject after load
         except Exception as exc:
             _LOG.debug("DIAG setHtml: tempfile error: %s", exc)
             import traceback
+
             traceback.print_exc()
 
     # ------------------------------------------------------------------
@@ -264,19 +268,18 @@ class PreviewWebEngineView(QWebEngineView):
 
     _SCROLL_LISTENER_JS = (
         "(function(){"
-        "if(window._cutemd_scroll_listener)return;"
-        "window._cutemd_scroll_listener=true;"
-        "window._cutemd_last_line=-1;"
+        "if(window._cutemd_listener)return;"
+        "window._cutemd_listener=1;"
+        "window._cutemd_line='';"
         "window.addEventListener('scroll',function(){"
-        "var anchors=document.querySelectorAll('a[data-line]');"
-        "var best=null;"
-        "anchors.forEach(function(a){"
-        "var r=a.getBoundingClientRect();"
-        "if(r.top<=5)best=a.getAttribute('data-line');"
-        "});"
-        "if(!best||best===window._cutemd_last_line)return;"
-        "window._cutemd_last_line=best;"
-        "window.location='https://cutemd-scroll/line/'+best;"
+        "var a=document.querySelectorAll('a[data-line]');"
+        "var best='';"
+        "for(var i=a.length-1;i>=0;i--){"
+        "if(a[i].getBoundingClientRect().top<=5){"
+        "best=a[i].getAttribute('data-line');break;"
+        "}"
+        "}"
+        "if(best!=='')window._cutemd_line=best;"
         "},{passive:true});"
         "})();"
     )

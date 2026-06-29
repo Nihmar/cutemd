@@ -106,7 +106,7 @@ def strip_frontmatter(text: str) -> str:
     return _FRONTMATTER_RE.sub("", text, count=1)
 
 
-def render_with_anchors(text: str, md: MarkdownIt) -> str:
+def render_with_anchors(text: str, md: MarkdownIt, frontmatter_offset: int = 0) -> str:
     from markdown_it.token import Token
     tokens: list[Token] = md.parse(text)
     new_tokens: list[Token] = []
@@ -118,7 +118,7 @@ def render_with_anchors(text: str, md: MarkdownIt) -> str:
             if start < end:
                 anchor = Token("html_inline", "", 0)
                 anchor.content = (
-                    f'<a name="b{anchor_idx}" data-line="{start}"></a>'
+                    f'<a name="b{anchor_idx}" data-line="{start + frontmatter_offset}"></a>'
                 )
                 new_tokens.append(anchor)
                 anchor_idx += 1
@@ -172,9 +172,10 @@ def build_html(
     theme_bg: str = "",
     theme_fg: str = "",
     theme_mid: str = "",
+    frontmatter_offset: int = 0,
 ) -> str:
     try:
-        body_html = add_heading_ids(render_with_anchors(text, md))
+        body_html = add_heading_ids(render_with_anchors(text, md, frontmatter_offset))
     except Exception:
         body_html = (
             "<pre>"
