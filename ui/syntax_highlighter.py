@@ -50,6 +50,8 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     MATH_INLINE_RE = re.compile(r"\$[^$\n]+\$")
     LINK_RE = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
     WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+    FOOTNOTE_REF_RE = re.compile(r"\[\^([^\]]+)\]")
+    FOOTNOTE_DEF_RE = re.compile(r"^\[\^([^\]]+)\]:\s+(.+)$")
     LIST_RE = re.compile(r"^(\s{0,3})([-*+]|\d+\.)\s")
     BLOCKQUOTE_RE = re.compile(r"^>\s?.*$")
 
@@ -93,6 +95,8 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             self.math_fmt = _make_format("#56b6c2")
             self.link_fmt = _make_format("#61afef")
             self.wikilink_fmt = _make_format("#56b6c2")
+            self.footnote_ref_fmt = _make_format("#c678dd")
+            self.footnote_def_fmt = _make_format("#98c379")
             self.list_fmt = _make_format("#c678dd")
             self.blockquote_fmt = _make_format("#5c6370")
             self.heading_global_fmt = _make_format("#e06c75", bold=True)
@@ -108,6 +112,8 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             self.math_fmt = _make_format("#1a8ea8")
             self.link_fmt = _make_format("#4078f2")
             self.wikilink_fmt = _make_format("#1a8ea8")
+            self.footnote_ref_fmt = _make_format("#0184bc")
+            self.footnote_def_fmt = _make_format("#50a14f")
             self.list_fmt = _make_format("#0184bc")
             self.blockquote_fmt = _make_format("#a0a1a7")
             self.heading_global_fmt = _make_format("#a626a4", bold=True)
@@ -179,6 +185,9 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         self._spell_check_block(text)
 
         # Syntax patterns (applied after spell-check so they win on colour).
+        # Footnote definitions — whole-line pattern, before other inline rules.
+        self._apply_rule(self.FOOTNOTE_DEF_RE, text, self.footnote_def_fmt)
+
         doc_large = (
             self.document() is not None
             and self.document().blockCount() > self._LARGE_DOC_BLOCKS
@@ -194,7 +203,9 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             self._apply_rule(self.MATH_INLINE_RE, text, self.math_fmt)
             self._apply_rule(self.LINK_RE, text, self.link_fmt)
             self._apply_rule(self.WIKILINK_RE, text, self.wikilink_fmt)
+            self._apply_rule(self.FOOTNOTE_REF_RE, text, self.footnote_ref_fmt)
             self._apply_rule(self.LIST_RE, text, self.list_fmt)
+        self._apply_rule(self.FOOTNOTE_REF_RE, text, self.footnote_ref_fmt)
         self._apply_rule(self.BLOCKQUOTE_RE, text, self.blockquote_fmt)
 
     _WORD_RE = re.compile(r"\b\w{3,}\b", re.UNICODE)

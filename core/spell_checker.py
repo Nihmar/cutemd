@@ -28,6 +28,10 @@ _SKIP_PATTERNS: list[tuple[re.Pattern, int]] = [
     (re.compile(r"^---\s*\n.*?\n(?:---|\.\.\.)\s*\n", re.DOTALL), 0),
     # # Tags
     (re.compile(r"(?<=\s)#[\w\u0080-\uFFFF][\w\u0080-\uFFFF-]*"), 0),
+    # Footnote references [^label]
+    (re.compile(r"\[\^[^\]]+\]"), 0),
+    # Footnote definitions [^label]: ...
+    (re.compile(r"^\[\^[^\]]+\]:\s*.+$", re.MULTILINE), 0),
 ]
 
 

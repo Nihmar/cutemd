@@ -177,6 +177,7 @@ class MainWindow(QMainWindow):
         # --- Markdown parser (shared across all tabs) ---
         from markdown_it import MarkdownIt
         from mdit_py_plugins.dollarmath import dollarmath_plugin
+        from mdit_py_plugins.footnote import footnote_plugin
 
         from markdown.math_renderers import (
             render_math_block,
@@ -190,6 +191,7 @@ class MainWindow(QMainWindow):
             MarkdownIt("commonmark", {"highlight": highlight_code})
             .enable(["table", "strikethrough"])
             .use(dollarmath_plugin)
+            .use(footnote_plugin)
         )
         self._md.renderer.rules["math_inline"] = render_math_inline  # pyright: ignore[reportAttributeAccessIssue]
         self._md.renderer.rules["math_inline_double"] = render_math_inline_double  # pyright: ignore[reportAttributeAccessIssue]
