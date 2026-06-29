@@ -147,6 +147,7 @@ class EditorTab(QWidget):
         self._detached_window: QWidget | None = None
         self._splitter_sizes: list[int] = []
         self._preview_viewport: object = None  # set after preview widget creation
+        self._toc_in_preview: bool = False
 
         # --- Drop handler (drag&drop + clipboard paste) ---
         self._drop_handler = DropHandler(self)
@@ -757,6 +758,12 @@ class EditorTab(QWidget):
         self.preview.set_attachments_dir(d)
         self._refresh_link_highlights()
 
+    def set_toc_in_preview(self, enabled: bool) -> None:
+        if self._toc_in_preview != enabled:
+            self._toc_in_preview = enabled
+            self._last_rendered_hash = 0
+            self._update_preview()
+
     def insert_toolbar(self, toolbar: QWidget) -> None:
         """Insert *toolbar* above find bar (index 0)."""
         self._toolbar_slot.insertWidget(0, toolbar)
@@ -849,6 +856,7 @@ class EditorTab(QWidget):
             "theme_fg": getattr(self, "_theme_fg", ""),
             "theme_mid": getattr(self, "_theme_mid", ""),
             "frontmatter_offset": self._frontmatter_offset,
+            "toc_enabled": self._toc_in_preview,
         }
 
         if self._preview_busy:

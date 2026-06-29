@@ -127,6 +127,7 @@ class SettingsDialog(QDialog):
         current_daily_template: str = "",
         current_daily_date_format: str = "%Y-%m-%d",
         current_zen_mode_max_width: int = 800,
+        current_toc_in_preview: bool = False,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -621,6 +622,20 @@ class SettingsDialog(QDialog):
                 self.tr("Zen mode max width"),
                 self._zen_mode_max_width,
                 self.tr("Maximum editor column width in Zen mode"),
+            )
+        )
+        stor_lay.addWidget(card)
+
+        stor_lay.addSpacing(12)
+
+        # TOC in preview
+        card, card_lay = self._make_card()
+        self._toc_in_preview_toggle = ToggleSwitch(current_toc_in_preview)
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Table of Contents in preview"),
+                self._toc_in_preview_toggle,
+                self.tr("Show an anchor-linked TOC at the top of the preview"),
             )
         )
         stor_lay.addWidget(card)
@@ -1176,6 +1191,11 @@ class SettingsDialog(QDialog):
         if hasattr(self, "_zen_mode_max_width") and self._zen_mode_max_width is not None:
             return self._zen_mode_max_width.value()
         return 800
+
+    def selected_toc_in_preview(self) -> bool:
+        if hasattr(self, "_toc_in_preview_toggle") and self._toc_in_preview_toggle is not None:
+            return self._toc_in_preview_toggle.isChecked()
+        return False
 
     # ==================================================================
     # Storage

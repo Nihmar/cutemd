@@ -222,5 +222,8 @@ class SettingsApplicator:
         # Zen mode
         w._s.set_zen_mode_max_width(dlg.selected_zen_mode_max_width())
 
+        # TOC in preview
+        w._s.set_toc_in_preview(dlg.selected_toc_in_preview())
+
         w._update_auto_sync_timer()
         w._update_menu_state()

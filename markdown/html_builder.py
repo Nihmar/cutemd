@@ -95,6 +95,37 @@ def _convert_task_items(html: str) -> str:
     return html
 
 
+_HEADING_RE = re.compile(r"<(h[1-6])\s+id=\"([^\"]+)\"[^>]*>(.*?)</\1>", re.DOTALL)
+
+
+def _inject_toc(html: str) -> str:
+    """Build a TOC from heading tags and inject it at the top of the body."""
+    toc_items: list[str] = []
+    for m in _HEADING_RE.finditer(html):
+        level = int(m.group(1)[1])  # h1 -> 1, h2 -> 2, ...
+        slug = m.group(2)
+        inner = re.sub(r"<[^>]+>", "", m.group(3))  # strip tags
+        if not inner.strip():
+            continue
+        indent = "&nbsp;" * ((level - 1) * 4)
+        toc_items.append(
+            f'<li style="margin-left:{(level - 1) * 16}px">'
+            f'{indent}<a href="#{slug}">{inner.strip()}</a>'
+            f"</li>"
+        )
+    if not toc_items:
+        return html
+
+    toc_html = (
+        "<nav class='cutemd-toc'>"
+        "<div class='cutemd-toc-title'>Table of Contents</div>"
+        "<ul>" + "".join(toc_items) + "</ul>"
+        "</nav>"
+    )
+    # Inject after <body>
+    return html.replace("<body", toc_html + "\n<body", 1)
+
+
 def preprocess_wikilink_images(text: str) -> str:
     def _repl(m: re.Match) -> str:
         target = m.group(1).strip()
@@ -193,6 +224,7 @@ def build_html(
     theme_fg: str = "",
     theme_mid: str = "",
     frontmatter_offset: int = 0,
+    toc_enabled: bool = False,
 ) -> str:
     try:
         body_html = add_heading_ids(render_with_anchors(text, md, frontmatter_offset))
@@ -216,6 +248,10 @@ def build_html(
     body_html = _TABLE_TAG_RE.sub(_fix_table_tag, body_html)
     body_html = _IMG_FILE_URL_RE.sub(r'<a href="\1">\g<0></a>', body_html)
     body_html = _inject_copy_buttons(body_html)
+
+    # Inject Table of Contents at the top of the preview
+    if toc_enabled:
+        body_html = _inject_toc(body_html)
 
     theme_class = "dark" if theme == "dark" else "light"
 

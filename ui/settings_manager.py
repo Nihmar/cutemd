@@ -215,6 +215,13 @@ class AppSettings(QObject):
     def set_zen_mode_max_width(self, value: int) -> None:
         self._s.setValue("zen_mode_max_width", value)
 
+    def toc_in_preview(self, default: bool = False) -> bool:
+        val = self._s.value("toc_in_preview", default)
+        return str(val).lower() == "true" if isinstance(val, str) else bool(val)
+
+    def set_toc_in_preview(self, value: bool) -> None:
+        self._s.setValue("toc_in_preview", value)
+
     # ------------------------------------------------------------------
     # Auto-update
     # ------------------------------------------------------------------

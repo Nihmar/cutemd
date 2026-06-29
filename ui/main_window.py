@@ -798,6 +798,7 @@ class MainWindow(QMainWindow):
             theme_mid=pal.color(QPalette.ColorRole.Mid).name(),
         )
         tab.set_line_number_mode(self._line_number_mode)
+        tab.set_toc_in_preview(self._s.toc_in_preview())
         tab.modified_changed.connect(self._on_tab_modified)
         tab.status_changed.connect(self._on_tab_status)
         tab.title_changed.connect(lambda: self._refresh_tab_title(tab))
@@ -1223,6 +1224,7 @@ class MainWindow(QMainWindow):
             current_daily_template=self._s.daily_notes_template(),
             current_daily_date_format=self._s.daily_notes_date_format(),
             current_zen_mode_max_width=self._s.zen_mode_max_width(),
+            current_toc_in_preview=self._s.toc_in_preview(),
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -1231,6 +1233,13 @@ class MainWindow(QMainWindow):
         _LOG.debug("_on_settings: applying changes")
 
         self._settings_applicator.apply(dlg)
+
+        # Propagate TOC preview setting to all open tabs
+        toc_enabled = self._s.toc_in_preview()
+        for i in range(self._tabs.count()):
+            t = self._tabs.widget(i)
+            if isinstance(t, EditorTab):
+                t.set_toc_in_preview(toc_enabled)
 
         # Global-only settings (when no folder is open)
         if self._folder_settings is None:
