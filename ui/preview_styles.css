@@ -270,11 +270,11 @@ hr {
 hr.footnotes-sep {
     margin-top: 2em;
     border: none;
-    border-top: 1px solid palette(mid);
+    border-top: 1px solid #d1d5da;
 }
 section.footnotes {
     font-size: 85%;
-    color: palette(midlight);
+    color: #6a737d;
 }
 .footnote-ref {
     font-size: 75%;
@@ -284,7 +284,17 @@ section.footnotes {
 .footnote-ref a,
 .footnote-backref {
     text-decoration: none;
-    color: palette(highlight);
+    color: #0366d6;
+}
+body.dark hr.footnotes-sep {
+    border-top-color: #30363d;
+}
+body.dark section.footnotes {
+    color: #8b949e;
+}
+body.dark .footnote-ref a,
+body.dark .footnote-backref {
+    color: #58a6ff;
 }
 .footnote-item p {
     display: inline;
