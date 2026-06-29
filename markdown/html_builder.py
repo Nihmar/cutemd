@@ -20,6 +20,7 @@ from core.paths import resolve_path
 from core.logging import setup_logging
 
 _LOG = setup_logging("cutemd.html_builder")
+from core.frontmatter import strip_frontmatter  # noqa: F401 — re-exported
 from markdown.tools import BLOCK_OPEN_TYPES, add_heading_ids
 
 if TYPE_CHECKING:
@@ -33,7 +34,6 @@ _TABLE_TAG_RE = re.compile(r"<table\b([^>]*)>", re.IGNORECASE)
 _TABLE_BORDER_ATTR_RE = re.compile(r'\s+border="[^"]*"', re.IGNORECASE)
 
 _IMG_FILE_URL_RE = re.compile(r'<img\s[^>]*\bsrc="(file:///[^"]+)"[^>]*>')
-_FRONTMATTER_RE = re.compile(r"^---\s*\n.*?\n(?:---|\.\.\.)\s*\n", re.DOTALL)
 
 # Inline #tag (not at line start to avoid matching headings)
 _INLINE_TAG_RE = re.compile(r"(?<=\s)#([\w\u0080-\uFFFF][\w\u0080-\uFFFF-]*)")
@@ -124,10 +124,6 @@ def preprocess_tags(text: str) -> str:
         _LOG.debug("preprocess_tags: %d tag(s) wrapped",
                    len(_INLINE_TAG_RE.findall(text)))
     return result
-
-
-def strip_frontmatter(text: str) -> str:
-    return _FRONTMATTER_RE.sub("", text, count=1)
 
 
 def render_with_anchors(text: str, md: MarkdownIt, frontmatter_offset: int = 0) -> str:

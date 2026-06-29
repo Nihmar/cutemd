@@ -7,6 +7,7 @@ from pathlib import Path
 from markdown_it import MarkdownIt
 
 from core.constants import DOC_EXTS, IMG_EXTS, MD_EXTS, PDF_EXTS
+from core.frontmatter import parse_frontmatter
 from core.logging import setup_logging
 
 _LOG = setup_logging("cutemd.link_resolution")
@@ -121,6 +122,28 @@ def resolve_link_target(
                 return p.resolve()
     except PermissionError:
         pass
+
+    # 6. Alias resolution — check frontmatter aliases in all .md files.
+    if not quick and vault_root is not None:
+        try:
+            for p in vault_root.rglob("*.md"):
+                if p.is_file():
+                    try:
+                        text = p.read_text(encoding="utf-8")
+                    except OSError:
+                        continue
+                    fm = parse_frontmatter(text)
+                    aliases = fm.get("aliases", [])
+                    if isinstance(aliases, str):
+                        aliases = [aliases]
+                    if isinstance(aliases, list) and target in aliases:
+                        return p.resolve()
+                    # Also check the "alias" singular form
+                    alias_single = fm.get("alias", None)
+                    if isinstance(alias_single, str) and alias_single == target:
+                        return p.resolve()
+        except PermissionError:
+            pass
 
     return None
 

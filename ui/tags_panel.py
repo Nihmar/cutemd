@@ -21,64 +21,29 @@ from PySide6.QtWidgets import (
 from core.logging import setup_logging
 
 _LOG = setup_logging("cutemd.tags")
+from core.frontmatter import parse_frontmatter, _FRONTMATTER_RE
 
-# ---------------------------------------------------------------------------
-# YAML frontmatter
-# ---------------------------------------------------------------------------
-_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
-
-# ---------------------------------------------------------------------------
 # Inline tag detection: #tag  (not at line start to avoid matching headings)
-# ---------------------------------------------------------------------------
 _INLINE_TAG_RE = re.compile(r"(?<=\s)#([\w\u0080-\uFFFF][\w\u0080-\uFFFF-]*)")
-# Also match at the very start of the file/line when NOT preceded by a heading
-# context.  We use a simpler fallback: #word patterns that are not at BOL.
 _START_TAG_RE = re.compile(r"(?<!\S)#([\w\u0080-\uFFFF][\w\u0080-\uFFFF-]*)")
 
 
 def _parse_yaml_tags(text: str) -> list[str]:
-    """Extract tags from YAML frontmatter ``tags:`` field.
-
-    Supports list format ``[tag1, tag2]``, bullet list ``- tag1``, and
-    single string ``tag1``.
-    """
-    m = _FRONTMATTER_RE.match(text)
-    if not m:
+    """Extract tags from YAML frontmatter ``tags:`` field."""
+    fm = parse_frontmatter(text)
+    tags = fm.get("tags", [])
+    if isinstance(tags, str):
+        tags = [tags]
+    if not isinstance(tags, list):
         return []
-    fm = m.group(1)
-    # Match tags: line
-    tag_match = re.search(r"^tags:\s*(.*)", fm, re.MULTILINE)
-    if not tag_match:
-        return []
-    value = tag_match.group(1).strip()
-
-    tags: list[str] = []
-    # List: [tag1, tag2]
-    if value.startswith("["):
-        inner = value.strip("[]")
-        for item in re.split(r",\s*", inner):
-            t = item.strip().strip("\"'")
-            t = t.lstrip("#")
-            if t:
-                tags.append(t)
-    elif value.startswith("- "):
-        # Bullet list
-        tag_block_match = re.search(r"^tags:\s*\n((?:\s+-.+\n?)+)", fm, re.MULTILINE)
-        if tag_block_match:
-            block = tag_block_match.group(1)
-            for line in block.split("\n"):
-                line = line.strip()
-                if line.startswith("- "):
-                    t = line[2:].strip().strip("\"'")
-                    t = t.lstrip("#")
-                    if t:
-                        tags.append(t)
-    else:
-        # Single string
-        t = value.lstrip("#")
+    result: list[str] = []
+    for t in tags:
+        if not isinstance(t, str):
+            t = str(t)
+        t = t.strip().strip("\"'").lstrip("#")
         if t:
-            tags.append(t)
-    return tags
+            result.append(t)
+    return result
 
 
 def _collect_inline_tags(text: str) -> list[str]:

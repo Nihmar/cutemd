@@ -52,6 +52,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     STATE_NORMAL = 0
     STATE_FENCE = 1
     STATE_MATH = 2
+    STATE_FRONTMATTER = 3
 
     # Threshold above which inline patterns are skipped for performance.
     _LARGE_DOC_BLOCKS = 4000
@@ -78,30 +79,51 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             self.italic_fmt = _make_format("#e5c07b", italic=True)
             self.inline_code_fmt = _make_format("#98c379", bg="#2c323c")
             self.code_fence_fmt = _make_format("#abb2bf", bg="#282c34")
-            self.math_fmt = _make_format("#56b6c2")  # teal
+            self.math_fmt = _make_format("#56b6c2")
             self.link_fmt = _make_format("#61afef")
-            self.wikilink_fmt = _make_format("#56b6c2")  # teal — distinct from blue links
+            self.wikilink_fmt = _make_format("#56b6c2")
             self.list_fmt = _make_format("#c678dd")
             self.blockquote_fmt = _make_format("#5c6370")
             self.heading_global_fmt = _make_format("#e06c75", bold=True)
+            self.frontmatter_key_fmt = _make_format("#56b6c2")     # teal keys
+            self.frontmatter_val_fmt = _make_format("#abb2bf")     # dim values
+            self.frontmatter_delim_fmt = _make_format("#5c6370")   # dim ---
         else:
             self.heading_fmt = _make_format("#a626a4", bold=True)
             self.bold_fmt = _make_format("#c18401", bold=True)
             self.italic_fmt = _make_format("#50a14f", italic=True)
             self.inline_code_fmt = _make_format("#e45649", bg="#f0f0f0")
             self.code_fence_fmt = _make_format("#383a42", bg="#fafafa")
-            self.math_fmt = _make_format("#1a8ea8")  # teal
+            self.math_fmt = _make_format("#1a8ea8")
             self.link_fmt = _make_format("#4078f2")
-            self.wikilink_fmt = _make_format("#1a8ea8")  # teal — distinct from blue links
+            self.wikilink_fmt = _make_format("#1a8ea8")
             self.list_fmt = _make_format("#0184bc")
             self.blockquote_fmt = _make_format("#a0a1a7")
             self.heading_global_fmt = _make_format("#a626a4", bold=True)
+            self.frontmatter_key_fmt = _make_format("#a626a4")     # purple keys
+            self.frontmatter_val_fmt = _make_format("#696c77")     # dim values
+            self.frontmatter_delim_fmt = _make_format("#a0a1a7")   # dim ---
 
     # ------------------------------------------------------------------
     # Highlight a single block (line)
     # ------------------------------------------------------------------
     def highlightBlock(self, text: str) -> None:
         prev_state = self.previousBlockState()
+
+        # --- Frontmatter tracking (first block only) ---
+        stripped = text.strip()
+        if prev_state == self.STATE_FRONTMATTER:
+            self._fmt_frontmatter(text)
+            self.setCurrentBlockState(
+                self.STATE_NORMAL if stripped in ("---", "...") else self.STATE_FRONTMATTER
+            )
+            return
+
+        if prev_state == self.STATE_NORMAL and self.currentBlock().blockNumber() == 0:
+            if stripped == "---":
+                self.setFormat(0, len(text), self.frontmatter_delim_fmt)
+                self.setCurrentBlockState(self.STATE_FRONTMATTER)
+                return
 
         # --- Code fence tracking (highest priority) ---
         if self.CODE_FENCE_RE.match(text.strip()):
@@ -151,6 +173,21 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         self._apply_rule(self.WIKILINK_RE, text, self.wikilink_fmt)
         self._apply_rule(self.LIST_RE, text, self.list_fmt)
         self._apply_rule(self.BLOCKQUOTE_RE, text, self.blockquote_fmt)
+
+    def _fmt_frontmatter(self, text: str) -> None:
+        """Highlight YAML key: value pairs in the frontmatter block."""
+        if text.strip() in ("---", "..."):
+            self.setFormat(0, len(text), self.frontmatter_delim_fmt)
+            return
+        # Highlight key (before :) and value (after :)
+        m = re.match(r"(\s*)([^:]+)(:)(\s*)(.*)", text)
+        if m:
+            self.setFormat(m.start(1), m.end(1) - m.start(1), self.frontmatter_val_fmt)
+            self.setFormat(m.start(2), m.end(2) - m.start(2), self.frontmatter_key_fmt)
+            self.setFormat(m.start(3), 1, self.frontmatter_delim_fmt)
+            self.setFormat(m.start(5), m.end(5) - m.start(5), self.frontmatter_val_fmt)
+        else:
+            self.setFormat(0, len(text), self.frontmatter_val_fmt)
 
     # ------------------------------------------------------------------
     # Helpers
