@@ -121,6 +121,7 @@ class SettingsDialog(QDialog):
         current_session_restore_enabled: bool = False,
         current_show_hidden_files: bool = False,
         current_webdav_backup_dir: str = "",
+        current_templates_dir: str = "",
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -497,6 +498,31 @@ class SettingsDialog(QDialog):
             )
         )
         stor_lay.addWidget(card)
+        stor_lay.addSpacing(12)
+
+        # Templates directory
+        card, card_lay = self._make_card()
+        self._templates_dir_edit = QLineEdit()
+        self._templates_dir_edit.setPlaceholderText(
+            self.tr("Select a folder for .md templates…")
+        )
+        self._templates_dir_edit.setText(current_templates_dir)
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Templates folder"),
+                self._templates_dir_edit,
+                self.tr("Markdown files used as templates for new notes"),
+            )
+        )
+        browse_tmpl = QPushButton("...")
+        browse_tmpl.setFixedWidth(40)
+        browse_tmpl.setCursor(Qt.CursorShape.PointingHandCursor)
+        browse_tmpl.clicked.connect(self._on_browse_templates_dir)
+        row = card_lay.itemAt(card_lay.count() - 1).layout()  # last row
+        if row is not None:
+            row.addWidget(browse_tmpl)
+        stor_lay.addWidget(card)
+
         stor_lay.addStretch()
         self._stack.addWidget(stor_scroll)
 
@@ -1024,6 +1050,11 @@ class SettingsDialog(QDialog):
             return self._webdav_backup_edit.text().strip()
         return ""
 
+    def selected_templates_dir(self) -> str:
+        if hasattr(self, "_templates_dir_edit") and self._templates_dir_edit is not None:
+            return self._templates_dir_edit.text().strip()
+        return ""
+
     # ==================================================================
     # Storage
     # ==================================================================
@@ -1070,6 +1101,16 @@ class SettingsDialog(QDialog):
         )
         if path:
             self._webdav_backup_edit.setText(path)
+
+    def _on_browse_templates_dir(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        path = QFileDialog.getExistingDirectory(
+            self, self.tr("Select templates folder"),
+            getattr(self, "_templates_dir_edit", None)
+            and self._templates_dir_edit.text() or str(Path.home()),
+        )
+        if path:
+            self._templates_dir_edit.setText(path)
 
     def _on_test_webdav(self) -> None:
         url = self._webdav_url_edit.text().strip() if self._webdav_url_edit else ""

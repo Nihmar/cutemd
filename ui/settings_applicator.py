@@ -195,5 +195,8 @@ class SettingsApplicator:
         w._s.set_auto_sync_interval(dlg.selected_auto_sync_interval())
         w._s.set_sync_on_save(dlg.selected_sync_on_save())
 
+        # Templates directory
+        w._s.set_templates_dir(dlg.selected_templates_dir())
+
         w._update_auto_sync_timer()
         w._update_menu_state()

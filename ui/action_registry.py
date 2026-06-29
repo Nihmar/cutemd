@@ -60,6 +60,9 @@ class ActionRegistry:
         self._acts["act_new"] = self._action(
             "&New File…", QKeySequence.StandardKey.New, cb.get("new")
         )
+        self._acts["act_new_from_template"] = self._action(
+            "New from &Template…", None, cb.get("new_from_template")
+        )
         self._acts["act_save"] = self._action(
             "&Save", QKeySequence.StandardKey.Save, cb.get("save")
         )
@@ -187,6 +190,7 @@ class ActionRegistry:
         fm.addAction(self._acts["act_close_folder"])
         fm.addSeparator()
         fm.addAction(self._acts["act_new"])
+        fm.addAction(self._acts["act_new_from_template"])
         fm.addAction(self._acts["act_save"])
         fm.addAction(self._acts["act_save_as"])
         fm.addSeparator()

@@ -184,6 +184,12 @@ class AppSettings(QObject):
     def set_webdav_backup_dir(self, value: str) -> None:
         self._s.setValue("webdav_backup_dir", value)
 
+    def templates_dir(self, default: str = "") -> str:
+        return str(self._s.value("templates_dir", default))
+
+    def set_templates_dir(self, value: str) -> None:
+        self._s.setValue("templates_dir", value)
+
     # ------------------------------------------------------------------
     # Auto-update
     # ------------------------------------------------------------------

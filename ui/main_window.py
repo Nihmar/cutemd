@@ -275,6 +275,7 @@ class MainWindow(QMainWindow):
             "open_folder": self._on_open_folder,
             "close_folder": self._on_close_folder,
             "new": self._on_new,
+            "new_from_template": self._on_new_from_template,
             "save": self._on_save,
             "save_as": self._on_save_as,
             "close_tab": self._on_close_tab,
@@ -1175,6 +1176,7 @@ class MainWindow(QMainWindow):
             current_session_restore_enabled=self._s.session_restore_enabled(),
             current_show_hidden_files=self._show_hidden_files,
             current_webdav_backup_dir=webdav_backup,
+            current_templates_dir=self._s.templates_dir(),
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -1360,6 +1362,7 @@ class MainWindow(QMainWindow):
             "act_open_folder": self.act_open_folder,
             "act_close_folder": self.act_close_folder,
             "act_new": self.act_new,
+            "act_new_from_template": self.act_new_from_template,
             "act_save": self.act_save,
             "act_save_as": self.act_save_as,
             "act_close_tab": self.act_close_tab,
@@ -1395,6 +1398,7 @@ class MainWindow(QMainWindow):
             "act_open_folder": self.act_open_folder,
             "act_close_folder": self.act_close_folder,
             "act_new": self.act_new,
+            "act_new_from_template": self.act_new_from_template,
             "act_save": self.act_save,
             "act_save_as": self.act_save_as,
             "act_close_tab": self.act_close_tab,
@@ -1960,6 +1964,24 @@ class MainWindow(QMainWindow):
             return
         self._add_tab()
         self._update_window_title()
+
+    def _on_new_from_template(self) -> None:
+        from ui.template_picker import TemplatePicker
+
+        tmpl_dir_str = self._s.templates_dir()
+        tmpl_dir = Path(tmpl_dir_str) if tmpl_dir_str else None
+
+        dlg = TemplatePicker(tmpl_dir, self)
+        if dlg.exec() != TemplatePicker.DialogCode.Accepted:
+            return
+
+        tab = self._add_tab()
+        self._update_window_title()
+
+        content = TemplatePicker.resolve_content(dlg.selected_path)
+        if content:
+            tab.editor.setPlainText(content)
+            tab.editor.document().setModified(False)
 
     def _on_save(self) -> None:
         tab = self._current_tab()

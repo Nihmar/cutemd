@@ -34,6 +34,7 @@ SHORTCUT_CATEGORIES: dict[str, str] = {
     "act_open_folder": "File",
     "act_close_folder": "File",
     "act_new": "File",
+    "act_new_from_template": "File",
     "act_save": "File",
     "act_save_as": "File",
     "act_close_tab": "File",
