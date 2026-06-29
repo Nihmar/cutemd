@@ -65,6 +65,7 @@ from ui.theme_manager import ThemeManager
 from ui.themes import get_theme, system_theme
 from ui.side_panel_manager import SidePanelManager
 from ui.toc_panel import TocPanel
+from ui.metadata_panel import MetadataPanel
 from ui.update_dialog import UpdateAvailableDialog
 
 # ---------------------------------------------------------------------------
@@ -411,6 +412,11 @@ class MainWindow(QMainWindow):
         )
         rt_layout.addWidget(self._right_backlinks_btn)
 
+        self._right_metadata_btn = _side_btn(
+            "toc", self.tr("Toggle metadata"), slot=self._on_right_metadata_toggled
+        )
+        rt_layout.addWidget(self._right_metadata_btn)
+
         rt_layout.addStretch()
 
         # --- File tree panel ---
@@ -454,10 +460,12 @@ class MainWindow(QMainWindow):
         self._backlinks_panel = BacklinksPanel()
         self._backlinks_panel.backlink_activated.connect(self._on_backlink_activated)
 
-        # --- Right splitter (vertical: TOC + backlinks) ---
+        # --- Right splitter (vertical: TOC + backlinks + metadata) ---
         self._right_splitter = QSplitter(Qt.Orientation.Vertical)
         self._right_splitter.addWidget(self._toc_panel)
         self._right_splitter.addWidget(self._backlinks_panel)
+        self._metadata_panel = MetadataPanel()
+        self._right_splitter.addWidget(self._metadata_panel)
         self._right_splitter.setChildrenCollapsible(False)
         self._right_splitter.splitterMoved.connect(self._on_right_dock_splitter_moved)
 
@@ -604,17 +612,40 @@ class MainWindow(QMainWindow):
             self._backlinks_panel.setVisible(checked)
             self._sync_right_dock_visibility()
 
+    def _on_right_metadata_toggled(self, checked: bool) -> None:
+        if hasattr(self, "_metadata_panel"):
+            self._metadata_panel.setVisible(checked)
+            self._sync_right_dock_visibility()
+            if checked:
+                tab = self._current_tab()
+                if tab is not None:
+                    self._update_metadata(tab)
+
+    def _update_metadata(self, tab) -> None:
+        if not hasattr(self, "_metadata_panel"):
+            return
+        if not hasattr(tab, "_cached_text"):
+            self._metadata_panel.clear()
+            return
+        from core.frontmatter import parse_frontmatter
+        fm = parse_frontmatter(tab._cached_text)
+        if fm:
+            self._metadata_panel.show_metadata(fm)
+        else:
+            self._metadata_panel.clear()
+
     def _sync_right_dock_visibility(self) -> None:
-        """Show right splitter if any panel button is checked, hide if both
+        """Show right splitter if any panel button is checked, hide if all
         unchecked.  Uses button state (not widget visibility) to avoid
         deadlock when parent is hidden."""
         toc_on = self._right_toc_btn.isChecked()
         bl_on = self._right_backlinks_btn.isChecked()
+        md_on = self._right_metadata_btn.isChecked()
 
         if hasattr(self, "_right_splitter"):
-            self._right_splitter.setVisible(toc_on or bl_on)
+            self._right_splitter.setVisible(toc_on or bl_on or md_on)
         if hasattr(self, "_s"):
-            self._s.set_right_dock_visible(toc_on or bl_on)
+            self._s.set_right_dock_visible(toc_on or bl_on or md_on)
 
     def _on_side_tags_toggled(self, checked: bool) -> None:
         """Toggle the tags panel in the left stack."""
@@ -857,6 +888,8 @@ class MainWindow(QMainWindow):
                 self._rebuild_toc()
             # Trigger backlinks scan (immediate on tab switch)
             self._trigger_backlinks_scan(tab, immediate=True)
+            # Update metadata panel
+            self._update_metadata(tab)
 
     def _on_editor_text_changed(self) -> None:
         """Debounce TOC rebuild when editor content changes (only if TOC is open)."""
