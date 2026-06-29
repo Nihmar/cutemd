@@ -122,8 +122,8 @@ def _inject_toc(html: str) -> str:
         "<ul>" + "".join(toc_items) + "</ul>"
         "</nav>"
     )
-    # Inject after <body>
-    return html.replace("<body", toc_html + "\n<body", 1)
+    # Inject at the start of the body content
+    return toc_html + "\n" + html
 
 
 def preprocess_wikilink_images(text: str) -> str:

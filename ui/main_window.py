@@ -615,6 +615,7 @@ class MainWindow(QMainWindow):
     def _on_right_metadata_toggled(self, checked: bool) -> None:
         if hasattr(self, "_metadata_panel"):
             self._metadata_panel.setVisible(checked)
+            self._right_metadata_btn.setChecked(checked)
             self._sync_right_dock_visibility()
             if checked:
                 tab = self._current_tab()
