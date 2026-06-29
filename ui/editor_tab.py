@@ -52,6 +52,8 @@ from core.constants import (
 from core.file_utils import read_file_with_encoding
 from core.link_resolution import build_line_anchor_map, resolve_link_target
 from core.logging import setup_logging
+from core.spell_checker import SpellChecker
+from ui.spell_highlighter import SpellHighlighter
 from markdown.html_builder import (
     preprocess_tags,
     preprocess_wikilink_images,
@@ -194,6 +196,11 @@ class EditorTab(QWidget):
 
         self._highlighter = MarkdownHighlighter(self.editor.document())
         self._highlighter.set_theme(theme)
+
+        self._spell_checker = SpellChecker()
+        self._spell_highlighter = SpellHighlighter(
+            self.editor.document(), self._spell_checker
+        )
 
         self._line_number_area = LineNumberArea(self.editor)
         self._update_line_number_area_width()
@@ -800,6 +807,10 @@ class EditorTab(QWidget):
             self._toc_in_preview = enabled
             self._last_rendered_hash = 0
             self._update_preview()
+
+    def set_spell_check_lang(self, lang: str) -> None:
+        self._spell_checker.set_lang(lang)
+        self._spell_highlighter.rehighlight()
 
     def insert_toolbar(self, toolbar: QWidget) -> None:
         """Insert *toolbar* above find bar (index 0)."""

@@ -44,6 +44,14 @@ from core.webdav.sync import WebDAVClient
 _FONT_FAMILIES: list[str] | None = None
 
 
+def _spell_available() -> bool:
+    try:
+        import enchant  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 # ======================================================================
 # Font preview delegate — creates QFont lazily for visible items only
 # ======================================================================
@@ -128,6 +136,7 @@ class SettingsDialog(QDialog):
         current_daily_date_format: str = "%Y-%m-%d",
         current_zen_mode_max_width: int = 800,
         current_toc_in_preview: bool = False,
+        current_spell_check_lang: str = "",
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -224,6 +233,29 @@ class SettingsDialog(QDialog):
             self._field_row(
                 self.tr("Show menu bar"),
                 self._menu_bar_toggle,
+            )
+        )
+        gen_lay.addWidget(card)
+
+        gen_lay.addSpacing(12)
+
+        # Spell check
+        card, card_lay = self._make_card()
+        self._spell_check_lang_edit = QLineEdit()
+        self._spell_check_lang_edit.setText(current_spell_check_lang)
+        self._spell_check_lang_edit.setPlaceholderText(
+            self.tr("e.g. en_US, it_IT (empty = default)")
+        )
+        if not _spell_available():
+            self._spell_check_lang_edit.setEnabled(False)
+            self._spell_check_lang_edit.setToolTip(
+                self.tr("Install pyenchant to enable spell checking")
+            )
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Spell check language"),
+                self._spell_check_lang_edit,
+                self.tr("Requires pyenchant.  Empty = system default"),
             )
         )
         gen_lay.addWidget(card)
@@ -1196,6 +1228,11 @@ class SettingsDialog(QDialog):
         if hasattr(self, "_toc_in_preview_toggle") and self._toc_in_preview_toggle is not None:
             return self._toc_in_preview_toggle.isChecked()
         return False
+
+    def selected_spell_check_lang(self) -> str:
+        if hasattr(self, "_spell_check_lang_edit") and self._spell_check_lang_edit is not None:
+            return self._spell_check_lang_edit.text().strip()
+        return ""
 
     # ==================================================================
     # Storage

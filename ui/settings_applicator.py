@@ -225,5 +225,8 @@ class SettingsApplicator:
         # TOC in preview
         w._s.set_toc_in_preview(dlg.selected_toc_in_preview())
 
+        # Spell check
+        w._s.set_spell_check_lang(dlg.selected_spell_check_lang())
+
         w._update_auto_sync_timer()
         w._update_menu_state()

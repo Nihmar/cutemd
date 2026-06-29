@@ -18,6 +18,7 @@ def show_editor_context_menu(
     make_icon: Callable[[str, QColor, int], QIcon],
     on_format: Callable[[str], None],
     on_image: Callable[[], None],
+    spell_checker=None,
 ) -> None:
     """Build and show the right-click formatting menu for the editor."""
     sender = parent.sender()
@@ -94,4 +95,29 @@ def show_editor_context_menu(
     if insert_menu:
         insert_menu.addAction(_icon("image"), parent.tr("&Image")).triggered.connect(on_image)
 
+    # Spell-check suggestions
+    if spell_checker is not None and getattr(spell_checker, "available", False):
+        cursor = sender.cursorForPosition(point)
+        cursor.select(QTextCursor.SelectionType.WordUnderCursor)
+        word = cursor.selectedText()
+        if word and len(word) >= 3 and not spell_checker.check(word):
+            menu.addSeparator()
+            suggestions = spell_checker.suggest(word)
+            if suggestions:
+                for s in suggestions[:8]:
+                    action = menu.addAction(s)
+                    action.triggered.connect(
+                        lambda checked=False, w=word, sug=s, ed=sender:
+                        _replace_word(ed, w, sug)
+                    )
+            else:
+                menu.addAction(parent.tr("(no suggestions)")).setEnabled(False)
+
     menu.exec(sender.viewport().mapToGlobal(point))
+
+
+def _replace_word(editor: QPlainTextEdit, old: str, new: str) -> None:
+    cursor = editor.textCursor()
+    cursor.select(QTextCursor.SelectionType.WordUnderCursor)
+    if cursor.selectedText() == old:
+        cursor.insertText(new)

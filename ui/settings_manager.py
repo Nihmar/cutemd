@@ -222,6 +222,12 @@ class AppSettings(QObject):
     def set_toc_in_preview(self, value: bool) -> None:
         self._s.setValue("toc_in_preview", value)
 
+    def spell_check_lang(self, default: str = "") -> str:
+        return str(self._s.value("spell_check_lang", default))
+
+    def set_spell_check_lang(self, value: str) -> None:
+        self._s.setValue("spell_check_lang", value)
+
     # ------------------------------------------------------------------
     # Auto-update
     # ------------------------------------------------------------------

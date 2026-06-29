@@ -824,6 +824,7 @@ class MainWindow(QMainWindow):
         )
         tab.set_line_number_mode(self._line_number_mode)
         tab.set_toc_in_preview(self._s.toc_in_preview())
+        tab.set_spell_check_lang(self._s.spell_check_lang())
         tab.modified_changed.connect(self._on_tab_modified)
         tab.status_changed.connect(self._on_tab_status)
         tab.title_changed.connect(lambda: self._refresh_tab_title(tab))
@@ -1066,7 +1067,28 @@ class MainWindow(QMainWindow):
             lambda name, color, size=18: self._make_colored_icon(name, color, size),
             self._insert_md,
             self._on_insert_image,
+            spell_checker=self._current_tab()._spell_checker if self._current_tab() and hasattr(self._current_tab(), "_spell_checker") else None,
         )
+        # Append spell-check suggestions if available
+        tab = self._current_tab()
+        if tab is not None and hasattr(tab, "_spell_checker") and tab._spell_checker.available:
+            cursor = tab.editor.cursorForPosition(point)
+            cursor.select(QTextCursor.SelectionType.WordUnderCursor)
+            word = cursor.selectedText()
+            if word and len(word) >= 3 and not tab._spell_checker.check(word):
+                menu = tab.editor.findChild(QMenu) or tab.editor.createStandardContextMenu()
+                if isinstance(menu, QMenu):
+                    menu.addSeparator()
+                    suggestions = tab._spell_checker.suggest(word)
+                    if suggestions:
+                        for s in suggestions[:8]:
+                            action = menu.addAction(s)
+                            action.triggered.connect(
+                                lambda checked, w=word, sug=s, ed=tab.editor:
+                                self._replace_word(ed, w, sug)
+                            )
+                    else:
+                        menu.addAction(self.tr("(no suggestions)")).setEnabled(False)
 
     def _insert_md(self, syntax: str) -> None:
         """Insert or wrap Markdown formatting at the current cursor position.
@@ -1250,6 +1272,7 @@ class MainWindow(QMainWindow):
             current_daily_date_format=self._s.daily_notes_date_format(),
             current_zen_mode_max_width=self._s.zen_mode_max_width(),
             current_toc_in_preview=self._s.toc_in_preview(),
+            current_spell_check_lang=self._s.spell_check_lang(),
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -1261,10 +1284,12 @@ class MainWindow(QMainWindow):
 
         # Propagate TOC preview setting to all open tabs
         toc_enabled = self._s.toc_in_preview()
+        spell_lang = self._s.spell_check_lang()
         for i in range(self._tabs.count()):
             t = self._tabs.widget(i)
             if isinstance(t, EditorTab):
                 t.set_toc_in_preview(toc_enabled)
+                t.set_spell_check_lang(spell_lang)
 
         # Global-only settings (when no folder is open)
         if self._folder_settings is None:
