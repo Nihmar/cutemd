@@ -19,9 +19,8 @@ class MetadataPanel(QFrame):
         super().__init__(parent)
         self.setObjectName("metadataPanel")
 
-        self._title = QLabel()
-        self._title.setWordWrap(True)
-        self._title.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self._header = QLabel()
+        self._header.setStyleSheet("font-size: 10px; font-weight: bold; padding: 4px 0;")
 
         self._fields_layout = QVBoxLayout()
         self._fields_layout.setContentsMargins(0, 0, 0, 0)
@@ -30,8 +29,7 @@ class MetadataPanel(QFrame):
         inner = QWidget()
         inner_layout = QVBoxLayout(inner)
         inner_layout.setContentsMargins(10, 10, 10, 10)
-        inner_layout.addWidget(self._title)
-        inner_layout.addSpacing(8)
+        inner_layout.addWidget(self._header)
         inner_layout.addLayout(self._fields_layout)
         inner_layout.addStretch()
 
@@ -46,55 +44,53 @@ class MetadataPanel(QFrame):
 
     def show_metadata(self, fields: dict) -> None:
         """Display frontmatter *fields* dict."""
-        # Clear previous
         while self._fields_layout.count():
             item = self._fields_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        title = fields.get("title", "")
-        if title:
-            self._title.setText(str(title))
-        else:
-            self._title.setText("")
+        shown_fields = {k: v for k, v in fields.items() if v or v == 0}
+        if not shown_fields:
+            self._header.setText("")
+            return
 
-        shown: set[str] = set()
-        for key in ("date", "tags", "aliases", "alias"):
-            val = fields.get(key)
-            if val is None or (isinstance(val, (list, str)) and not val):
+        self._header.setText(self.tr("Frontmatter"))
+
+        # Show known fields first, then the rest
+        for key in ("title", "date", "tags", "aliases", "alias"):
+            val = shown_fields.pop(key, None)
+            if val is None:
                 continue
-            shown.add(key)
             self._add_row(key, val)
 
-        # Show remaining fields
-        for key, val in fields.items():
-            if key in shown or key == "title":
-                continue
+        for key, val in shown_fields.items():
             self._add_row(key, val)
 
     def _add_row(self, key: str, val: object) -> None:
-        """Add a key: value row."""
-        row = QWidget()
-        row_layout = QVBoxLayout(row)
-        row_layout.setContentsMargins(0, 2, 0, 2)
-        row_layout.setSpacing(0)
-
-        key_lbl = QLabel(str(key).capitalize())
+        key_lbl = QLabel(f"{key}:")
         key_lbl.setStyleSheet("font-size: 10px; font-weight: bold;")
 
         if isinstance(val, list):
-            val_lbl = QLabel(", ".join(str(v) for v in val))
+            val_str = ", ".join(str(v) for v in val)
         else:
-            val_lbl = QLabel(str(val))
+            val_str = str(val)
+
+        val_lbl = QLabel(val_str)
         val_lbl.setWordWrap(True)
         val_lbl.setStyleSheet("font-size: 12px;")
 
-        row_layout.addWidget(key_lbl)
-        row_layout.addWidget(val_lbl)
-        self._fields_layout.addWidget(row)
+        row = QVBoxLayout()
+        row.setContentsMargins(0, 2, 0, 2)
+        row.setSpacing(0)
+        row.addWidget(key_lbl)
+        row.addWidget(val_lbl)
+
+        wrapper = QWidget()
+        wrapper.setLayout(row)
+        self._fields_layout.addWidget(wrapper)
 
     def clear(self) -> None:
-        self._title.setText("")
+        self._header.setText("")
         while self._fields_layout.count():
             item = self._fields_layout.takeAt(0)
             if item.widget():

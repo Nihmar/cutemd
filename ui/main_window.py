@@ -892,9 +892,14 @@ class MainWindow(QMainWindow):
             self._update_metadata(tab)
 
     def _on_editor_text_changed(self) -> None:
-        """Debounce TOC rebuild when editor content changes (only if TOC is open)."""
+        """Debounce TOC rebuild + tag rescan when editor content changes."""
         if self._right_toc_btn.isChecked():
             self._toc_timer.start()
+        self._trigger_tags_scan()
+        if self._right_metadata_btn.isChecked():
+            tab = self._current_tab()
+            if tab is not None:
+                self._update_metadata(tab)
 
     def _on_tab_modified(self, modified: bool) -> None:
         tab = self.sender()
