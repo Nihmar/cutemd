@@ -398,7 +398,6 @@ class PreviewWebEngineView(QWebEngineView):
         "console.log('cutemd: katex visible init '+rendered.size+'/'+all.length);"
         "var observer=new IntersectionObserver(function(entries){"
         "if(!entries.length)return;"
-        "window._cutemd_suppress=Date.now()+2000;"
         "entries.forEach(function(entry){"
         "if(!entry.isIntersecting)return;"
         "var el=entry.target;"
