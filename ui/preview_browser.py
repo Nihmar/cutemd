@@ -394,7 +394,6 @@ class PreviewWebEngineView(QWebEngineView):
         "}"
         "});"
         "console.log('cutemd: katex visible init '+rendered.size+'/'+all.length);"
-        "window._cutemd_suppress=Date.now()+2000;"
         "var observer=new IntersectionObserver(function(entries){"
         "if(!entries.length)return;"
         "window._cutemd_suppress=Date.now()+2000;"
@@ -421,9 +420,11 @@ class PreviewWebEngineView(QWebEngineView):
         if self._js_injected:
             return
         self._js_injected = True
+        # Set suppress BEFORE any JS runs so scroll events from the
+        # initial KaTeX render don't pollute _cutemd_line.
+        self.page().runJavaScript("window._cutemd_suppress=Date.now()+2000;")
         self.page().runJavaScript(self._SCROLL_LISTENER_JS)
         self.page().runJavaScript(self._CHECKBOX_JS)
-        # Delay KaTeX slightly so the external script has time to load.
         self.page().runJavaScript(self._KATEX_JS)
 
     # ------------------------------------------------------------------
