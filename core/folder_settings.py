@@ -30,13 +30,13 @@ class FolderSettings:
     def attachments_dir(self) -> Path:
         """Return the configured attachments directory (created on demand).
 
-        Resolved relative to the opened folder, never outside it.
+        Resolves relative paths against the opened folder.
         Defaults to ``"attachments"`` unless overridden in settings.json.
         """
         name = str(self._values.get("attachments_dir", "attachments")).strip()
-        if not name or ".." in name or "/" in name or "\\" in name:
+        if not name or ".." in name:
             name = "attachments"
-        target = self._folder / name
+        target = (self._folder / name).resolve()
         target.mkdir(parents=True, exist_ok=True)
         return target
 

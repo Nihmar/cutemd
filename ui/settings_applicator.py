@@ -5,6 +5,7 @@ Extracted from MainWindow._on_settings() to reduce its size.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PySide6.QtWidgets import QApplication
@@ -156,7 +157,13 @@ class SettingsApplicator:
         cfg = fs.load()
         new_id = dlg.selected_attachments_dir()
         if new_id is not None:
-            cfg["attachments_dir"] = new_id
+            # Store relative to vault root when possible.
+            try:
+                cfg["attachments_dir"] = str(
+                    Path(new_id).resolve().relative_to(fs.folder)
+                )
+            except (ValueError, OSError):
+                cfg["attachments_dir"] = new_id
 
         cfg["theme"] = w._theme_id
         cfg["editor_font_family"] = w._editor_font_family
@@ -195,8 +202,14 @@ class SettingsApplicator:
         w._s.set_auto_sync_interval(dlg.selected_auto_sync_interval())
         w._s.set_sync_on_save(dlg.selected_sync_on_save())
 
-        # Templates directory
-        w._s.set_templates_dir(dlg.selected_templates_dir())
+        # Templates directory — store relative to vault root when possible.
+        tmpl = dlg.selected_templates_dir()
+        if tmpl and fs is not None:
+            try:
+                tmpl = str(Path(tmpl).resolve().relative_to(fs.folder))
+            except (ValueError, OSError):
+                pass
+        w._s.set_templates_dir(tmpl)
 
         w._update_auto_sync_timer()
         w._update_menu_state()

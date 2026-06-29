@@ -521,9 +521,10 @@ class SettingsDialog(QDialog):
             card_lay.addWidget(hint_att)
             att_row = QHBoxLayout()
             self._attachments_dir_edit = QLineEdit()
-            self._attachments_dir_edit.setText(
-                folder_settings.load().get("attachments_dir", "attachments")
-            )
+            att_name = folder_settings.load().get("attachments_dir", "attachments")
+            # Resolve to absolute for display.
+            att_display = str(folder_settings.folder / att_name) if att_name else ""
+            self._attachments_dir_edit.setText(att_display)
             self._attachments_dir_edit.setPlaceholderText(self.tr("attachments"))
             att_row.addWidget(self._attachments_dir_edit)
             browse_att = QPushButton("...")

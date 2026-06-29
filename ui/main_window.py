@@ -1152,6 +1152,13 @@ class MainWindow(QMainWindow):
                 webdav_pass = cfg.get("password", "")
                 webdav_backup = cfg.get("backup_dir", "")
 
+        # Resolve templates_dir relative to open folder for display.
+        tmpl_display = self._s.templates_dir()
+        if tmpl_display and self._folder_settings is not None:
+            p = Path(tmpl_display)
+            if not p.is_absolute():
+                tmpl_display = str(self._folder_settings.folder / p)
+
         dlg = SettingsDialog(
             self._theme_id,
             self._editor_font_family,
@@ -1176,7 +1183,7 @@ class MainWindow(QMainWindow):
             current_session_restore_enabled=self._s.session_restore_enabled(),
             current_show_hidden_files=self._show_hidden_files,
             current_webdav_backup_dir=webdav_backup,
-            current_templates_dir=self._s.templates_dir(),
+            current_templates_dir=tmpl_display,
             current_folder=str(self._folder_settings.folder)
             if self._folder_settings is not None else "",
         )
@@ -1971,6 +1978,10 @@ class MainWindow(QMainWindow):
         from ui.template_picker import TemplatePicker
 
         tmpl_dir_str = self._s.templates_dir()
+        if tmpl_dir_str and self._folder_settings is not None:
+            p = Path(tmpl_dir_str)
+            if not p.is_absolute():
+                tmpl_dir_str = str(self._folder_settings.folder / p)
         tmpl_dir = Path(tmpl_dir_str) if tmpl_dir_str else None
 
         dlg = TemplatePicker(tmpl_dir, self)
