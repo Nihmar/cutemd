@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer, Signal
 from PySide6.QtGui import QKeyEvent, QTextCursor
 from PySide6.QtWidgets import (
     QFrame,
@@ -61,6 +61,8 @@ _PAIR_BETWEEN = {"_", "~", "`"}
 class MarkdownAutoCompleter(QObject):
     """Installs as an event filter on a :class:`QPlainTextEdit` and
     intercepts key presses to provide smart Markdown completions."""
+
+    img_tag_inserted = Signal()
 
     def __init__(
         self,
@@ -607,6 +609,10 @@ class MarkdownAutoCompleter(QObject):
             if tag == "img":
                 cursor.insertText(tag + ' src="" />')
                 cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, 3)
+                self._editor.setTextCursor(cursor)
+                self._editor.setFocus()
+                QTimer.singleShot(0, self.img_tag_inserted.emit)
+                return
             else:
                 cursor.insertText(tag + " />")
         else:

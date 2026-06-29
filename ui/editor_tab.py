@@ -205,7 +205,46 @@ class EditorTab(QWidget):
         self._viewport.setMouseTracking(True)
         self._viewport.installEventFilter(self)
         self._completer = MarkdownAutoCompleter(self.editor, smart_editing, self)
+        self._completer.img_tag_inserted.connect(self._on_img_tag_inserted)
         self._link_style = (smart_editing or {}).get("link_style", "md")
+
+    def _on_img_tag_inserted(self) -> None:
+        """Open a file picker for the img src after tag insertion."""
+        cursor = self.editor.textCursor()
+        block_text = cursor.block().text()
+        pos = cursor.positionInBlock()
+        # Find src="" before cursor
+        src_start = block_text.rfind('src="', 0, pos)
+        if src_start < 0:
+            return
+        quote_start = src_start + 5  # after src="
+        from PySide6.QtWidgets import QFileDialog
+
+        start_dir = str(self._attachments_dir) if self._attachments_dir else str(
+            self._file_path.parent if self._file_path else Path.cwd())
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, self.tr("Select image"), start_dir,
+            self.tr("Images (*.png *.jpg *.jpeg *.gif *.bmp *.svg *.webp);;All files (*)"),
+        )
+        if path:
+            # Replace empty src with selected path (relative if inside vault)
+            dest = Path(path)
+            base = self._file_path.parent if self._file_path else Path.cwd()
+            try:
+                rel = dest.resolve().relative_to(base.resolve())
+                dest_str = rel.as_posix()
+            except (ValueError, OSError):
+                dest_str = dest.as_posix()
+
+            block_start = cursor.block().position()
+            c = QTextCursor(self.editor.document())
+            c.setPosition(block_start + quote_start)
+            c.movePosition(QTextCursor.MoveOperation.Right,
+                          QTextCursor.MoveMode.KeepAnchor, 0)  # select nothing
+            c.insertText(dest_str)
+            self.editor.setTextCursor(c)
+            self.editor.setFocus()
 
         # --- Preview stack ---
         self.preview = PreviewWebEngineView()
