@@ -94,6 +94,22 @@ class MarkdownAutoCompleter(QObject):
         self._html_filter: QLineEdit | None = None
         self._html_list_widget: CuteListWidget | None = None
 
+        # Code fence language autocomplete state
+        self._lang_popup: QFrame | None = None
+        self._lang_filter: QLineEdit | None = None
+        self._lang_list_widget: CuteListWidget | None = None
+
+    # ------------------------------------------------------------------
+    # Code fence languages
+    # ------------------------------------------------------------------
+    _LANGUAGES: list[str] = sorted([
+        "bash", "c", "cpp", "css", "diff", "dockerfile", "go", "html",
+        "ini", "java", "javascript", "json", "kotlin", "latex", "lua",
+        "makefile", "markdown", "pascal", "perl", "php", "powershell",
+        "python", "r", "rust", "scss", "sql", "swift", "toml", "typescript",
+        "vim", "xml", "yaml", "zig",
+    ])
+
     # ------------------------------------------------------------------
     # HTML tag list
     # ------------------------------------------------------------------
@@ -149,6 +165,8 @@ class MarkdownAutoCompleter(QObject):
                     return self._show_tag_completer()
                 if self._after_html_tag():
                     return self._show_html_tag_completer()
+                if self._on_fence_line():
+                    return self._show_lang_completer()
                 # Fallback: if there's a # before cursor, try tags
                 return self._show_tag_completer()
             return self._handle_key(key_event)
@@ -167,6 +185,11 @@ class MarkdownAutoCompleter(QObject):
             return self._handle_html_popup_key(event)
         if obj is self._html_filter and event.type() == QEvent.Type.KeyPress:
             return self._handle_html_filter_key(event)
+
+        if obj is self._lang_list_widget and event.type() == QEvent.Type.KeyPress:
+            return self._handle_lang_popup_key(event)
+        if obj is self._lang_filter and event.type() == QEvent.Type.KeyPress:
+            return self._handle_lang_filter_key(event)
 
         return super().eventFilter(obj, event)
 
@@ -1039,6 +1062,162 @@ class MarkdownAutoCompleter(QObject):
             return self._handle_html_popup_key(event)
         if event.key() == Qt.Key.Key_Escape:
             self._hide_html_popup()
+            self._editor.setFocus()
+            return True
+        return False
+
+    # ------------------------------------------------------------------
+    # Code fence language completer
+    # ------------------------------------------------------------------
+
+    _FENCE_RE = re.compile(r"^(\s{0,3})(`{3,}|~{3,})\s*(\S*)$")
+
+    def _on_fence_line(self) -> bool:
+        """Return True if the cursor is on an opening code-fence line."""
+        cursor = self._editor.textCursor()
+        block_text = cursor.block().text()
+        pos_in_block = cursor.positionInBlock()
+        m = self._FENCE_RE.match(block_text)
+        if not m:
+            return False
+        # Cursor must be after the fence opener (backticks/tildes)
+        indent_len = len(m.group(1))
+        fence_len = len(m.group(2))
+        return pos_in_block >= indent_len + fence_len
+
+    def _show_lang_completer(self) -> bool:
+        """Show a popup with filterable language names for code fences."""
+        cursor = self._editor.textCursor()
+        block_text = cursor.block().text()
+        pos_in_block = cursor.positionInBlock()
+
+        m = self._FENCE_RE.match(block_text)
+        if not m:
+            return False
+        # The language name starts after the fence marker
+        self._fence_lang_start = m.start(3)  # position in block for group 3
+        partial = block_text[self._fence_lang_start:pos_in_block].strip()
+        self._fence_block = cursor.block()
+
+        self._lang_popup = _make_popup(self._editor.viewport())
+        layout = self._lang_popup.layout()
+
+        self._lang_filter = QLineEdit(self._lang_popup)
+        self._lang_filter.setPlaceholderText(self._editor.tr("Filter languages…"))
+        self._lang_filter.setText(partial)
+        self._lang_filter.selectAll()
+        self._lang_filter.textChanged.connect(self._on_lang_filter_changed)
+        self._lang_filter.installEventFilter(self)
+        layout.addWidget(self._lang_filter)
+
+        self._lang_list_widget = CuteListWidget(self._lang_popup)
+        self._lang_list_widget.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._lang_list_widget.itemClicked.connect(self._on_lang_selected)
+        self._lang_list_widget.installEventFilter(self)
+        layout.addWidget(self._lang_list_widget)
+
+        self._populate_lang_list(partial)
+
+        cursor_rect = self._editor.cursorRect(cursor)
+        vp = self._editor.viewport()
+        global_pos = vp.mapToGlobal(cursor_rect.bottomLeft())
+        w = max(200, self._lang_list_widget.sizeHintForColumn(0) + 20)
+        h = 280
+        self._lang_popup.setGeometry(global_pos.x(), global_pos.y() + 2, w, h)
+        self._lang_popup.show()
+        self._lang_filter.setFocus()
+        return True
+
+    def _populate_lang_list(self, filter_text: str) -> None:
+        self._lang_list_widget.clear()
+        low = filter_text.strip().lower()
+        langs = [t for t in self._LANGUAGES if low in t] if low else list(self._LANGUAGES)
+        for lang in langs:
+            self._lang_list_widget.addItem(QListWidgetItem(lang))
+        if self._lang_list_widget.count() > 0:
+            self._lang_list_widget.setCurrentRow(0)
+
+    def _on_lang_filter_changed(self, text: str) -> None:
+        self._populate_lang_list(text)
+
+    def _on_lang_selected(self, item: QListWidgetItem) -> None:
+        lang = item.text()
+        self._hide_lang_popup()
+        self._insert_lang(lang)
+
+    def _insert_lang(self, lang: str) -> None:
+        block = getattr(self, "_fence_block", None)
+        if block is None or not block.isValid():
+            return
+        start_in_block = getattr(self, "_fence_lang_start", 0)
+        cursor = self._editor.textCursor()
+        block_start = block.position()
+        # Select from language-start to end of line, replace with the language
+        cursor.setPosition(block_start + start_in_block)
+        cursor.movePosition(QTextCursor.MoveOperation.EndOfBlock, QTextCursor.MoveMode.KeepAnchor)
+        cursor.insertText(lang)
+        self._editor.setTextCursor(cursor)
+        self._editor.setFocus()
+
+    def _hide_lang_popup(self) -> None:
+        if self._lang_popup is not None:
+            self._lang_popup.hide()
+            self._lang_popup.deleteLater()
+            self._lang_popup = None
+            self._lang_filter = None
+            self._lang_list_widget = None
+
+    def _handle_lang_popup_key(self, event: QKeyEvent) -> bool:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            item = self._lang_list_widget.currentItem()
+            if item:
+                self._on_lang_selected(item)
+            return True
+        if event.key() == Qt.Key.Key_Escape:
+            self._hide_lang_popup()
+            self._editor.setFocus()
+            return True
+        if event.key() == Qt.Key.Key_Down:
+            row = self._lang_list_widget.currentRow()
+            if row < self._lang_list_widget.count() - 1:
+                self._lang_list_widget.setCurrentRow(row + 1)
+            return True
+        if event.key() == Qt.Key.Key_Up:
+            row = self._lang_list_widget.currentRow()
+            if row > 0:
+                self._lang_list_widget.setCurrentRow(row - 1)
+            return True
+        if event.key() == Qt.Key.Key_Home:
+            if self._lang_list_widget.count() > 0:
+                self._lang_list_widget.setCurrentRow(0)
+            return True
+        if event.key() == Qt.Key.Key_End:
+            cnt = self._lang_list_widget.count()
+            if cnt > 0:
+                self._lang_list_widget.setCurrentRow(cnt - 1)
+            return True
+        if event.key() == Qt.Key.Key_PageUp:
+            row = self._lang_list_widget.currentRow()
+            page = max(5, self._lang_list_widget.height() // 22)
+            self._lang_list_widget.setCurrentRow(max(0, row - page))
+            return True
+        if event.key() == Qt.Key.Key_PageDown:
+            row = self._lang_list_widget.currentRow()
+            cnt = self._lang_list_widget.count()
+            page = max(5, self._lang_list_widget.height() // 22)
+            self._lang_list_widget.setCurrentRow(min(cnt - 1, row + page))
+            return True
+        return False
+
+    def _handle_lang_filter_key(self, event: QKeyEvent) -> bool:
+        if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down,
+                           Qt.Key.Key_PageUp, Qt.Key.Key_PageDown,
+                           Qt.Key.Key_Home, Qt.Key.Key_End,
+                           Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            return self._handle_lang_popup_key(event)
+        if event.key() == Qt.Key.Key_Escape:
+            self._hide_lang_popup()
             self._editor.setFocus()
             return True
         return False
