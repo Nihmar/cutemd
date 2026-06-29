@@ -30,53 +30,56 @@ uv run main.py
 
 ## Features
 
-- **Split editor + live preview** with exact anchor-based scroll sync
-- **Folder tree panel** — open a folder, browse `.md` files, single-click to open
-- **Tabbed interface** — multiple files open simultaneously, Ctrl+W to close
-- **Table editor** — structured table editing via popup dialog, Tab navigation between cells, insert table via toolbar/menu
-- **Export** — File > Export as HTML (self-contained), PDF, ODT, DOCX via pandoc
-- **Syntax highlighting** in the editor (headings, bold, italic, code, links, footnotes…)
-- **Code highlighting** in the preview via Pygments
-- **Math rendering** — inline `$...$` and block `$$...$$` via LaTeX → MathML
-- **Right-click context menus** on the file tree (open in explorer, open with default app, open in new tab) and on the editor (all formatting actions)
-- **9 built-in themes** — System, Nord, Gruvbox, Catppuccin Mocha/Latte, Tokyo Night, Dracula, Solarized Dark, Everforest
-- **Modern UI** — Fusion style, custom QSS stylesheet, SVG toolbar icons
-- **WebDAV sync** — per-folder bidirectional sync via WebDAV (http/https), with mtime-based conflict resolution and local sync state
-- **Keyboard shortcuts** for all common actions
-- **Persistent state** — last folder, theme choice, window size remembered via QSettings
+### Editor
 
-### Keyboard shortcuts
+- **Live preview** — synchronized split-pane editor + preview with anchor-based scroll sync
+- **Syntax highlighting** — headings, bold, italic, strikethrough, inline code, fenced code blocks, math (`$...$` and `$$...$$`), links (`[text](url)`), wikilinks (`[[target]]`), footnotes (`[^label]`), YAML frontmatter, lists, blockquotes
+- **Code fence language picker** — Ctrl+Space after ```` ``` ```` opens a filterable popup with 35+ languages (python, rust, javascript, bash, sql, yaml, pascal…)
+- **Smart editing** — auto-pair delimiters (`**`, `_`, `~`, `` ` ``), auto-pair brackets, list/blockquote continuation on Enter, backspace unwraps empty pairs
+- **Tag autocomplete** — Ctrl+Space after `#` shows known vault tags
+- **File autocomplete** — Ctrl+Space inside `](...)` or `[[...]]` shows vault files
+- **HTML tag autocomplete** — Ctrl+Space after `<` shows HTML5 tags; closing `>` auto-completes pairs
+- **Line numbers** — configurable display modes in Settings
 
-| Key | Action |
-|---|---|
-| `Ctrl+O` | Open folder |
-| `Ctrl+Shift+O` | Close folder |
-| `Ctrl+N` | New file |
-| `Ctrl+S` | Save |
-| `Ctrl+Shift+S` | Save as |
-| `Ctrl+Alt+S` | WebDAV Sync Now |
-| `Ctrl+W` | Close tab |
-| `Ctrl+Q` | Quit |
-| `Ctrl+Z` | Undo |
-| `Ctrl+Shift+Z` | Redo |
-| `Ctrl+F` | Find in editor |
-| `Ctrl+Shift+F` | Find in files |
-| `Ctrl+Shift+H` | Replace in files |
-| `Ctrl+B` | Toggle file tree |
-| `Ctrl+P` | Toggle preview |
-| `Ctrl+Shift+P` | Toggle split |
-| `Ctrl+Shift+B` | Toggle status bar |
-| `Ctrl+,` | Settings |
-| `Ctrl+/` | Keyboard shortcuts reference |
-| `Ctrl+=` | Zoom in (editor) |
-| `Ctrl+-` | Zoom out (editor) |
-| `Ctrl+0` | Reset zoom |
-| `Ctrl+Shift+=` | Zoom in (preview) |
-| `Ctrl+Shift+-` | Zoom out (preview) |
+### Navigation
+
+- **Folder tree panel** — open a folder, browse markdown files, single-click to open, Ctrl+B to toggle
+- **Tabbed interface** — multiple files open simultaneously, Ctrl+W to close, Ctrl+N for new file
+- **Command palette** — Ctrl+P opens a searchable command picker
+- **Backlinks panel** — shows files that link to the current note ([[wikilinks]])
+- **Tags panel** — aggregates all `#tags` across the vault, group by tag
+- **Table of contents** — auto-generated from headings, click to scroll
+- **Search in files** — Ctrl+Shift+F searches all markdown files in the vault; Ctrl+Shift+H for replace
+- **Daily notes** — Ctrl+Shift+D opens or creates today's note
+- **New from template** — Ctrl+Shift+N creates a file from a template
+- **Zen mode** — F11 toggles full-screen distraction-free editing
+
+### Tables
+
+- **Tab/Shift+Tab navigation** between cells when cursor is inside a markdown table
+- **Tab at last cell** appends a new row automatically
+- **Right-click context menu** in a table — Edit Table (QTableWidget popup), Add Row, Add Column
+- **Edit Table popup** — add/remove rows and columns with live preview, serializes back to pipe-table markdown on OK
+- **Insert Table** — Edit menu or toolbar button opens a dialog to choose rows × columns, inserts the skeleton at cursor position
+
+### Spell checking
+
+- **Hunspell dictionaries** via pyenchant — download language packs from Settings (en, de, es, fr, it, nl, pt)
+- **Per-folder custom dictionary** — right-click a misspelled word and choose "Add to dictionary"; saved to `.cutemd/custom_dict.txt`
+- **Skip regions** — code blocks, URLs, wikilinks, HTML tags, YAML frontmatter, and `#tags` are excluded from spell checking
+
+### Export
+
+- **File > Export as** submenu — HTML, PDF, ODT, DOCX
+- **pandoc** backend — requires `pandoc` installed on the system
+- **HTML export** embeds the current preview CSS for theme-matching self-contained output
+- **PDF** uses xelatex engine
+- **ODT** — native LibreOffice/OpenDocument format
+- **DOCX** — Microsoft Word format
 
 ### Themes
 
-Settings → Settings… opens the theme picker. Choose from:
+9 built-in themes, selectable from Settings:
 
 | Theme | Type |
 |---|---|
@@ -107,6 +110,56 @@ CuteMD can synchronise a folder with any WebDAV server (Nextcloud, OpenMediaVaul
 - If a file was modified on both sides, the newest version wins
 - A `.cutemd/sync_state.json` keeps track of last-synced timestamps to avoid redundant transfers
 
+### Other
+
+- **9 right-click context menus** — editor formatting (bold, italic, lists, blockquote, links, images, tables, spell-check), file tree (rename, duplicate, delete, copy location, open externally)
+- **Modern UI** — Fusion style, custom QSS stylesheet, SVG toolbar icons (16 actions)
+- **Internationalization** — UI translated in 6 languages (de, es, fr, it, nl, pt)
+- **Persistent state** — last folder, theme, window size, open tabs remembered via QSettings
+- **Drag & drop** — drop images from file explorer to insert Markdown image syntax
+- **Image viewer** — embedded viewer with zoom and pan for `.png`, `.jpg`, `.gif`, `.webp`, `.svg`
+- **PDF viewer** — embedded viewer with fit-to-width for `.pdf` files
+- **Link preview** — hover over links and wikilinks to see a popup preview
+- **Broken link markers** — links to non-existent files are highlighted in the editor
+- **Auto-save** — configurable interval in Settings
+- **Session restore** — reopens tabs from last session on startup
+- **Line-ending detection** — auto-detects and preserves LF/CRLF
+- **Encoding detection** — auto-detects file encoding via chardet
+
+### Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| `Ctrl+O` | Open folder |
+| `Ctrl+Shift+O` | Close folder |
+| `Ctrl+N` | New file |
+| `Ctrl+S` | Save |
+| `Ctrl+Shift+S` | Save as |
+| `Ctrl+Alt+S` | WebDAV Sync Now |
+| `Ctrl+W` | Close tab |
+| `Ctrl+Q` | Quit |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Shift+Z` | Redo |
+| `Ctrl+F` | Find in editor |
+| `Ctrl+Shift+F` | Find in files |
+| `Ctrl+Shift+H` | Replace in files |
+| `Ctrl+B` | Toggle file tree |
+| `Ctrl+P` | Toggle preview |
+| `Ctrl+Shift+P` | Toggle split |
+| `Ctrl+Shift+B` | Toggle status bar |
+| `Ctrl+,` | Settings |
+| `Ctrl+/` | Keyboard shortcuts reference |
+| `Ctrl+=` | Zoom in (editor) |
+| `Ctrl+-` | Zoom out (editor) |
+| `Ctrl+0` | Reset zoom |
+| `Ctrl+Shift+=` | Zoom in (preview) |
+| `Ctrl+Shift+-` | Zoom out (preview) |
+| `Ctrl+P` | Command palette |
+| `Ctrl+Shift+N` | New from template |
+| `Ctrl+Shift+D` | Open daily note |
+| `F11` | Toggle Zen mode |
+| `Ctrl+Shift+Y` | WebDAV Sync Now |
+
 ## How to develop
 
 ### Project structure
@@ -120,6 +173,9 @@ cutemd/
 │   ├── file_tree_panel.py     # FileTreePanel — folder tree widget
 │   ├── folder_settings.py     # FolderSettings — per-folder .cutemd/ config
 │   ├── syntax_highlighter.py  # MarkdownHighlighter — editor highlighting
+│   ├── table_editor.py        # TableEditor — popup editor, nav, insert dialog
+│   ├── dict_manager.py        # DictManager — hunspell dictionary download
+│   ├── action_registry.py     # ActionRegistry — QAction + menu bar factory
 │   ├── markdown_completer.py  # MarkdownAutoCompleter — smart editing
 │   ├── theme.py               # QSS generation from palette
 │   ├── themes.py              # Theme definitions (9 built-in)
@@ -136,6 +192,10 @@ cutemd/
 │   ├── html_builder.py        # MD→HTML pipeline, anchors, wikilinks
 │   ├── math_renderers.py      # LaTeX → MathML for dollarmath plugin
 │   └── tools.py               # Pygments code highlight, heading IDs, anchors
+├── core/                      # Backend logic (no Qt)
+│   ├── exporter.py            # Export to HTML/PDF/ODT/DOCX via pandoc
+│   ├── spell_checker.py       # Spell checker — pyenchant + custom dict
+│   └── ...
 ├── resources/                 # Distribution assets
 │   ├── cutemd.desktop         # Linux .desktop entry
 │   ├── cutemd.svg             # Application icon (SVG)
