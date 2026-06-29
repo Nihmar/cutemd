@@ -120,6 +120,7 @@ def show_editor_context_menu(
                 menu.addAction(parent.tr("(no suggestions)")).setEnabled(False)
             # Add-to-dictionary action
             if on_add_to_dict is not None:
+                menu.addSeparator()
                 act = menu.addAction(parent.tr("Add to dictionary"))
                 act.triggered.connect(
                     lambda checked=False, w=word: on_add_to_dict(w)
