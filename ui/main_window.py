@@ -558,6 +558,18 @@ class MainWindow(QMainWindow):
         self._right_toc_btn.setChecked(_rd_vis)
         self._right_toc_btn.blockSignals(False)
         self._right_backlinks_btn.blockSignals(True)
+        self._right_backlinks_btn.setChecked(_rd_vis)
+        self._right_backlinks_btn.blockSignals(False)
+        self._right_metadata_btn.blockSignals(True)
+        self._right_metadata_btn.setChecked(_rd_vis)
+        self._right_metadata_btn.blockSignals(False)
+
+        # Hide individual panels when dock starts hidden
+        if not _rd_vis:
+            self._toc_panel.hide()
+            self._backlinks_panel.hide()
+            self._metadata_panel.hide()
+        self._right_backlinks_btn.blockSignals(True)
         self._right_backlinks_btn.setChecked(True)
         self._right_backlinks_btn.blockSignals(False)
 
@@ -638,14 +650,6 @@ class MainWindow(QMainWindow):
         """Show right splitter if any panel button is checked, hide if all
         unchecked.  Uses button state (not widget visibility) to avoid
         deadlock when parent is hidden."""
-        # Sync button check states with actual panel visibility
-        if hasattr(self, "_metadata_panel") and hasattr(self, "_right_metadata_btn"):
-            self._right_metadata_btn.setChecked(self._metadata_panel.isVisible())
-        if hasattr(self, "_toc_panel") and hasattr(self, "_right_toc_btn"):
-            self._right_toc_btn.setChecked(self._toc_panel.isVisible())
-        if hasattr(self, "_backlinks_panel") and hasattr(self, "_right_backlinks_btn"):
-            self._right_backlinks_btn.setChecked(self._backlinks_panel.isVisible())
-
         toc_on = self._right_toc_btn.isChecked()
         bl_on = self._right_backlinks_btn.isChecked()
         md_on = self._right_metadata_btn.isChecked()
@@ -654,6 +658,19 @@ class MainWindow(QMainWindow):
             self._right_splitter.setVisible(toc_on or bl_on or md_on)
         if hasattr(self, "_s"):
             self._s.set_right_dock_visible(toc_on or bl_on or md_on)
+
+    def _sync_right_toolbar_buttons(self) -> None:
+        """Sync button checked states with their panel visibility.
+        Call AFTER the right splitter is shown (parent must be visible)."""
+        if hasattr(self, "_toc_panel") and hasattr(self, "_right_toc_btn"):
+            if self._toc_panel.isVisible() != self._right_toc_btn.isChecked():
+                self._right_toc_btn.setChecked(self._toc_panel.isVisible())
+        if hasattr(self, "_backlinks_panel") and hasattr(self, "_right_backlinks_btn"):
+            if self._backlinks_panel.isVisible() != self._right_backlinks_btn.isChecked():
+                self._right_backlinks_btn.setChecked(self._backlinks_panel.isVisible())
+        if hasattr(self, "_metadata_panel") and hasattr(self, "_right_metadata_btn"):
+            if self._metadata_panel.isVisible() != self._right_metadata_btn.isChecked():
+                self._right_metadata_btn.setChecked(self._metadata_panel.isVisible())
 
     def _on_side_tags_toggled(self, checked: bool) -> None:
         """Toggle the tags panel in the left stack."""
@@ -2110,6 +2127,7 @@ class MainWindow(QMainWindow):
             if ep and ep.layout():
                 ep.layout().setContentsMargins(0, 0, 0, 0)
             self._right_splitter.show()
+            QTimer.singleShot(0, self._sync_right_toolbar_buttons)
             if lw:
                 self._side_panel._left_stack.show()
             if tv:
