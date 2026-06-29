@@ -977,7 +977,7 @@ class EditorTab(QWidget):
         blocked = getattr(self, '_poll_blocked_until', 0.0)
         if __import__('time').monotonic() < blocked:
             return
-        js = "window._cutemd_line||''"
+        js = "JSON.stringify({l:window._cutemd_line||'',b:!!window._cutemd_at_bottom})"
         self.preview.page().runJavaScript(js, self._on_poll_result)
 
     def _on_poll_result(self, line_str: str) -> None:
@@ -986,10 +986,13 @@ class EditorTab(QWidget):
         if not line_str:
             return
         try:
-            target_line = int(line_str)
-        except ValueError:
+            import json
+            data = json.loads(line_str)
+            target_line = int(data.get("l", "0") or "0")
+            at_bottom = data.get("b", False)
+        except (ValueError, json.JSONDecodeError):
             return
-        if target_line == getattr(self, "_last_poll_line", -1):
+        if target_line == getattr(self, "_last_poll_line", -1) and not at_bottom:
             return
         self._last_poll_line = target_line
 
@@ -1014,14 +1017,12 @@ class EditorTab(QWidget):
         self._syncing_scroll += 1
         sb = self.editor.verticalScrollBar()
         if sb.maximum() > 0 and total_h > 0:
-            ratio = px_y / total_h
-            new_val = int(ratio * sb.maximum())
-            # If target is the last block, or within 5% of the end,
-            # snap to the very bottom so the editor fully reaches the end.
-            count = self.editor.document().blockCount()
-            if target_line >= count - 1 or ratio > 0.95:
-                new_val = sb.maximum()
-            sb.setValue(new_val)
+            if at_bottom:
+                sb.setValue(sb.maximum())
+            else:
+                sb_px_range = max(total_h - self.editor.viewport().height(), 1)
+                ratio = min(px_y, sb_px_range) / sb_px_range
+                sb.setValue(int(ratio * sb.maximum()))
         self._syncing_scroll -= 1
         _LOG.debug("SYNC line=%-4d px=%d/%d first=%d",
                    target_line, px_y, total_h,

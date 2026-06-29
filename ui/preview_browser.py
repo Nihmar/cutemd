@@ -271,6 +271,7 @@ class PreviewWebEngineView(QWebEngineView):
         "if(window._cutemd_listener)return;"
         "window._cutemd_listener=1;"
         "window._cutemd_line='';"
+        "window._cutemd_at_bottom=false;"
         "window.addEventListener('scroll',function(){"
         "var a=document.querySelectorAll('a[data-line]');"
         "var best='';"
@@ -280,6 +281,8 @@ class PreviewWebEngineView(QWebEngineView):
         "}"
         "}"
         "if(best!=='')window._cutemd_line=best;"
+        "window._cutemd_at_bottom="
+        "(window.innerHeight+Math.ceil(window.scrollY)>=document.body.scrollHeight-2);"
         "},{passive:true});"
         "})();"
     )

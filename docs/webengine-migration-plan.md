@@ -1,5 +1,30 @@
 # QTextBrowser → QWebEngineView Migration Plan
 
+## Migration Status
+
+**Phase 1 — Feature parity**
+
+| Step | Status | Notes |
+|------|--------|-------|
+| 1.1 Dependency | ✅ Done | `PySide6.QtWebEngineWidgets` included in `pyside6-addons` (transitive dep of `pyside6>=6.11.1`) |
+| 1.2 Widget replacement | ✅ Done | `PreviewWebEngineView(QWebEngineView)` + `PreviewWebEnginePage(QWebEnginePage)`. Temp file loading via `page().load()`. `<base>` tag injection. `LocalContentCanAccessFileUrls`. Context menu suppressed. `AA_ShareOpenGLContexts` in `main.py`. |
+| 1.3 Wikilink interception | ✅ Done | `acceptNavigationRequest()` handles copy-code, external URLs, wikilinks. `file_link_clicked` signal preserved. |
+| 1.4 Theme CSS injection | ✅ Done | Theme palette colors (Base, Text, Mid) injected as CSS overrides. Preview scrollbar themed via `::-webkit-scrollbar`. |
+| 1.5 Scroll sync | ✅ Done | Bidirectional: editor→preview via `scrollIntoView()` `runJavaScript()`, preview→editor via 30fps polling of `window._cutemd_line` + `_cutemd_at_bottom`. Pixel-accurate via cumulative `blockBoundingRect` heights. Cached, invalidated on text changes. |
+| 1.6 Image rendering | ❓ Untested | Should work unchanged — absolute `file:///` URLs embedded by `html_builder.py`. |
+| 1.7 Syntax highlighting | ❓ Untested | Should work unchanged — Pygments inline styles in generated HTML. |
+| 1.8 Math rendering | ❓ Untested | Should work unchanged — `latex2mathml` → CSS-styled HTML spans. |
+
+**Phase 2 — New features**
+
+| Step | Status | Notes |
+|------|--------|-------|
+| 2.1 Clickable checkboxes | ❌ Not started | JS→Python bridge for `- [ ]` / `- [x]` toggle. |
+| 2.2 Footnote navigation | ❌ Not started | Fragment link handling in `acceptNavigationRequest`. |
+| 2.3 KaTeX math | ❌ Not started | Inject KaTeX from `resources/katex/`. |
+
+---
+
 ## 1. Current Architecture — End-to-End Preview Pipeline
 
 ### 1.1 HTML Generation (`markdown/html_builder.py`)
