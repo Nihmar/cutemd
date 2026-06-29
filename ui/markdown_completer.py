@@ -415,7 +415,7 @@ class MarkdownAutoCompleter(QObject):
         if block_text.startswith("tags:"):
             _LOG.debug("_inside_frontmatter_tags: matched 'tags:'")
             return True
-        if block_text.startswith("- ") or block_text.startswith("  - "):
+        if block_text.startswith("- ") or block_text.startswith("  - ") or block_text == "-":
             doc = self._editor.document()
             for n in range(block_num - 1, -1, -1):
                 b = doc.findBlockByNumber(n).text().strip()
@@ -447,7 +447,10 @@ class MarkdownAutoCompleter(QObject):
                 partial = block_text[block_text.find("tags:") + 5:pos_in_block].strip().strip(",")
             else:
                 dash = block_text.find("- ")
-                partial = block_text[dash + 2:pos_in_block].strip().strip(",") if dash >= 0 else ""
+                if dash >= 0:
+                    partial = block_text[dash + 2:pos_in_block].strip().strip(",")
+                else:
+                    partial = ""
             self._hash_pos = -1  # signal frontmatter mode
         else:
             hash_pos = -1
