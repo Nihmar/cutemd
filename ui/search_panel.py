@@ -28,27 +28,31 @@ _CHUNK_INTERVAL = 10  # ms
 
 class _ReplaceWorker(QObject):
     """Runs replace-all in a background thread."""
-    done = Signal(int, object)  # replaced_total, files_modified
+    done = Signal(int, object)
 
     def __init__(self, query: str, replacement: str, flags: int,
-                 file_results: dict, parent=None):
+                 file_results: dict, regex_mode: bool = False, parent=None):
         super().__init__(parent)
         self._query = query
         self._replacement = replacement
         self._flags = flags
         self._file_results = file_results
+        self._regex_mode = regex_mode
 
     def run(self) -> None:
         replaced, files = _do_replace_in_files(
-            self._file_results, self._query, self._replacement, self._flags
+            self._file_results, self._query, self._replacement,
+            self._flags, self._regex_mode
         )
         self.done.emit(replaced, files)
 
 
 def _do_replace_in_files(
-    file_results: dict, query: str, replacement: str, flags: int
+    file_results: dict, query: str, replacement: str, flags: int,
+    regex_mode: bool = False,
 ) -> tuple[int, list]:
     """Pure function — performs the actual replace across files."""
+    pattern = query if regex_mode else re.escape(query)
     replaced_total = 0
     files_modified: list = []
     for file_path, line_nums in file_results.items():
@@ -62,7 +66,7 @@ def _do_replace_in_files(
             if line_num < 1 or line_num > len(lines):
                 continue
             new_line, count = re.subn(
-                re.escape(query), replacement, lines[line_num - 1], flags=flags
+                pattern, replacement, lines[line_num - 1], flags=flags
             )
             if count > 0:
                 lines[line_num - 1] = new_line
@@ -115,6 +119,11 @@ class SearchPanel(QWidget):
             lambda: self._on_search_text_changed(self._search_input.text())
         )
         case_row.addWidget(self._search_case_cb)
+        self._search_regex_cb = QCheckBox(self.tr("Regex"))
+        self._search_regex_cb.toggled.connect(
+            lambda: self._on_search_text_changed(self._search_input.text())
+        )
+        case_row.addWidget(self._search_regex_cb)
         case_row.addStretch()
 
         # --- Buttons ---
@@ -169,7 +178,19 @@ class SearchPanel(QWidget):
             return
 
         self._flags = re.IGNORECASE if not self._search_case_cb.isChecked() else 0
-        self._compiled_pattern = re.compile(re.escape(text), self._flags)
+        use_regex = self._search_regex_cb.isChecked()
+        try:
+            self._compiled_pattern = re.compile(
+                text if use_regex else re.escape(text), self._flags
+            )
+            self._search_input.setStyleSheet("")
+            self._regex_valid = True
+        except re.error:
+            self._compiled_pattern = None
+            self._search_input.setStyleSheet("border: 1px solid #e06c75;")
+            self._regex_valid = False
+            return
+
         self._generator = self._folder_path.rglob("*.md")
         self._timer.start()
 
@@ -287,7 +308,11 @@ class SearchPanel(QWidget):
 
         line = lines[line_num - 1]
         flags = re.IGNORECASE if not self._search_case_cb.isChecked() else 0
-        new_line, count = re.subn(re.escape(query), replacement, line, count=1, flags=flags)
+        pattern = query if self._search_regex_cb.isChecked() else re.escape(query)
+        try:
+            new_line, count = re.subn(pattern, replacement, line, count=1, flags=flags)
+        except re.error:
+            return
 
         if count == 0:
             QMessageBox.information(
@@ -351,7 +376,8 @@ class SearchPanel(QWidget):
 
         # Run replace in background thread.
         self._replace_thread = QThread(self)
-        self._replace_worker = _ReplaceWorker(query, replacement, flags, file_results)
+        self._replace_worker = _ReplaceWorker(query, replacement, flags, file_results,
+                                              regex_mode=self._search_regex_cb.isChecked())
         self._replace_worker.moveToThread(self._replace_thread)
         self._replace_worker.done.connect(self._on_replace_done)
         self._replace_worker.done.connect(self._replace_thread.quit)
