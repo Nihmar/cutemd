@@ -117,7 +117,9 @@ def render_with_anchors(text: str, md: MarkdownIt) -> str:
             start, end = token.map
             if start < end:
                 anchor = Token("html_inline", "", 0)
-                anchor.content = f'<a name="b{anchor_idx}"></a>'
+                anchor.content = (
+                    f'<a name="b{anchor_idx}" data-line="{start}"></a>'
+                )
                 new_tokens.append(anchor)
                 anchor_idx += 1
     return md.renderer.render(new_tokens, md.options, {})

@@ -67,6 +67,10 @@ class PreviewWebEnginePage(QWebEnginePage):
         super().__init__(parent)
         _LOG.debug("DIAG PreviewWebEnginePage.__init__ id=%s", id(self))
 
+    def javaScriptConsoleMessage(self, level, message, line, source):
+        if "cutemd:" in message:
+            _LOG.debug("JS: %s", message)
+
     def acceptNavigationRequest(
         self, url: QUrl, nav_type, is_main_frame: bool
     ) -> bool:
@@ -82,13 +86,17 @@ class PreviewWebEnginePage(QWebEnginePage):
             return True
 
         # Preview scroll sync — user scrolled the preview via mouse/touch
-        if url_str.startswith("https://cutemd-scroll/"):
-            anchor = url_str.removeprefix("https://cutemd-scroll/")
-            # Dedup: Chromium may call acceptNavigationRequest multiple times
-            last = getattr(self, '_last_scroll_anchor', '')
-            if anchor != last:
-                self._last_scroll_anchor = anchor
-                self.preview_scrolled.emit(anchor)
+        if url_str.startswith("https://cutemd-scroll/line/"):
+            line_str = url_str.removeprefix("https://cutemd-scroll/line/")
+            try:
+                line_num = int(line_str)
+            except ValueError:
+                return False
+            # Dedup
+            last = getattr(self, '_last_scroll_line', -1)
+            if line_num != last:
+                self._last_scroll_line = line_num
+                self.preview_scrolled.emit(str(line_num))
             return False
 
         # Copy-code interception
@@ -258,16 +266,17 @@ class PreviewWebEngineView(QWebEngineView):
         "(function(){"
         "if(window._cutemd_scroll_listener)return;"
         "window._cutemd_scroll_listener=true;"
-        "window._cutemd_syncing=false;"
+        "window._cutemd_last_line=-1;"
         "window.addEventListener('scroll',function(){"
-        "if(window._cutemd_syncing)return;"
-        "var anchors=document.querySelectorAll('a[name]');"
+        "var anchors=document.querySelectorAll('a[data-line]');"
         "var best=null;"
         "anchors.forEach(function(a){"
         "var r=a.getBoundingClientRect();"
-        "if(r.top<=5)best=a.getAttribute('name');"
+        "if(r.top<=5)best=a.getAttribute('data-line');"
         "});"
-        "if(best)window.location='https://cutemd-scroll/'+best;"
+        "if(!best||best===window._cutemd_last_line)return;"
+        "window._cutemd_last_line=best;"
+        "window.location='https://cutemd-scroll/line/'+best;"
         "},{passive:true});"
         "})();"
     )
@@ -278,13 +287,6 @@ class PreviewWebEngineView(QWebEngineView):
             return
         self._js_injected = True
         self.page().runJavaScript(self._SCROLL_LISTENER_JS)
-
-    def set_scroll_syncing(self, syncing: bool) -> None:
-        """Tell the JS that we're about to programmatically scroll the
-        preview (True), or that we're done (False). While True, the JS
-        scroll listener ignores scroll events."""
-        val = "true" if syncing else "false"
-        self.page().runJavaScript(f"window._cutemd_syncing={val};")
 
     # ------------------------------------------------------------------
     # Context menu — block Chromium defaults
