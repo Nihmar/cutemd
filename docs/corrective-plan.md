@@ -16,8 +16,8 @@ Based on architecture-analysis.md and visual-consistency-analysis.md.
 
 ### 1.3 Split Large Files ✅ (partial)
 - [x] Extract `ui/icon_provider.py`
-- [ ] `ui/zen_mode_manager.py` (deferred)
-- [ ] `ui/scroll_sync.py` (deferred)
+- [x] Extract `ui/zen_mode_manager.py`
+- [ ] `ui/scroll_sync.py` (deferred — deeply coupled to EditorTab internals)
 - [ ] `ui/right_panel_manager.py` (deferred)
 
 ## Phase 2 — Visual Consistency (Medium Impact) ✅ DONE

@@ -195,6 +195,7 @@ class WelcomeDialog(QDialog):
 
         # ── Primary action ────────────────────────────────────────────
         open_btn = QPushButton(self.tr("&Open Folder\u2026"))
+        open_btn.setToolTip(self.tr("Browse and open a folder as a vault"))
         open_btn.setObjectName("primaryBtn")
         open_btn.clicked.connect(self._choose_folder)
         layout.addWidget(open_btn)
@@ -203,6 +204,7 @@ class WelcomeDialog(QDialog):
 
         # ── Secondary action ──────────────────────────────────────────
         new_btn = QPushButton(self.tr("&New File"))
+        new_btn.setToolTip(self.tr("Start with a blank markdown file"))
         new_btn.setObjectName("secondaryBtn")
         new_btn.clicked.connect(self._start_edit_mode)
         layout.addWidget(new_btn)

@@ -180,7 +180,7 @@ class LinkPreviewPopup(QFrame):
         self._header.setWordWrap(False)
         self._header.setFixedHeight(22)
         self._header.setStyleSheet(
-            "background: #3c3c3c; color: #cccccc; font-size: 10px; padding: 2px 6px;"
+            "background: palette(dark); color: palette(bright-text); font-size: 10px; padding: 2px 6px;"
         )
         layout.addWidget(self._header)
 
