@@ -63,6 +63,9 @@ class ActionRegistry:
         self._acts["act_new_from_template"] = self._action(
             "New from &Template…", None, cb.get("new_from_template")
         )
+        self._acts["act_daily_note"] = self._action(
+            "Open &Daily Note", None, cb.get("daily_note")
+        )
         self._acts["act_save"] = self._action(
             "&Save", QKeySequence.StandardKey.Save, cb.get("save")
         )
@@ -191,6 +194,7 @@ class ActionRegistry:
         fm.addSeparator()
         fm.addAction(self._acts["act_new"])
         fm.addAction(self._acts["act_new_from_template"])
+        fm.addAction(self._acts["act_daily_note"])
         fm.addAction(self._acts["act_save"])
         fm.addAction(self._acts["act_save_as"])
         fm.addSeparator()

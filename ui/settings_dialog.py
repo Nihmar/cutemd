@@ -123,6 +123,9 @@ class SettingsDialog(QDialog):
         current_webdav_backup_dir: str = "",
         current_templates_dir: str = "",
         current_folder: str = "",
+        current_daily_folder: str = "daily",
+        current_daily_template: str = "",
+        current_daily_date_format: str = "%Y-%m-%d",
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -534,6 +537,68 @@ class SettingsDialog(QDialog):
             att_row.addWidget(browse_att)
             card_lay.addLayout(att_row)
             stor_lay.addWidget(card)
+
+        stor_lay.addSpacing(12)
+
+        # Daily Note
+        card, card_lay = self._make_card()
+        lbl_dn = QLabel(self.tr("Daily Note"))
+        lbl_dn.setStyleSheet("font-size: 12px; font-weight: bold;")
+        card_lay.addWidget(lbl_dn)
+
+        hint_dn = QLabel(
+            self.tr("Creates or opens a dated note in the configured folder")
+        )
+        hint_dn.setStyleSheet("font-size: 11px;")
+        card_lay.addWidget(hint_dn)
+
+        # Folder
+        dn_folder_lbl = QLabel(self.tr("Folder"))
+        dn_folder_lbl.setStyleSheet("font-weight: bold;")
+        card_lay.addWidget(dn_folder_lbl)
+        dn_folder_row = QHBoxLayout()
+        self._daily_folder_edit = QLineEdit()
+        self._daily_folder_edit.setText(current_daily_folder)
+        self._daily_folder_edit.setPlaceholderText("daily")
+        self._daily_folder_edit.setToolTip(
+            self.tr("Folder for daily notes, relative to vault root")
+        )
+        dn_folder_row.addWidget(self._daily_folder_edit)
+        browse_dn = QPushButton("...")
+        browse_dn.setFixedWidth(40)
+        browse_dn.setCursor(Qt.CursorShape.PointingHandCursor)
+        browse_dn.clicked.connect(self._on_browse_daily_folder)
+        dn_folder_row.addWidget(browse_dn)
+        card_lay.addLayout(dn_folder_row)
+
+        card_lay.addWidget(self._separator())
+
+        # Template
+        self._daily_template_edit = QLineEdit()
+        self._daily_template_edit.setText(current_daily_template)
+        self._daily_template_edit.setPlaceholderText(self.tr("(optional) path to .md template"))
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Template"),
+                self._daily_template_edit,
+                self.tr("Optional, supports {{date}} and {{title}}"),
+            )
+        )
+
+        card_lay.addWidget(self._separator())
+
+        # Date format
+        self._daily_date_format_edit = QLineEdit()
+        self._daily_date_format_edit.setText(current_daily_date_format)
+        self._daily_date_format_edit.setPlaceholderText("%Y-%m-%d")
+        card_lay.addLayout(
+            self._field_row(
+                self.tr("Date format"),
+                self._daily_date_format_edit,
+                self.tr("Python strftime (default: %Y-%m-%d)"),
+            )
+        )
+        stor_lay.addWidget(card)
 
         stor_lay.addStretch()
         self._stack.addWidget(stor_scroll)
@@ -1067,6 +1132,21 @@ class SettingsDialog(QDialog):
             return self._templates_dir_edit.text().strip()
         return ""
 
+    def selected_daily_folder(self) -> str:
+        if hasattr(self, "_daily_folder_edit") and self._daily_folder_edit is not None:
+            return self._daily_folder_edit.text().strip()
+        return "daily"
+
+    def selected_daily_template(self) -> str:
+        if hasattr(self, "_daily_template_edit") and self._daily_template_edit is not None:
+            return self._daily_template_edit.text().strip()
+        return ""
+
+    def selected_daily_date_format(self) -> str:
+        if hasattr(self, "_daily_date_format_edit") and self._daily_date_format_edit is not None:
+            return self._daily_date_format_edit.text().strip()
+        return "%Y-%m-%d"
+
     # ==================================================================
     # Storage
     # ==================================================================
@@ -1149,6 +1229,23 @@ class SettingsDialog(QDialog):
                 except (ValueError, OSError):
                     pass
             self._attachments_dir_edit.setText(path)
+
+    def _on_browse_daily_folder(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        cur = self._daily_folder_edit.text().strip() if hasattr(self, "_daily_folder_edit") else ""
+        if cur and self._current_folder and not Path(cur).is_absolute():
+            cur = str(Path(self._current_folder) / cur)
+        start_dir = cur or self._current_folder or str(Path.home())
+        path = QFileDialog.getExistingDirectory(
+            self, self.tr("Select daily notes folder"), start_dir,
+        )
+        if path:
+            if self._current_folder:
+                try:
+                    path = str(Path(path).resolve().relative_to(self._current_folder))
+                except (ValueError, OSError):
+                    pass
+            self._daily_folder_edit.setText(path)
 
     def _on_test_webdav(self) -> None:
         url = self._webdav_url_edit.text().strip() if self._webdav_url_edit else ""

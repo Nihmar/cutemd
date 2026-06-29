@@ -276,6 +276,7 @@ class MainWindow(QMainWindow):
             "close_folder": self._on_close_folder,
             "new": self._on_new,
             "new_from_template": self._on_new_from_template,
+            "daily_note": self._on_daily_note,
             "save": self._on_save,
             "save_as": self._on_save_as,
             "close_tab": self._on_close_tab,
@@ -1179,6 +1180,9 @@ class MainWindow(QMainWindow):
             current_templates_dir=self._s.templates_dir(),
             current_folder=str(self._folder_settings.folder)
             if self._folder_settings is not None else "",
+            current_daily_folder=self._s.daily_notes_folder(),
+            current_daily_template=self._s.daily_notes_template(),
+            current_daily_date_format=self._s.daily_notes_date_format(),
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -1365,6 +1369,7 @@ class MainWindow(QMainWindow):
             "act_close_folder": self.act_close_folder,
             "act_new": self.act_new,
             "act_new_from_template": self.act_new_from_template,
+            "act_daily_note": self.act_daily_note,
             "act_save": self.act_save,
             "act_save_as": self.act_save_as,
             "act_close_tab": self.act_close_tab,
@@ -1401,6 +1406,7 @@ class MainWindow(QMainWindow):
             "act_close_folder": self.act_close_folder,
             "act_new": self.act_new,
             "act_new_from_template": self.act_new_from_template,
+            "act_daily_note": self.act_daily_note,
             "act_save": self.act_save,
             "act_save_as": self.act_save_as,
             "act_close_tab": self.act_close_tab,
@@ -1988,6 +1994,38 @@ class MainWindow(QMainWindow):
         if content:
             tab.editor.setPlainText(content)
             tab.editor.document().setModified(False)
+
+    def _on_daily_note(self) -> None:
+        if self._folder_settings is None:
+            return
+
+        from datetime import date
+        from ui.template_picker import TemplatePicker
+
+        fmt = self._s.daily_notes_date_format()
+        folder_name = self._s.daily_notes_folder()
+        today_str = date.today().strftime(fmt)
+
+        vault = self._folder_settings.folder
+        daily_dir = vault / folder_name
+        daily_dir.mkdir(parents=True, exist_ok=True)
+        file_path = daily_dir / f"{today_str}.md"
+
+        if file_path.exists():
+            self._open_file(str(file_path))
+            return
+
+        # Create new daily note from template (if configured).
+        tmpl_path = self._s.daily_notes_template()
+        content = ""
+        if tmpl_path:
+            p = Path(tmpl_path)
+            if not p.is_absolute():
+                p = vault / p
+            content = TemplatePicker.resolve_content(p, title=today_str)
+
+        file_path.write_text(content, encoding="utf-8")
+        self._open_file(str(file_path))
 
     def _on_save(self) -> None:
         tab = self._current_tab()

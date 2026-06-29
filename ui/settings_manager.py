@@ -190,6 +190,24 @@ class AppSettings(QObject):
     def set_templates_dir(self, value: str) -> None:
         self._s.setValue("templates_dir", value)
 
+    def daily_notes_folder(self, default: str = "daily") -> str:
+        return str(self._s.value("daily_notes_folder", default))
+
+    def set_daily_notes_folder(self, value: str) -> None:
+        self._s.setValue("daily_notes_folder", value)
+
+    def daily_notes_template(self, default: str = "") -> str:
+        return str(self._s.value("daily_notes_template", default))
+
+    def set_daily_notes_template(self, value: str) -> None:
+        self._s.setValue("daily_notes_template", value)
+
+    def daily_notes_date_format(self, default: str = "%Y-%m-%d") -> str:
+        return str(self._s.value("daily_notes_date_format", default))
+
+    def set_daily_notes_date_format(self, value: str) -> None:
+        self._s.setValue("daily_notes_date_format", value)
+
     # ------------------------------------------------------------------
     # Auto-update
     # ------------------------------------------------------------------

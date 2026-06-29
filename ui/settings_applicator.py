@@ -214,5 +214,10 @@ class SettingsApplicator:
                     pass
         w._s.set_templates_dir(tmpl)
 
+        # Daily note settings
+        w._s.set_daily_notes_folder(dlg.selected_daily_folder())
+        w._s.set_daily_notes_template(dlg.selected_daily_template())
+        w._s.set_daily_notes_date_format(dlg.selected_daily_date_format())
+
         w._update_auto_sync_timer()
         w._update_menu_state()
