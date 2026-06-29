@@ -33,7 +33,9 @@ uv run main.py
 - **Split editor + live preview** with exact anchor-based scroll sync
 - **Folder tree panel** — open a folder, browse `.md` files, single-click to open
 - **Tabbed interface** — multiple files open simultaneously, Ctrl+W to close
-- **Syntax highlighting** in the editor (headings, bold, italic, code, links…)
+- **Table editor** — structured table editing via popup dialog, Tab navigation between cells, insert table via toolbar/menu
+- **Export** — File > Export as HTML (self-contained), PDF, ODT, DOCX via pandoc
+- **Syntax highlighting** in the editor (headings, bold, italic, code, links, footnotes…)
 - **Code highlighting** in the preview via Pygments
 - **Math rendering** — inline `$...$` and block `$$...$$` via LaTeX → MathML
 - **Right-click context menus** on the file tree (open in explorer, open with default app, open in new tab) and on the editor (all formatting actions)
@@ -297,6 +299,10 @@ The version is stored in four places — update all of them in sync:
 | `main.py` | `__version__ = "1.0.0"` | Runtime version string (all platforms) |
 | `scripts/file_version_info.txt` | `filevers`, `prodvers`, etc. | Windows EXE metadata (via `--version-file`) |
 | `scripts/cutemd_setup.iss` | `#define MyAppVersion "x.y.z"` | Inno Setup installer (Windows)
+
+## Known limitations
+
+- **Footnotes:** Editor syntax highlighting for `[^label]` references and `[^label]:` definitions is supported. Preview rendering (numbered superscripts, bidirectional links, definitions collected at bottom) is under active development and may not be fully functional yet.
 
 ## License
 
