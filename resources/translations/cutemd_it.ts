@@ -1270,5 +1270,15 @@ All'avvio ti verrà chiesto di scegliere una cartella.</translation>
         <source>&amp;Image</source>
         <translation>&amp;Immagine</translation>
     </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="116" />
+        <source>(no suggestions)</source>
+        <translation>(nessun suggerimento)</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="123" />
+        <source>Add to dictionary</source>
+        <translation>Aggiungi al dizionario</translation>
+    </message>
 </context>
 </TS>

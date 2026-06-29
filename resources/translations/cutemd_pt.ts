@@ -1270,5 +1270,15 @@ Será solicitado a escolher uma pasta no próximo início.</translation>
         <source>&amp;Image</source>
         <translation>&amp;Imagem</translation>
     </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="116" />
+        <source>(no suggestions)</source>
+        <translation>(sem sugestões)</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="123" />
+        <source>Add to dictionary</source>
+        <translation>Adicionar ao dicionário</translation>
+    </message>
 </context>
 </TS>

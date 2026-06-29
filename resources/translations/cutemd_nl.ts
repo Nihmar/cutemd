@@ -1270,5 +1270,15 @@ U wordt gevraagd een map te kiezen bij de volgende start.</translation>
         <source>&amp;Image</source>
         <translation>Af&amp;beelding</translation>
     </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="116" />
+        <source>(no suggestions)</source>
+        <translation>(geen suggesties)</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="123" />
+        <source>Add to dictionary</source>
+        <translation>Aan woordenboek toevoegen</translation>
+    </message>
 </context>
 </TS>

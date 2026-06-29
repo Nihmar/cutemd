@@ -1270,5 +1270,15 @@ Se le pedirá que elija una carpeta en el próximo inicio.</translation>
         <source>&amp;Image</source>
         <translation>&amp;Imagen</translation>
     </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="116" />
+        <source>(no suggestions)</source>
+        <translation>(sin sugerencias)</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="123" />
+        <source>Add to dictionary</source>
+        <translation>Añadir al diccionario</translation>
+    </message>
 </context>
 </TS>

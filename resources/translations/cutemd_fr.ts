@@ -1270,5 +1270,15 @@ Vous serez invité à choisir un dossier au prochain démarrage.</translation>
         <source>&amp;Image</source>
         <translation>&amp;Image</translation>
     </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="116" />
+        <source>(no suggestions)</source>
+        <translation>(aucune suggestion)</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="123" />
+        <source>Add to dictionary</source>
+        <translation>Ajouter au dictionnaire</translation>
+    </message>
 </context>
 </TS>

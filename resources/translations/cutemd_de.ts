@@ -1270,5 +1270,15 @@ Beim nächsten Start werden Sie aufgefordert, einen Ordner auszuwählen.</transl
         <source>&amp;Image</source>
         <translation>&amp;Bild</translation>
     </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="116" />
+        <source>(no suggestions)</source>
+        <translation>(keine Vorschläge)</translation>
+    </message>
+    <message>
+        <location filename="../../ui/editor_context_menu.py" line="123" />
+        <source>Add to dictionary</source>
+        <translation>Zum Wörterbuch hinzufügen</translation>
+    </message>
 </context>
 </TS>
