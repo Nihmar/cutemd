@@ -295,6 +295,7 @@ class MainWindow(QMainWindow):
             "check_update": self._check_for_updates,
             "command_palette": self._on_command_palette,
             "webdav_sync": self._on_webdav_sync,
+            "export_note": self._on_export_note,
             "zoom_editor": self._zoom_editor,
             "zoom_reset": self._zoom_reset,
             "zoom_preview": self._zoom_preview,
@@ -1322,6 +1323,69 @@ class MainWindow(QMainWindow):
             file_path, self._folder_path, self._s.history_max_snapshots()
         )
 
+    def _on_export_note(self, fmt: str) -> None:
+        """Export the current note to *fmt* (html/pdf/odt/docx) via pandoc."""
+        tab = self._current_tab()
+        if tab is None or tab.file_path is None:
+            QMessageBox.warning(self, self.tr("Export"), self.tr("No file to export."))
+            return
+
+        from core.exporter import export, pandoc_available, export_formats
+
+        if not pandoc_available():
+            QMessageBox.critical(
+                self,
+                self.tr("pandoc not found"),
+                self.tr(
+                    "pandoc is required to export notes.\n\n"
+                    "Install it with your package manager:\n"
+                    "  • Ubuntu/Debian: sudo apt install pandoc\n"
+                    "  • macOS: brew install pandoc\n"
+                    "  • Windows: winget install pandoc\n"
+                    "  • Or download from https://pandoc.org"
+                ),
+            )
+            return
+
+        fmts = export_formats()
+        if fmt not in fmts:
+            return
+        cfg = fmts[fmt]
+
+        # Ensure the editor content is saved before exporting
+        if tab.maybe_save() is False:
+            return  # user cancelled
+
+        from PySide6.QtWidgets import QFileDialog
+        stem = tab.file_path.stem
+        out_path, _ = QFileDialog.getSaveFileName(
+            self,
+            self.tr("Export as {}").format(cfg["label"]),
+            str(tab.file_path.parent / stem) + cfg["ext"],
+            f"{cfg['label']} (*{cfg['ext']});;All Files (*)",
+        )
+        if not out_path:
+            return
+
+        # For HTML, embed the current preview CSS so it matches the theme
+        css = None
+        if fmt == "html":
+            css = self._preview_css
+
+        try:
+            export(tab.file_path, Path(out_path), fmt, css=css)
+            QMessageBox.information(
+                self,
+                self.tr("Export"),
+                self.tr("Exported to {}").format(out_path),
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                self.tr("Export failed"),
+                str(e),
+            )
+
     def _on_webdav_sync(self, auto_triggered: bool = False) -> None:
         """Run WebDAV sync in a background thread with progress feedback.
 
@@ -1765,6 +1829,11 @@ class MainWindow(QMainWindow):
         )
         self.act_webdav_sync.setVisible(webdav_ready)
         self.act_webdav_sync.setEnabled(webdav_ready)
+        has_file = self._current_tab() is not None and self._current_tab().file_path is not None
+        self.act_export_html.setEnabled(has_file)
+        self.act_export_pdf.setEnabled(has_file)
+        self.act_export_odt.setEnabled(has_file)
+        self.act_export_docx.setEnabled(has_file)
         if not folder_mode:
             self._side_panel.hide_all_panels()
             self._left_tb.hide()
@@ -2178,6 +2247,10 @@ class MainWindow(QMainWindow):
         self.act_check_update.setText(self.tr("Check for &Updates…"))
         self.act_command_palette.setText(self.tr("&Command Palette…"))
         self.act_webdav_sync.setText(self.tr("&Sync Now"))
+        self.act_export_html.setText(self.tr("Export as &HTML…"))
+        self.act_export_pdf.setText(self.tr("Export as &PDF…"))
+        self.act_export_odt.setText(self.tr("Export as &ODT…"))
+        self.act_export_docx.setText(self.tr("Export as DOC&X…"))
         self.act_zoom_in.setText(self.tr("Zoom &In (Editor)"))
         self.act_zoom_out.setText(self.tr("Zoom &Out (Editor)"))
         self.act_zoom_reset.setText(self.tr("&Reset Zoom"))
@@ -2190,6 +2263,8 @@ class MainWindow(QMainWindow):
         self._action_registry.menu("view").setTitle(self.tr("&View"))
         self._action_registry.menu("settings").setTitle(self.tr("&Settings"))
         self._action_registry.menu("help").setTitle(self.tr("&Help"))
+        if self._action_registry.menu("export"):
+            self._action_registry.menu("export").setTitle(self.tr("E&xport as"))
 
         # Toolbar tooltips
         if hasattr(self, "_editor_toolbar"):

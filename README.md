@@ -18,6 +18,9 @@ Requirements:
 - Python ≥ 3.11
 - [uv](https://docs.astral.sh/uv/) — package manager
 
+Optional:
+- [pandoc](https://pandoc.org) — used for exporting notes to HTML, PDF, ODT, and DOCX
+
 ```bash
 git clone https://github.com/Nihmar/cutemd.git
 cd cutemd

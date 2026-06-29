@@ -676,6 +676,73 @@ Einrichten in Einstellungen → Synchronisation.</translation>
         <source>Edit mode</source>
         <translation>Bearbeitungsmodus</translation>
     </message>
+    <message>
+        <location filename="../../ui/action_registry.py" line="141" />
+        <source>E&amp;xport as</source>
+        <translation>E&amp;xportieren als</translation>
+    </message>
+    <message>
+        <location filename="../../ui/action_registry.py" line="118" />
+        <source>Export as &amp;HTML…</source>
+        <translation>Export als &amp;HTML…</translation>
+    </message>
+    <message>
+        <location filename="../../ui/action_registry.py" line="122" />
+        <source>Export as &amp;PDF…</source>
+        <translation>Export als &amp;PDF…</translation>
+    </message>
+    <message>
+        <location filename="../../ui/action_registry.py" line="126" />
+        <source>Export as &amp;ODT…</source>
+        <translation>Export als &amp;ODT…</translation>
+    </message>
+    <message>
+        <location filename="../../ui/action_registry.py" line="130" />
+        <source>Export as DOC&amp;X…</source>
+        <translation>Export als DOC&amp;X…</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="1330" />
+        <source>No file to export.</source>
+        <translation>Keine Datei zum Exportieren.</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="1336" />
+        <source>pandoc not found</source>
+        <translation>pandoc nicht gefunden</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="1338" />
+        <source>pandoc is required to export notes.
+
+Install it with your package manager:
+  • Ubuntu/Debian: sudo apt install pandoc
+  • macOS: brew install pandoc
+  • Windows: winget install pandoc
+  • Or download from https://pandoc.org</source>
+        <translation>pandoc wird zum Exportieren von Notizen benötigt.
+
+Installieren Sie es mit Ihrem Paketmanager:
+  • Ubuntu/Debian: sudo apt install pandoc
+  • macOS: brew install pandoc
+  • Windows: winget install pandoc
+  • Oder laden Sie es von https://pandoc.org herunter</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="1362" />
+        <source>Export as {}</source>
+        <translation>Export als {}</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="1378" />
+        <source>Exported to {}</source>
+        <translation>Exportiert nach {}</translation>
+    </message>
+    <message>
+        <location filename="../../ui/main_window.py" line="1383" />
+        <source>Export failed</source>
+        <translation>Export fehlgeschlagen</translation>
+    </message>
 </context>
 <context>
     <name>PdfViewer</name>

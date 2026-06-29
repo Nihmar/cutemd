@@ -141,6 +141,24 @@ class ActionRegistry:
             "&Sync Now", QKeySequence("Ctrl+Shift+Y"), cb.get("webdav_sync")
         )
 
+        # Export
+        self._acts["act_export_html"] = self._action(
+            "Export as &HTML…", None,
+            lambda: (cb.get("export_note") or (lambda f: None))("html"),
+        )
+        self._acts["act_export_pdf"] = self._action(
+            "Export as &PDF…", None,
+            lambda: (cb.get("export_note") or (lambda f: None))("pdf"),
+        )
+        self._acts["act_export_odt"] = self._action(
+            "Export as &ODT…", None,
+            lambda: (cb.get("export_note") or (lambda f: None))("odt"),
+        )
+        self._acts["act_export_docx"] = self._action(
+            "Export as DOC&X…", None,
+            lambda: (cb.get("export_note") or (lambda f: None))("docx"),
+        )
+
         # Zoom
         self._acts["act_zoom_in"] = self._action(
             "Zoom &In (Editor)", QKeySequence("Ctrl+="),
@@ -203,6 +221,14 @@ class ActionRegistry:
         fm.addAction(self._acts["act_save_as"])
         fm.addSeparator()
         fm.addAction(self._acts["act_webdav_sync"])
+        fm.addSeparator()
+        # Export submenu
+        xm = fm.addMenu(_tr(self._w, "E&xport as"))
+        xm.addAction(self._acts["act_export_html"])
+        xm.addAction(self._acts["act_export_pdf"])
+        xm.addAction(self._acts["act_export_odt"])
+        xm.addAction(self._acts["act_export_docx"])
+        self._menus["export"] = xm  # type: ignore[assignment]
         fm.addSeparator()
         fm.addAction(self._acts["act_close_tab"])
         fm.addSeparator()
