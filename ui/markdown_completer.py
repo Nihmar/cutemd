@@ -87,6 +87,31 @@ class MarkdownAutoCompleter(QObject):
         self._file_filter: QLineEdit | None = None
         self._file_list_widget: CuteListWidget | None = None
 
+        # HTML tag autocomplete state
+        self._html_popup: QFrame | None = None
+        self._html_filter: QLineEdit | None = None
+        self._html_list_widget: CuteListWidget | None = None
+
+    # ------------------------------------------------------------------
+    # HTML tag list
+    # ------------------------------------------------------------------
+    _HTML_TAGS: list[str] = [
+        "a", "abbr", "article", "aside", "b", "blockquote", "br", "button",
+        "caption", "cite", "code", "col", "colgroup", "dd", "del",
+        "details", "dfn", "div", "dl", "dt", "em", "fieldset", "figcaption",
+        "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6",
+        "head", "header", "hr", "html", "i", "iframe", "img", "input",
+        "ins", "kbd", "label", "legend", "li", "link", "main", "mark",
+        "meta", "nav", "ol", "option", "p", "picture", "pre", "section",
+        "select", "small", "span", "strong", "sub", "summary", "sup",
+        "table", "tbody", "td", "textarea", "tfoot", "th", "thead",
+        "time", "tr", "u", "ul", "video",
+    ]
+    _VOID_TAGS: set[str] = {
+        "area", "base", "br", "col", "embed", "hr", "img", "input",
+        "link", "meta", "source", "track", "wbr",
+    }
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -120,6 +145,8 @@ class MarkdownAutoCompleter(QObject):
                 if self._inside_frontmatter_tags():
                     _LOG.debug("eventFilter: inside frontmatter tags, showing tag completer")
                     return self._show_tag_completer()
+                if self._after_html_tag():
+                    return self._show_html_tag_completer()
                 # Fallback: if there's a # before cursor, try tags
                 return self._show_tag_completer()
             return self._handle_key(key_event)
@@ -133,6 +160,11 @@ class MarkdownAutoCompleter(QObject):
             return self._handle_file_popup_key(event)
         if obj is self._file_filter and event.type() == QEvent.Type.KeyPress:
             return self._handle_file_filter_key(event)
+
+        if obj is self._html_list_widget and event.type() == QEvent.Type.KeyPress:
+            return self._handle_html_popup_key(event)
+        if obj is self._html_filter and event.type() == QEvent.Type.KeyPress:
+            return self._handle_html_filter_key(event)
 
         return super().eventFilter(obj, event)
 
@@ -161,6 +193,10 @@ class MarkdownAutoCompleter(QObject):
         # --- Backspace: remove empty pairs ---
         if key == Qt.Key.Key_Backspace and self._cfg.get("backspace_pairs", True):
             return self._handle_backspace()
+
+        # --- Auto-close HTML tags on > ---
+        if text == ">" and self._cfg.get("auto_pair", True):
+            return self._auto_close_html_tag()
 
         # --- Auto-pair brackets ---
         if text in ("[", "(") and self._cfg.get("auto_pair_brackets", True):
@@ -425,6 +461,159 @@ class MarkdownAutoCompleter(QObject):
                 if b == "---" or b == "..." or b.startswith("#"):
                     break
         return False
+
+    def _after_html_tag(self) -> bool:
+        """Check if cursor is after ``<`` and before ``>`` or end of word."""
+        cursor = self._editor.textCursor()
+        pos_in_block = cursor.positionInBlock()
+        block_text = cursor.block().text()
+        # Find the last < before cursor
+        lt = block_text.rfind("<", 0, pos_in_block)
+        if lt < 0:
+            return False
+        after_lt = block_text[lt:pos_in_block]
+        # Must be at <tagname position: e.g. <d  or <div
+        if not after_lt.startswith("<"):
+            return False
+        tag_part = after_lt[1:].strip()
+        # No > between < and cursor
+        if ">" in tag_part:
+            return False
+        return True
+
+    # ------------------------------------------------------------------
+    # HTML tag autocomplete
+    # ------------------------------------------------------------------
+
+    def _auto_close_html_tag(self) -> bool:
+        """When the user types ``>``, auto-insert the closing tag if the
+        opening tag looks like a known HTML element."""
+        cursor = self._editor.textCursor()
+        pos_in_block = cursor.positionInBlock()
+        block_text = cursor.block().text()
+
+        # The > was just typed, so cursor is AFTER it.  Find the preceding <
+        gt_pos = pos_in_block - 1  # position of the just-typed >
+        lt = block_text.rfind("<", 0, gt_pos)
+        if lt < 0:
+            return False
+        tag_part = block_text[lt + 1:gt_pos].strip().lower()
+        if not tag_part:
+            return False
+        # Only trigger for known HTML tags
+        if tag_part not in self._HTML_TAGS and tag_part.split()[0] not in self._HTML_TAGS:
+            return False
+
+        base_tag = tag_part.split()[0]
+        if base_tag in self._VOID_TAGS:
+            return False
+
+        closing = f"</{base_tag}>"
+        cursor.insertText(closing)
+        # Move cursor back between tags
+        cursor.movePosition(QTextCursor.MoveOperation.Left,
+                          QTextCursor.MoveMode.MoveAnchor, len(closing))
+        self._editor.setTextCursor(cursor)
+        return True
+
+    # ------------------------------------------------------------------
+    # HTML tag popup (Ctrl+Space after <)
+    # ------------------------------------------------------------------
+
+    def _show_html_tag_completer(self) -> bool:
+        cursor = self._editor.textCursor()
+        pos_in_block = cursor.positionInBlock()
+        block_text = cursor.block().text()
+        lt = block_text.rfind("<", 0, pos_in_block)
+        partial = block_text[lt + 1:pos_in_block].strip().lower()
+
+        self._html_partial = partial
+        self._html_insert_pos = cursor.position()
+        self._html_lt_pos = lt
+        self._html_block = cursor.block()
+
+        self._html_popup = _make_popup(self._editor.viewport())
+        layout = self._html_popup.layout()
+
+        self._html_filter = QLineEdit(self._html_popup)
+        self._html_filter.setPlaceholderText(self._editor.tr("HTML tag\u2026"))
+        self._html_filter.setText(partial)
+        self._html_filter.selectAll()
+        self._html_filter.textChanged.connect(self._on_html_filter_changed)
+        self._html_filter.installEventFilter(self)
+        layout.addWidget(self._html_filter)
+
+        self._html_list_widget = CuteListWidget(self._html_popup)
+        self._html_list_widget.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._html_list_widget.itemClicked.connect(self._on_html_tag_selected)
+        self._html_list_widget.installEventFilter(self)
+        layout.addWidget(self._html_list_widget)
+
+        self._populate_html_list(partial)
+
+        cursor_rect = self._editor.cursorRect(cursor)
+        vp = self._editor.viewport()
+        global_pos = vp.mapToGlobal(cursor_rect.bottomLeft())
+        w = max(200, self._html_list_widget.sizeHintForColumn(0) + 20)
+        h = 240
+        self._html_popup.setGeometry(global_pos.x(), global_pos.y() + 2, w, h)
+        self._html_popup.show()
+        self._html_filter.setFocus()
+        return True
+
+    def _populate_html_list(self, filter_text: str) -> None:
+        self._html_list_widget.clear()
+        low = filter_text.strip().lower()
+        tags = [t for t in self._HTML_TAGS if low in t] if low else list(self._HTML_TAGS)
+        for tag in tags:
+            self._html_list_widget.addItem(QListWidgetItem(tag))
+        if self._html_list_widget.count() > 0:
+            self._html_list_widget.setCurrentRow(0)
+
+    def _on_html_filter_changed(self, text: str) -> None:
+        self._populate_html_list(text)
+
+    def _on_html_tag_selected(self, item: QListWidgetItem) -> None:
+        tag = item.text()
+        self._hide_html_popup()
+        self._insert_html_tag(tag)
+
+    def _hide_html_popup(self) -> None:
+        if self._html_popup is not None:
+            self._html_popup.hide()
+            self._html_popup.deleteLater()
+            self._html_popup = None
+            self._html_filter = None
+            self._html_list_widget = None
+
+    def _insert_html_tag(self, tag: str) -> None:
+        """Insert the HTML tag, replacing the partial text after <."""
+        block = getattr(self, "_html_block", None)
+        if block is None or not block.isValid():
+            return
+        lt_pos = getattr(self, "_html_lt_pos", 0)
+        insert_pos = getattr(self, "_html_insert_pos", 0)
+
+        # Remove the partial tag name
+        cursor = self._editor.textCursor()
+        block_start = block.position()
+        cursor.setPosition(block_start + lt_pos + 1)  # after <
+        cursor.setPosition(insert_pos, QTextCursor.MoveMode.KeepAnchor)
+        if cursor.hasSelection():
+            cursor.removeSelectedText()  # Don't kill the <
+
+        if tag in self._VOID_TAGS:
+            if tag == "img":
+                cursor.insertText(tag + ' src="" />')
+                cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, 3)
+            else:
+                cursor.insertText(tag + " />")
+        else:
+            cursor.insertText(tag + "></" + tag + ">")
+            cursor.movePosition(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.MoveAnchor, len(tag) + 3)
+        self._editor.setTextCursor(cursor)
+        self._editor.setFocus()
 
     # ------------------------------------------------------------------
     # Tag autocomplete
@@ -790,6 +979,30 @@ class MarkdownAutoCompleter(QObject):
             return self._handle_file_popup_key(event)
         if event.key() == Qt.Key.Key_Escape:
             self._hide_file_popup()
+            self._editor.setFocus()
+            return True
+        return False
+
+    def _handle_html_popup_key(self, event: QKeyEvent) -> bool:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            item = self._html_list_widget.currentItem()
+            if item:
+                self._on_html_tag_selected(item)
+            return True
+        if event.key() == Qt.Key.Key_Escape:
+            self._hide_html_popup()
+            self._editor.setFocus()
+            return True
+        return False
+
+    def _handle_html_filter_key(self, event: QKeyEvent) -> bool:
+        if event.key() in (Qt.Key.Key_Up, Qt.Key.Key_Down,
+                           Qt.Key.Key_PageUp, Qt.Key.Key_PageDown,
+                           Qt.Key.Key_Home, Qt.Key.Key_End,
+                           Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            return self._handle_html_popup_key(event)
+        if event.key() == Qt.Key.Key_Escape:
+            self._hide_html_popup()
             self._editor.setFocus()
             return True
         return False
