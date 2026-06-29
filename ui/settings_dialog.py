@@ -574,16 +574,23 @@ class SettingsDialog(QDialog):
         card_lay.addWidget(self._separator())
 
         # Template
+        lbl_dnt = QLabel(self.tr("Template"))
+        lbl_dnt.setStyleSheet("font-weight: bold;")
+        card_lay.addWidget(lbl_dnt)
+        hint_dnt = QLabel(self.tr("Optional, supports {{date}} and {{title}}"))
+        hint_dnt.setStyleSheet("font-size: 11px;")
+        card_lay.addWidget(hint_dnt)
+        dnt_row = QHBoxLayout()
         self._daily_template_edit = QLineEdit()
         self._daily_template_edit.setText(current_daily_template)
         self._daily_template_edit.setPlaceholderText(self.tr("(optional) path to .md template"))
-        card_lay.addLayout(
-            self._field_row(
-                self.tr("Template"),
-                self._daily_template_edit,
-                self.tr("Optional, supports {{date}} and {{title}}"),
-            )
-        )
+        dnt_row.addWidget(self._daily_template_edit)
+        browse_dnt = QPushButton("...")
+        browse_dnt.setFixedWidth(40)
+        browse_dnt.setCursor(Qt.CursorShape.PointingHandCursor)
+        browse_dnt.clicked.connect(self._on_browse_daily_template)
+        dnt_row.addWidget(browse_dnt)
+        card_lay.addLayout(dnt_row)
 
         card_lay.addWidget(self._separator())
 
@@ -1246,6 +1253,28 @@ class SettingsDialog(QDialog):
                 except (ValueError, OSError):
                     pass
             self._daily_folder_edit.setText(path)
+
+    def _on_browse_daily_template(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+        # Start from templates folder, or vault root.
+        start = (
+            self._templates_dir_edit.text().strip() if hasattr(self, "_templates_dir_edit") and self._templates_dir_edit.text().strip() else ""
+        )
+        if start and self._current_folder and not Path(start).is_absolute():
+            start = str(Path(self._current_folder) / start)
+        start = start or self._current_folder or str(Path.home())
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, self.tr("Select daily note template"), start,
+            self.tr("Markdown files (*.md);;All files (*)"),
+        )
+        if path:
+            if self._current_folder:
+                try:
+                    path = str(Path(path).resolve().relative_to(self._current_folder))
+                except (ValueError, OSError):
+                    pass
+            self._daily_template_edit.setText(path)
 
     def _on_test_webdav(self) -> None:
         url = self._webdav_url_edit.text().strip() if self._webdav_url_edit else ""

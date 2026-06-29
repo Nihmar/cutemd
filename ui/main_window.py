@@ -2022,7 +2022,8 @@ class MainWindow(QMainWindow):
             p = Path(tmpl_path)
             if not p.is_absolute():
                 p = vault / p
-            content = TemplatePicker.resolve_content(p, title=today_str)
+            if p.is_file():
+                content = TemplatePicker.resolve_content(p, title=today_str)
 
         file_path.write_text(content, encoding="utf-8")
         self._open_file(str(file_path))
