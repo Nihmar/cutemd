@@ -185,7 +185,8 @@ class PreviewWebEngineView(QWebEngineView):
         self._attachments_dir: Path | None = None
         # JS injected flag — set True after each page load
         self._js_injected = False
-        self._prev_temp_paths: list[str] = []
+        # Reusable temp file — avoids disk allocation on every preview refresh.
+        self._tmp_path: str | None = None
 
         # Allow loading file:// images from local content
         settings = self.page().settings()
@@ -243,19 +244,17 @@ class PreviewWebEngineView(QWebEngineView):
         html = (
             f"<!DOCTYPE html><html><body style='padding:16px'>{escaped}</body></html>"
         )
-        self._cleanup_temp_files()
         fd, tmp_path = tempfile.mkstemp(suffix=".html")
-        self._prev_temp_paths.append(tmp_path)
         with open(fd, "w", encoding="utf-8") as f:
             f.write(html)
         self.page().load(QUrl.fromLocalFile(tmp_path))
 
     def setHtml(self, html: str) -> None:
-        """Load HTML content via setContent() — in-place, no temp file.
+        """Load HTML content.
 
-        QWebEngineView.setHtml() silently truncates above 2 MB.
-        page().setContent() has no size limit and replaces content
-        without a full page navigation (no flash).
+        Uses a reusable temp file + load() to avoid the implicit size
+        limits of setHtml() and setContent() (~2 MB).  The file is
+        overwritten in-place — no allocation per refresh.
         """
         # Inject <base> tag so relative links (wikilinks) resolve to the
         # vault directory.
@@ -270,21 +269,15 @@ class PreviewWebEngineView(QWebEngineView):
         else:
             html = base_tag + html
 
-        self._cleanup_temp_files()
-        self._js_injected = False
-        base_url = QUrl.fromLocalFile(str(self._base_dir)) if self._base_dir else QUrl()
-        self.page().setContent(
-            html.encode("utf-8"), "text/html;charset=utf-8", base_url
-        )
+        # Reuse or create a single temp file.
+        if self._tmp_path is None:
+            fd, self._tmp_path = tempfile.mkstemp(suffix=".html")
+            os.close(fd)
+        with open(self._tmp_path, "w", encoding="utf-8") as f:
+            f.write(html)
 
-    def _cleanup_temp_files(self) -> None:
-        """Remove previous temp files created by setHtml / setPlainText."""
-        for p in self._prev_temp_paths:
-            try:
-                os.unlink(p)
-            except OSError:
-                pass
-        self._prev_temp_paths.clear()
+        self._js_injected = False
+        self.page().load(QUrl.fromLocalFile(self._tmp_path))
 
     # ------------------------------------------------------------------
     # Preview → Editor scroll sync (JS scroll listener)
