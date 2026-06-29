@@ -101,14 +101,19 @@ def show_editor_context_menu(
         cursor.select(QTextCursor.SelectionType.WordUnderCursor)
         word = cursor.selectedText()
         if word and len(word) >= 3 and not spell_checker.check(word):
+            # Save cursor position for replacement
+            saved_cursor = QTextCursor(cursor)
+            saved_cursor.setPosition(cursor.selectionStart())
+            saved_cursor.setPosition(cursor.selectionEnd(), QTextCursor.MoveMode.KeepAnchor)
+
             menu.addSeparator()
             suggestions = spell_checker.suggest(word)
             if suggestions:
                 for s in suggestions[:8]:
                     action = menu.addAction(s)
                     action.triggered.connect(
-                        lambda checked=False, w=word, sug=s, ed=sender:
-                        _replace_word(ed, w, sug)
+                        lambda checked=False, sug=s, sc=saved_cursor, ed=sender:
+                        _replace_word(ed, sc, sug)
                     )
             else:
                 menu.addAction(parent.tr("(no suggestions)")).setEnabled(False)
@@ -116,8 +121,7 @@ def show_editor_context_menu(
     menu.exec(sender.viewport().mapToGlobal(point))
 
 
-def _replace_word(editor: QPlainTextEdit, old: str, new: str) -> None:
-    cursor = editor.textCursor()
-    cursor.select(QTextCursor.SelectionType.WordUnderCursor)
-    if cursor.selectedText() == old:
-        cursor.insertText(new)
+def _replace_word(editor: QPlainTextEdit, saved_cursor: QTextCursor, new: str) -> None:
+    """Replace the word at *saved_cursor* position with *new*."""
+    editor.setTextCursor(saved_cursor)
+    saved_cursor.insertText(new)

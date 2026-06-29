@@ -2,7 +2,12 @@
 
 import re
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
+
+from core.logging import setup_logging
+
+_LOG = setup_logging("cutemd.syntax_highlighter")
 
 
 def _make_format(
@@ -57,9 +62,15 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     # Threshold above which inline patterns are skipped for performance.
     _LARGE_DOC_BLOCKS = 4000
 
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent=None, spell_checker=None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._theme = "dark"
+        self._spell_checker = spell_checker
+        self._spell_fmt = QTextCharFormat()
+        self._spell_fmt.setUnderlineStyle(
+            QTextCharFormat.UnderlineStyle.SpellCheckUnderline
+        )
+        self._spell_fmt.setUnderlineColor(Qt.GlobalColor.red)
         self._build_formats()
 
     # ------------------------------------------------------------------
@@ -125,6 +136,12 @@ class MarkdownHighlighter(QSyntaxHighlighter):
                 self.setCurrentBlockState(self.STATE_FRONTMATTER)
                 return
 
+        # First block with default state (-1) — also check for frontmatter
+        if self.currentBlock().blockNumber() == 0 and stripped == "---":
+            self.setFormat(0, len(text), self.frontmatter_delim_fmt)
+            self.setCurrentBlockState(self.STATE_FRONTMATTER)
+            return
+
         # --- Code fence tracking (highest priority) ---
         if self.CODE_FENCE_RE.match(text.strip()):
             fmt = self.code_fence_fmt
@@ -160,7 +177,30 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         if self.document() is not None and self.document().blockCount() > self._LARGE_DOC_BLOCKS:
             self._apply_rule(self.HEADING_RE, text, self.heading_fmt)
             self._apply_rule(self.LIST_RE, text, self.list_fmt)
-            self._apply_rule(self.BLOCKQUOTE_RE, text, self.blockquote_fmt)
+        self._apply_rule(self.BLOCKQUOTE_RE, text, self.blockquote_fmt)
+
+        # Spell-check after all syntax patterns
+        self._spell_check_block(text)
+
+    _WORD_RE = re.compile(r"\b\w{3,}\b", re.UNICODE)
+
+    def _spell_check_block(self, text: str) -> None:
+        if self._spell_checker is None or not self._spell_checker.available:
+            return
+        skip = self._spell_checker.skip_regions(text)
+        errors = 0
+        for m in self._WORD_RE.finditer(text):
+            word = m.group(0)
+            start = m.start()
+            if start in skip:
+                continue
+            ok = self._spell_checker.check(word)
+            if not ok:
+                self.setFormat(start, m.end() - start, self._spell_fmt)
+                errors += 1
+                _LOG.debug("spell err: %r (langs=%s)", word, self._spell_checker.langs)
+        if errors:
+            _LOG.debug("spell block %d: %d errors", self.currentBlock().blockNumber(), errors)
             return
 
         # --- Inline patterns ---

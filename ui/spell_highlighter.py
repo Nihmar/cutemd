@@ -33,14 +33,23 @@ class SpellHighlighter(QSyntaxHighlighter):
 
     def highlightBlock(self, text: str) -> None:
         if not self._checker.available:
+            _LOG.debug("block %d: checker not available", self.currentBlock().blockNumber())
             return
 
         skip = self._checker.skip_regions(text)
+        errors = 0
+        checked = 0
         for m in _WORD_RE.finditer(text):
             word = m.group(0)
             start = m.start()
+            checked += 1
             if start in skip:
                 continue
             if not self._checker.check(word):
                 length = m.end() - start
                 self.setFormat(start, length, self._fmt)
+                errors += 1
+        if checked:
+            _LOG.debug("block %d: %d words, %d misspelled, langs=%s",
+                       self.currentBlock().blockNumber(), checked, errors,
+                       self._checker.langs)

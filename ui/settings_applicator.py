@@ -226,7 +226,15 @@ class SettingsApplicator:
         w._s.set_toc_in_preview(dlg.selected_toc_in_preview())
 
         # Spell check
-        w._s.set_spell_check_lang(dlg.selected_spell_check_lang())
+        w._s.set_spell_check_langs(
+            [x.strip() for x in dlg.selected_spell_check_langs().split(",") if x.strip()]
+        )
+
+        spell_langs = w._s.spell_check_langs()
+        for i in range(w._tabs.count()):
+            t = w._tabs.widget(i)
+            if isinstance(t, EditorTab):
+                t.set_spell_check_langs(spell_langs)
 
         w._update_auto_sync_timer()
         w._update_menu_state()

@@ -824,7 +824,7 @@ class MainWindow(QMainWindow):
         )
         tab.set_line_number_mode(self._line_number_mode)
         tab.set_toc_in_preview(self._s.toc_in_preview())
-        tab.set_spell_check_lang(self._s.spell_check_lang())
+        tab.set_spell_check_langs(self._s.spell_check_langs())
         tab.modified_changed.connect(self._on_tab_modified)
         tab.status_changed.connect(self._on_tab_status)
         tab.title_changed.connect(lambda: self._refresh_tab_title(tab))
@@ -1272,7 +1272,7 @@ class MainWindow(QMainWindow):
             current_daily_date_format=self._s.daily_notes_date_format(),
             current_zen_mode_max_width=self._s.zen_mode_max_width(),
             current_toc_in_preview=self._s.toc_in_preview(),
-            current_spell_check_lang=self._s.spell_check_lang(),
+            current_spell_check_lang=self._s.spell_check_langs_str(),
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -1284,12 +1284,12 @@ class MainWindow(QMainWindow):
 
         # Propagate TOC preview setting to all open tabs
         toc_enabled = self._s.toc_in_preview()
-        spell_lang = self._s.spell_check_lang()
+        spell_langs = self._s.spell_check_langs()
         for i in range(self._tabs.count()):
             t = self._tabs.widget(i)
             if isinstance(t, EditorTab):
                 t.set_toc_in_preview(toc_enabled)
-                t.set_spell_check_lang(spell_lang)
+                t.set_spell_check_langs(spell_langs)
 
         # Global-only settings (when no folder is open)
         if self._folder_settings is None:

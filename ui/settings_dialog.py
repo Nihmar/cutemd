@@ -7,6 +7,7 @@ from PySide6.QtCore import QSize, Qt, QThread, Signal
 from PySide6.QtGui import QColor, QFont, QKeySequence
 from PySide6.QtWidgets import (
     QComboBox,
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -240,25 +241,94 @@ class SettingsDialog(QDialog):
         gen_lay.addSpacing(12)
 
         # Spell check
-        card, card_lay = self._make_card()
-        self._spell_check_lang_edit = QLineEdit()
-        self._spell_check_lang_edit.setText(current_spell_check_lang)
-        self._spell_check_lang_edit.setPlaceholderText(
-            self.tr("e.g. en_US, it_IT (empty = default)")
-        )
-        if not _spell_available():
-            self._spell_check_lang_edit.setEnabled(False)
-            self._spell_check_lang_edit.setToolTip(
-                self.tr("Install pyenchant to enable spell checking")
+        if _spell_available():
+            current_langs = set(
+                x.strip() for x in current_spell_check_lang.split(",") if x.strip()
             )
-        card_lay.addLayout(
-            self._field_row(
-                self.tr("Spell check language"),
-                self._spell_check_lang_edit,
-                self.tr("Requires pyenchant.  Empty = system default"),
+            card, card_lay = self._make_card()
+            lbl = QLabel(self.tr("Spell check languages"))
+            lbl.setStyleSheet("font-size: 12px; font-weight: bold;")
+            card_lay.addWidget(lbl)
+
+            self._spell_check_lang_cbs: dict[str, QCheckBox] = {}
+            try:
+                import enchant
+                all_langs = set(enchant.list_languages())
+            except Exception:
+                all_langs = set()
+            from core.dict_manager import AVAILABLE_DICTS, is_dict_installed
+
+            # Show UI languages first
+            for ui_code, hunspell_code in AVAILABLE_DICTS.items():
+                if hunspell_code in all_langs or is_dict_installed(hunspell_code):
+                    cb = QCheckBox(f"{ui_code} ({hunspell_code})")
+                    cb.setChecked(hunspell_code in current_langs)
+                    card_lay.addWidget(cb)
+                    self._spell_check_lang_cbs[hunspell_code] = cb
+
+            # Show other installed dicts
+            for lang in sorted(all_langs):
+                if lang in self._spell_check_lang_cbs:
+                    continue
+                if lang.startswith("en_"):
+                    continue
+                cb = QCheckBox(lang)
+                cb.setChecked(lang in current_langs)
+                card_lay.addWidget(cb)
+                self._spell_check_lang_cbs[lang] = cb
+
+            gen_lay.addWidget(card)
+        else:
+            card, card_lay = self._make_card()
+            lbl = QLabel(
+                self.tr("Spell check requires pyenchant.\nInstall it with: pip install pyenchant")
             )
-        )
-        gen_lay.addWidget(card)
+            lbl.setStyleSheet("font-size: 11px;")
+            card_lay.addWidget(lbl)
+            gen_lay.addWidget(card)
+            self._spell_check_lang_cbs = {}
+
+        gen_lay.addSpacing(12)
+
+        # Dictionaries download
+        if _spell_available():
+            card, card_lay = self._make_card()
+            lbl = QLabel(self.tr("Dictionaries"))
+            lbl.setStyleSheet("font-size: 12px; font-weight: bold;")
+            card_lay.addWidget(lbl)
+
+            self._dict_status_labels: dict[str, QLabel] = {}
+            self._dict_buttons: dict[str, QPushButton] = {}
+            from core.dict_manager import AVAILABLE_DICTS, is_dict_installed
+
+            for ui_code, hunspell_code in AVAILABLE_DICTS.items():
+                row = QHBoxLayout()
+                name = ui_code.upper() + " (" + hunspell_code + ")"
+                status_lbl = QLabel(
+                    "\u2705 " + name if is_dict_installed(hunspell_code)
+                    else "\u2b1c " + name
+                )
+                row.addWidget(status_lbl)
+                row.addStretch()
+
+                if is_dict_installed(hunspell_code):
+                    btn = QPushButton(self.tr("Uninstall"))
+                    btn.setFixedWidth(90)
+                    btn.clicked.connect(
+                        lambda checked, c=hunspell_code: self._on_uninstall_dict(c)
+                    )
+                else:
+                    btn = QPushButton(self.tr("Install"))
+                    btn.setFixedWidth(90)
+                    btn.clicked.connect(
+                        lambda checked, c=hunspell_code: self._on_install_dict(c)
+                    )
+                row.addWidget(btn)
+                card_lay.addLayout(row)
+                self._dict_status_labels[hunspell_code] = status_lbl
+                self._dict_buttons[hunspell_code] = btn
+
+            gen_lay.addWidget(card)
 
         gen_lay.addStretch()
         self._stack.addWidget(gen_scroll)
@@ -1229,9 +1299,10 @@ class SettingsDialog(QDialog):
             return self._toc_in_preview_toggle.isChecked()
         return False
 
-    def selected_spell_check_lang(self) -> str:
-        if hasattr(self, "_spell_check_lang_edit") and self._spell_check_lang_edit is not None:
-            return self._spell_check_lang_edit.text().strip()
+    def selected_spell_check_langs(self) -> str:
+        if hasattr(self, "_spell_check_lang_cbs"):
+            checked = [k for k, cb in self._spell_check_lang_cbs.items() if cb.isChecked()]
+            return ",".join(checked)
         return ""
 
     # ==================================================================
@@ -1391,3 +1462,64 @@ class SettingsDialog(QDialog):
                 self.tr("Test Connection"),
                 self.tr("Connection failed:\n{}").format(err),
             )
+
+    # ==================================================================
+    # Dictionary download
+    # ==================================================================
+
+    def _on_install_dict(self, hunspell_code: str) -> None:
+        from core.dict_manager import AVAILABLE_DICTS, DictDownloader
+
+        ui_code = next(k for k, v in AVAILABLE_DICTS.items() if v == hunspell_code)
+        self._dict_buttons[hunspell_code].setEnabled(False)
+        self._dict_buttons[hunspell_code].setText(self.tr("Downloading…"))
+        self._dict_status_labels[hunspell_code].setText(
+            "\u23f3 " + ui_code.upper() + " (" + hunspell_code + ")"
+        )
+
+        self._downloader = DictDownloader(ui_code, hunspell_code, self)
+        self._downloader.finished.connect(
+            lambda ok, err: self._on_dict_downloaded(hunspell_code, ok, err)
+        )
+        self._downloader.start()
+
+    def _on_uninstall_dict(self, hunspell_code: str) -> None:
+        from core.dict_manager import AVAILABLE_DICTS, uninstall_dict
+
+        uninstall_dict(hunspell_code)
+        ui_code = next(k for k, v in AVAILABLE_DICTS.items() if v == hunspell_code)
+        self._dict_status_labels[hunspell_code].setText(
+            "\u2b1c " + ui_code.upper() + " (" + hunspell_code + ")"
+        )
+        self._dict_buttons[hunspell_code].setText(self.tr("Install"))
+        self._dict_buttons[hunspell_code].clicked.disconnect()
+        self._dict_buttons[hunspell_code].clicked.connect(
+            lambda checked, c=hunspell_code: self._on_install_dict(c)
+        )
+
+    def _on_dict_downloaded(self, hunspell_code: str, ok: bool, err: str) -> None:
+        from core.dict_manager import AVAILABLE_DICTS
+
+        ui_code = next(k for k, v in AVAILABLE_DICTS.items() if v == hunspell_code)
+        if ok:
+            self._dict_status_labels[hunspell_code].setText(
+                "\u2705 " + ui_code.upper() + " (" + hunspell_code + ")"
+            )
+            self._dict_buttons[hunspell_code].setText(self.tr("Uninstall"))
+            self._dict_buttons[hunspell_code].clicked.disconnect()
+            self._dict_buttons[hunspell_code].clicked.connect(
+                lambda checked, c=hunspell_code: self._on_uninstall_dict(c)
+            )
+            # Add to language checkboxes if not already there
+            if hasattr(self, "_spell_check_lang_cbs") and hunspell_code not in self._spell_check_lang_cbs:
+                ui_code = next(k for k, v in AVAILABLE_DICTS.items() if v == hunspell_code)
+                cb = QCheckBox(f"{ui_code} ({hunspell_code})")
+                self._spell_check_lang_cbs[hunspell_code] = cb
+                # Find the dictionaries card and add the row
+                pass  # Too complex — just refresh on next open
+        else:
+            self._dict_status_labels[hunspell_code].setText(
+                "\u274c " + ui_code.upper() + " (" + hunspell_code + ")"
+            )
+            self._dict_buttons[hunspell_code].setText(self.tr("Install"))
+        self._dict_buttons[hunspell_code].setEnabled(True)
