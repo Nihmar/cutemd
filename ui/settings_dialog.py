@@ -521,10 +521,9 @@ class SettingsDialog(QDialog):
             card_lay.addWidget(hint_att)
             att_row = QHBoxLayout()
             self._attachments_dir_edit = QLineEdit()
-            att_name = folder_settings.load().get("attachments_dir", "attachments")
-            # Resolve to absolute for display.
-            att_display = str(folder_settings.folder / att_name) if att_name else ""
-            self._attachments_dir_edit.setText(att_display)
+            self._attachments_dir_edit.setText(
+                folder_settings.load().get("attachments_dir", "attachments")
+            )
             self._attachments_dir_edit.setPlaceholderText(self.tr("attachments"))
             att_row.addWidget(self._attachments_dir_edit)
             browse_att = QPushButton("...")
@@ -1116,28 +1115,38 @@ class SettingsDialog(QDialog):
 
     def _on_browse_templates_dir(self) -> None:
         from PySide6.QtWidgets import QFileDialog
-        start_dir = (
-            self._templates_dir_edit.text()
-            or self._current_folder
-            or str(Path.home())
-        )
+        cur = self._templates_dir_edit.text().strip() if self._templates_dir_edit else ""
+        if cur and self._current_folder and not Path(cur).is_absolute():
+            cur = str(Path(self._current_folder) / cur)
+        start_dir = cur or self._current_folder or str(Path.home())
         path = QFileDialog.getExistingDirectory(
             self, self.tr("Select templates folder"), start_dir,
         )
         if path:
+            # Show relative path when inside the open folder.
+            if self._current_folder:
+                try:
+                    path = str(Path(path).resolve().relative_to(self._current_folder))
+                except (ValueError, OSError):
+                    pass
             self._templates_dir_edit.setText(path)
 
     def _on_browse_attachments_dir(self) -> None:
         from PySide6.QtWidgets import QFileDialog
-        start_dir = (
-            self._attachments_dir_edit.text()
-            or self._current_folder
-            or str(Path.home())
-        )
+        # Resolve current value for start dir.
+        cur = self._attachments_dir_edit.text().strip() if self._attachments_dir_edit else ""
+        if cur and self._current_folder and not Path(cur).is_absolute():
+            cur = str(Path(self._current_folder) / cur)
+        start_dir = cur or self._current_folder or str(Path.home())
         path = QFileDialog.getExistingDirectory(
             self, self.tr("Select attachments folder"), start_dir,
         )
         if path:
+            if self._current_folder:
+                try:
+                    path = str(Path(path).resolve().relative_to(self._current_folder))
+                except (ValueError, OSError):
+                    pass
             self._attachments_dir_edit.setText(path)
 
     def _on_test_webdav(self) -> None:

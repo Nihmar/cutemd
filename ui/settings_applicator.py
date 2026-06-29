@@ -158,12 +158,13 @@ class SettingsApplicator:
         new_id = dlg.selected_attachments_dir()
         if new_id is not None:
             # Store relative to vault root when possible.
-            try:
-                cfg["attachments_dir"] = str(
-                    Path(new_id).resolve().relative_to(fs.folder)
-                )
-            except (ValueError, OSError):
-                cfg["attachments_dir"] = new_id
+            p = Path(new_id)
+            if p.is_absolute():
+                try:
+                    new_id = str(p.resolve().relative_to(fs.folder))
+                except (ValueError, OSError):
+                    pass
+            cfg["attachments_dir"] = new_id
 
         cfg["theme"] = w._theme_id
         cfg["editor_font_family"] = w._editor_font_family
@@ -205,10 +206,12 @@ class SettingsApplicator:
         # Templates directory — store relative to vault root when possible.
         tmpl = dlg.selected_templates_dir()
         if tmpl and fs is not None:
-            try:
-                tmpl = str(Path(tmpl).resolve().relative_to(fs.folder))
-            except (ValueError, OSError):
-                pass
+            p = Path(tmpl)
+            if p.is_absolute():
+                try:
+                    tmpl = str(p.resolve().relative_to(fs.folder))
+                except (ValueError, OSError):
+                    pass
         w._s.set_templates_dir(tmpl)
 
         w._update_auto_sync_timer()
