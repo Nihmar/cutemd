@@ -265,3 +265,27 @@ hr {
     font-size: 90%;
     background-color: rgba(86, 182, 194, 0.08);
 }
+
+/* Footnotes */
+hr.footnotes-sep {
+    margin-top: 2em;
+    border: none;
+    border-top: 1px solid palette(mid);
+}
+section.footnotes {
+    font-size: 85%;
+    color: palette(midlight);
+}
+.footnote-ref {
+    font-size: 75%;
+    vertical-align: super;
+    line-height: 0;
+}
+.footnote-ref a,
+.footnote-backref {
+    text-decoration: none;
+    color: palette(highlight);
+}
+.footnote-item p {
+    display: inline;
+}

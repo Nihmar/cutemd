@@ -9,6 +9,7 @@ from PySide6.QtCore import QDir, QSize, QSortFilterProxyModel, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QFileSystemModel,
     QInputDialog,
     QMenu,
@@ -325,6 +326,11 @@ class FileTreePanel(QWidget):
             act_explorer = menu.addAction(self.tr("Open in file explorer"))
             act_explorer.triggered.connect(
                 lambda: self._open_path(str(p.parent))
+            )
+            menu.addSeparator()
+            act_copy = menu.addAction(self.tr("Copy location"))
+            act_copy.triggered.connect(
+                lambda fp=str(p.resolve()): QApplication.clipboard().setText(fp)
             )
 
         menu.exec(self._tree.viewport().mapToGlobal(point))
