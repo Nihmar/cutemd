@@ -37,10 +37,12 @@ class PdfViewer(QWidget):
         nav = QHBoxLayout()
         self._prev_btn = QPushButton("\u25c0")
         self._prev_btn.setFixedWidth(32)
+        self._prev_btn.setToolTip(self.tr("Previous page"))
         self._page_label = QLabel("0 / 0")
         self._page_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._next_btn = QPushButton("\u25b6")
         self._next_btn.setFixedWidth(32)
+        self._next_btn.setToolTip(self.tr("Next page"))
 
         self._fit_width_cb = QCheckBox(self.tr("Fit width"))
         self._fit_width_cb.setChecked(True)
@@ -54,6 +56,7 @@ class PdfViewer(QWidget):
         self._fit_height_cb.toggled.connect(self._on_fit_mode_changed)
 
         self._open_btn = QPushButton(self.tr("Open externally"))
+        self._open_btn.setToolTip(self.tr("Open PDF in system viewer"))
         nav.addStretch()
         nav.addWidget(self._prev_btn)
         nav.addWidget(self._page_label)
@@ -69,7 +72,7 @@ class PdfViewer(QWidget):
 
         self._page_view = QLabel()
         self._page_view.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._page_view.setStyleSheet("background: white;")
+        self._page_view.setStyleSheet("background: palette(base);")
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setWidget(self._page_view)

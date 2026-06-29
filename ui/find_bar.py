@@ -26,7 +26,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-_ERROR_SS = "border: 1px solid #e06c75;"
+_ERROR_COLOR = "#e06c75"
+_ERROR_SS = f"border: 1px solid {_ERROR_COLOR};"
 _NORMAL_SS = ""
 
 

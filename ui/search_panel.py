@@ -80,7 +80,8 @@ def _do_replace_in_files(
                 pass
     return replaced_total, files_modified
 
-_LOG = setup_logging("cutemd.search")
+_ERROR_COLOR = "#e06c75"
+_ERROR_SS = f"border: 1px solid {_ERROR_COLOR};"
 
 
 class SearchPanel(QWidget):
@@ -187,7 +188,7 @@ class SearchPanel(QWidget):
             self._regex_valid = True
         except re.error:
             self._compiled_pattern = None
-            self._search_input.setStyleSheet("border: 1px solid #e06c75;")
+            self._search_input.setStyleSheet(_ERROR_SS)
             self._regex_valid = False
             return
 

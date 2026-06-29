@@ -144,10 +144,6 @@ QPlainTextEdit {
     border-left: 1px solid ${MIDLIGHT};
     padding: 6px 0;
 }
-QToolButton:checked {
-    background: ${HIGHLIGHT};
-    color: ${HIGHLIGHTED_TEXT};
-}
 QToolButton {
     background: transparent;
     border: none;
@@ -165,6 +161,29 @@ QToolButton:pressed {
 QToolButton:checked {
     background: ${HIGHLIGHT};
     color: ${HIGHLIGHTED_TEXT};
+}
+QToolButton:focus {
+    border: 1px solid ${HIGHLIGHT};
+}
+
+/* === PushButton ===================================================== */
+
+QPushButton {
+    background: ${BUTTON};
+    color: ${BUTTON_TEXT};
+    border: 1px solid ${MIDLIGHT};
+    border-radius: 4px;
+    padding: 4px 12px;
+}
+QPushButton:hover {
+    background: ${HIGHLIGHT};
+    color: ${HIGHLIGHTED_TEXT};
+}
+QPushButton:pressed {
+    background: ${DARK};
+}
+QPushButton:focus {
+    border: 1px solid ${HIGHLIGHT};
 }
 #toolbarSep {
     background: ${MIDLIGHT};
@@ -278,4 +297,14 @@ QToolTip {
     color: ${TOOLTIP_TEXT};
     border: none;
     padding: 4px 8px;
+}
+
+/* === Panel headers (TOC, Backlinks, Metadata) ========================= */
+
+#tocPanel > QLabel,
+#backlinksPanel > QLabel,
+#metadataPanel > QLabel {
+    font-size: 11px;
+    font-weight: bold;
+    padding: 4px;
 }

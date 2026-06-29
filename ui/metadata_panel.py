@@ -18,6 +18,7 @@ class MetadataPanel(QFrame):
         super().__init__(parent)
 
         self._header = QLabel()
+        self._header.setObjectName("metadataPanelHeader")
         self._header.setStyleSheet("font-size: 11px; font-weight: bold; padding: 4px;")
 
         self._fields_layout = QVBoxLayout()
