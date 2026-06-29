@@ -21,12 +21,12 @@ VSVersionInfo(
           [
             StringStruct(u'CompanyName', u'CuteMD Contributors'),
             StringStruct(u'FileDescription', u'CuteMD - A non-WYSIWYG Markdown editor'),
-            StringStruct(u'FileVersion', u'1.4.0'),
+            StringStruct(u'FileVersion', u'1.4.1'),
             StringStruct(u'InternalName', u'cutemd'),
             StringStruct(u'LegalCopyright', u'MIT License'),
             StringStruct(u'OriginalFilename', u'cutemd.exe'),
             StringStruct(u'ProductName', u'CuteMD'),
-            StringStruct(u'ProductVersion', u'1.4.0'),
+            StringStruct(u'ProductVersion', u'1.4.1'),
           ]
         ),
       ]
