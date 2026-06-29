@@ -913,8 +913,12 @@ class EditorTab(QWidget):
         cursor = self.editor.textCursor()
         start = cursor.position()
         cursor.insertText("\n" + md + "\n")
-        # Place cursor in the first data cell (past leading "\n| ")
+        # Place cursor in the first data cell (skip header + separator if nrows > 1).
         cursor.setPosition(start + 3)
+        if nrows > 1:
+            cursor.movePosition(QTextCursor.MoveOperation.Down, QTextCursor.MoveMode.MoveAnchor, 2)
+            cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock)
+            cursor.movePosition(QTextCursor.MoveOperation.Right, QTextCursor.MoveMode.MoveAnchor, 2)
         self.editor.setTextCursor(cursor)
 
     def insert_toolbar(self, toolbar: QWidget) -> None:
