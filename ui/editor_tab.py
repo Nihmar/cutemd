@@ -918,8 +918,6 @@ class EditorTab(QWidget):
         if anchor == self._last_anchor:
             return
         self._last_anchor = anchor
-        _LOG.debug("DIAG SCROLL editor→preview: anchor=%s line=%d",
-                   anchor, first_block.blockNumber())
 
         self._syncing_scroll += 1
         self.preview.set_scroll_syncing(True)
@@ -962,6 +960,8 @@ class EditorTab(QWidget):
         self._syncing_scroll += 1
         editor_sb.setValue(int(ratio * editor_sb.maximum()))
         self._syncing_scroll -= 1
+
+        self._pending_sync_anchor = ""
 
     # ------------------------------------------------------------------
     # Link detection & preview (delegated to LinkManager)
