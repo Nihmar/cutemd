@@ -1390,6 +1390,90 @@ class MainWindow(QMainWindow):
                 str(e),
             )
 
+    def _resolve_conflicts(self, result, folder_path, folder_settings) -> None:
+        """Show conflict resolution dialogs for each conflicted file."""
+        from ui.conflict_resolver import (
+            BinaryConflictDialog,
+            MarkdownConflictDialog,
+            is_binary_file,
+        )
+        from core.webdav.sync import (
+            WebDAVClient,
+            _set_file_mtime,
+            _load_sync_state,
+            _save_sync_state,
+        )
+
+        if folder_settings is None:
+            return
+        cfg = folder_settings.load_webdav_config()
+        if not cfg:
+            return
+
+        client = WebDAVClient(cfg["url"], cfg["username"], cfg["password"])
+
+        for conflict in result.conflicts:
+            rel = conflict.rel_path
+            local_file = folder_path / rel
+
+            # Fetch remote text content for diff (if needed)
+            if not is_binary_file(rel) and conflict.remote_text is None:
+                try:
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(delete=False) as tf:
+                        tmp_path = Path(tf.name)
+                    if client.download(rel, tmp_path):
+                        conflict.remote_text = tmp_path.read_text(encoding="utf-8")
+                    tmp_path.unlink(missing_ok=True)
+                except (OSError, UnicodeDecodeError) as e:
+                    _LOG.debug("Failed to fetch remote text for %s: %s", rel, e)
+
+            if is_binary_file(rel) or conflict.local_text is None or conflict.remote_text is None:
+                dlg = BinaryConflictDialog(
+                    rel,
+                    conflict.local_size,
+                    conflict.local_mtime_str,
+                    conflict.remote_size,
+                    conflict.remote_mtime_str,
+                    self,
+                )
+            else:
+                dlg = MarkdownConflictDialog(
+                    rel,
+                    conflict.local_text or "",
+                    conflict.remote_text or "",
+                    self,
+                )
+
+            if dlg.exec() == dlg.DialogCode.Rejected:
+                continue
+
+            action = dlg.action
+            _LOG.debug("Conflict resolved: %s -> %s", rel, action)
+
+            if action == "keep_local":
+                if client.upload(local_file, rel):
+                    _LOG.debug("Uploaded local version: %s", rel)
+            elif action == "take_remote":
+                if local_file.exists():
+                    local_file.unlink()
+                local_file.parent.mkdir(parents=True, exist_ok=True)
+                if client.download(rel, local_file):
+                    _LOG.debug("Downloaded remote version: %s", rel)
+            elif action == "merged":
+                merged = getattr(dlg, "merged_content", None)
+                if merged:
+                    local_file.write_text(merged, encoding="utf-8")
+                    if client.upload(local_file, rel):
+                        _LOG.debug("Uploaded merged version: %s", rel)
+            # else "skip" — do nothing
+
+            # Update sync state with new mtime
+            if local_file.exists():
+                state = _load_sync_state(folder_path)
+                state[rel] = local_file.stat().st_mtime_ns
+                _save_sync_state(folder_path, state)
+
     def _on_webdav_sync(self, auto_triggered: bool = False) -> None:
         """Run WebDAV sync in a background thread with progress feedback.
 
@@ -1511,6 +1595,12 @@ class MainWindow(QMainWindow):
                     self.tr("{} conflicts skipped").format(len(r.conflicts_skipped))
                 )
             status = ", ".join(parts) if parts else self.tr("Sync completed")
+
+            # Handle conflicts interactively
+            if r.conflicts:
+                self._resolve_conflicts(r, self._folder_path, self._folder_settings)
+                # Refresh tree after resolution
+                self._tree_panel.set_root_path(self._folder_path)
             if r.errors:
                 status += " \u2014 " + self.tr("{} errors").format(len(r.errors))
                 # Popup only on errors

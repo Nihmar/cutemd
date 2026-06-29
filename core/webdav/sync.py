@@ -22,6 +22,16 @@ _LOG = setup_logging("cutemd.sync")
 # ---------------------------------------------------------------------------
 
 
+_BINARY_EXTENSIONS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg",
+    ".pdf", ".ico", ".zip", ".gz", ".tar", ".mp3", ".mp4",
+}
+
+
+def _is_binary_ext(rel_path: str) -> bool:
+    return Path(rel_path).suffix.lower() in _BINARY_EXTENSIONS
+
+
 def _fmt_rel(rel_path: str, width: int = 50) -> str:
     lp = len(rel_path)
     if lp > width:
@@ -43,12 +53,24 @@ class WebDAVConfig:
 
 
 @dataclass
+class ConflictedFile:
+    rel_path: str
+    local_size: int = 0
+    local_mtime_str: str = ""
+    remote_size: int = 0
+    remote_mtime_str: str = ""
+    local_text: str | None = None   # populated for text files
+    remote_text: str | None = None  # populated for text files
+
+
+@dataclass
 class SyncResult:
     uploaded: list[str] = field(default_factory=list)
     downloaded: list[str] = field(default_factory=list)
     deleted: list[str] = field(default_factory=list)
     unchanged: list[str] = field(default_factory=list)
     conflicts_skipped: list[str] = field(default_factory=list)
+    conflicts: list[ConflictedFile] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
 
@@ -574,30 +596,32 @@ def sync_folder(
                 result.errors.append(translate("WebDAV", "Download failed: {}").format(rel))
 
         else:
-            if local_ns > remote_ns:
-                if client.upload(local_file, rel):
-                    _record_upload(client, local_file, rel, local_ns, new_state)
-                    result.uploaded.append(rel)
-                    if progress_callback:
-                        progress_callback(
-                            translate("WebDAV", "[{}/{}] Uploaded      {} (conflict)").format(idx, total, _fmt_rel(rel))
-                        )
-                else:
-                    result.errors.append(translate("WebDAV", "Upload failed (conflict): {}").format(rel))
-            elif remote_ns > local_ns:
-                if client.download(rel, local_file):
-                    _set_file_mtime(local_file, remote_dt)
-                    new_state[rel] = remote_ns
-                    result.downloaded.append(rel)
-                    if progress_callback:
-                        progress_callback(
-                            translate("WebDAV", "[{}/{}] Downloaded    {} (conflict)").format(idx, total, _fmt_rel(rel))
-                        )
-                else:
-                    result.errors.append(translate("WebDAV", "Download failed (conflict): {}").format(rel))
-            else:
-                new_state[rel] = max(local_ns, remote_ns)
-                result.conflicts_skipped.append(rel)
+            # Both changed — collect conflict for interactive resolution.
+            conflict = ConflictedFile(rel_path=rel)
+            if local_file:
+                conflict.local_size = local_file.stat().st_size
+                conflict.local_mtime_str = datetime.fromtimestamp(
+                    local_file.stat().st_mtime, tz=timezone.utc
+                ).strftime("%Y-%m-%d %H:%M:%S")
+            if remote_info:
+                conflict.remote_size = remote_info.get("size", 0)
+                if remote_dt:
+                    conflict.remote_mtime_str = remote_dt.strftime("%Y-%m-%d %H:%M:%S")
+            # For text files, read content for diff view
+            if local_file and not _is_binary_ext(rel):
+                try:
+                    conflict.local_text = local_file.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    pass
+            result.conflicts.append(conflict)
+            result.conflicts_skipped.append(rel)
+            new_state[rel] = local_ns  # keep local mtime for now
+            if progress_callback:
+                progress_callback(
+                    translate("WebDAV", "[{}/{}] Conflict      {}").format(
+                        idx, total, _fmt_rel(rel)
+                    )
+                )
 
     _save_sync_state(local_root, new_state)
 
