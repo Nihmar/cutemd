@@ -212,7 +212,7 @@ class EditorTab(QWidget):
         self._preview_viewport.installEventFilter(self)
 
         # Wire preview→editor scroll sync
-        self.preview._scroll_anchor_callback = self._on_preview_user_scrolled
+        self.preview._page.preview_scrolled.connect(self._on_preview_user_scrolled)
 
         self._image_viewer = ImageViewer()
         self._image_viewer.viewport().installEventFilter(self._image_viewer)

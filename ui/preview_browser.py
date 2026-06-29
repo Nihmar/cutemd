@@ -58,7 +58,6 @@ class PreviewWebEnginePage(QWebEnginePage):
     - ``http://cutemd-copy/`` URLs → decode and copy to clipboard
     - External http/https → open in system browser
     - Local file:// or plain paths → emit ``file_link_clicked``
-    - ``cutemd-scroll://`` → emit ``preview_scrolled`` (preview→editor sync)
     - Everything else → blocked (return False)
     """
     file_link_clicked = Signal(str)
@@ -86,9 +85,8 @@ class PreviewWebEnginePage(QWebEnginePage):
         if url_str.startswith("https://cutemd-scroll/"):
             anchor = url_str.removeprefix("https://cutemd-scroll/")
             # Dedup: Chromium may call acceptNavigationRequest multiple times
-            # for the same navigation (main frame + sub-resource checks).
-            last_anchor = getattr(self, '_last_scroll_anchor', '')
-            if anchor != last_anchor:
+            last = getattr(self, '_last_scroll_anchor', '')
+            if anchor != last:
                 self._last_scroll_anchor = anchor
                 self.preview_scrolled.emit(anchor)
             return False
@@ -152,10 +150,6 @@ class PreviewWebEngineView(QWebEngineView):
         self._attachments_dir: Path | None = None
         # JS injected flag — set True after each page load
         self._js_injected = False
-
-        # Connect preview_scrolled for preview→editor sync
-        self._page.preview_scrolled.connect(self._on_preview_user_scrolled)
-        self._scroll_anchor_callback = None  # set by EditorTab
 
         # Allow loading file:// images from local content
         settings = self.page().settings()
@@ -262,7 +256,7 @@ class PreviewWebEngineView(QWebEngineView):
 
     _SCROLL_LISTENER_JS = (
         "(function(){"
-        "if(window._cutemd_scroll_listener){return;}"
+        "if(window._cutemd_scroll_listener)return;"
         "window._cutemd_scroll_listener=true;"
         "window._cutemd_syncing=false;"
         "window.addEventListener('scroll',function(){"
@@ -284,11 +278,6 @@ class PreviewWebEngineView(QWebEngineView):
             return
         self._js_injected = True
         self.page().runJavaScript(self._SCROLL_LISTENER_JS)
-
-    def _on_preview_user_scrolled(self, anchor: str) -> None:
-        """Forward the anchor from the JS scroll listener to EditorTab."""
-        if self._scroll_anchor_callback:
-            self._scroll_anchor_callback(anchor)
 
     def set_scroll_syncing(self, syncing: bool) -> None:
         """Tell the JS that we're about to programmatically scroll the
