@@ -828,6 +828,8 @@ class MainWindow(QMainWindow):
         tab.set_line_number_mode(self._line_number_mode)
         tab.set_toc_in_preview(self._s.toc_in_preview())
         tab.set_spell_check_langs(self._s.spell_check_langs())
+        if self._folder_path is not None:
+            tab.load_custom_dict(self._folder_path)
         tab.modified_changed.connect(self._on_tab_modified)
         tab.status_changed.connect(self._on_tab_status)
         tab.title_changed.connect(lambda: self._refresh_tab_title(tab))
@@ -1034,6 +1036,7 @@ class MainWindow(QMainWindow):
         tab.editor.setFocus()
 
     def _on_editor_context_menu(self, point: QPoint) -> None:
+        tab = self._current_tab()
         show_editor_context_menu(
             self,
             point,
@@ -1041,10 +1044,10 @@ class MainWindow(QMainWindow):
             lambda name, color, size=18: self._icon_provider.make(name, color, size),
             self._insert_md,
             self._on_insert_image,
-            spell_checker=self._current_tab()._spell_checker if self._current_tab() and hasattr(self._current_tab(), "_spell_checker") else None,
+            spell_checker=tab._spell_checker if tab and hasattr(tab, "_spell_checker") else None,
+            on_add_to_dict=tab.add_custom_word if tab and hasattr(tab, "add_custom_word") else None,
         )
-        # Append spell-check suggestions if available
-        tab = self._current_tab()
+        # --- keep existing spell-check suggestions block (appends to already-shown menu) ---
         if tab is not None and hasattr(tab, "_spell_checker") and tab._spell_checker.available:
             cursor = tab.editor.cursorForPosition(point)
             cursor.select(QTextCursor.SelectionType.WordUnderCursor)

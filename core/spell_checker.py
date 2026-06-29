@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 from core.logging import setup_logging
@@ -32,12 +33,15 @@ _SKIP_PATTERNS: list[tuple[re.Pattern, int]] = [
 
 class SpellChecker:
     """Optional spell checker backed by pyenchant.  Supports multiple
-    simultaneous dictionaries (e.g. en_US + it_IT)."""
+    simultaneous dictionaries (e.g. en_US + it_IT) plus a per-folder
+    custom word list stored in ``.cutemd/custom_dict.txt``."""
 
     def __init__(self, langs: list[str] | None = None) -> None:
         self._dicts: list[Any] = []
         self._available = False
         self._langs: list[str] = []
+        self._custom_words: set[str] = set()
+        self._custom_dict_path: Path | None = None
         self._reload(langs or [])
 
     @property
@@ -88,6 +92,10 @@ class SpellChecker:
             _LOG.debug("spell checker loaded: langs=%s", self._langs)
 
     def check(self, word: str) -> bool:
+        """Return True if *word* is correctly spelled (hunspell OR custom dict)."""
+        # Always accept words in the custom dictionary.
+        if word in self._custom_words:
+            return True
         if not self._available:
             return True
         return any(d.check(word) for d in self._dicts)
@@ -103,6 +111,41 @@ class SpellChecker:
                     seen.add(s)
                     result.append(s)
         return result
+
+    def load_custom_dict(self, folder_path: Path) -> None:
+        """Load the custom word list from ``<folder>/.cutemd/custom_dict.txt``.
+
+        Words are stored one-per-line, case-sensitive, UTF-8.
+        """
+        self._custom_words = set()
+        path = folder_path / ".cutemd" / "custom_dict.txt"
+        self._custom_dict_path = path
+        if not path.is_file():
+            return
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                w = line.strip()
+                if w:
+                    self._custom_words.add(w)
+            _LOG.debug("custom dict loaded: %d words from %s", len(self._custom_words), path)
+        except OSError:
+            _LOG.debug("custom dict read error: %s", path, exc_info=True)
+
+    def add_word(self, word: str) -> None:
+        """Add *word* to the custom dictionary and persist it to disk."""
+        if word in self._custom_words:
+            return
+        self._custom_words.add(word)
+        if self._custom_dict_path is None:
+            _LOG.debug("add_word(%r): no custom dict path set", word)
+            return
+        try:
+            self._custom_dict_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._custom_dict_path.open("a", encoding="utf-8") as f:
+                f.write(word + "\n")
+            _LOG.debug("custom dict: added %r", word)
+        except OSError:
+            _LOG.debug("custom dict write error", exc_info=True)
 
     def skip_regions(self, text: str) -> set[int]:
         """Return a set of character positions that should be skipped."""

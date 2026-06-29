@@ -19,6 +19,7 @@ def show_editor_context_menu(
     on_format: Callable[[str], None],
     on_image: Callable[[], None],
     spell_checker=None,
+    on_add_to_dict: Callable[[str], None] | None = None,
 ) -> None:
     """Build and show the right-click formatting menu for the editor."""
     sender = parent.sender()
@@ -117,6 +118,12 @@ def show_editor_context_menu(
                     )
             else:
                 menu.addAction(parent.tr("(no suggestions)")).setEnabled(False)
+            # Add-to-dictionary action
+            if on_add_to_dict is not None:
+                act = menu.addAction(parent.tr("Add to dictionary"))
+                act.triggered.connect(
+                    lambda checked=False, w=word: on_add_to_dict(w)
+                )
 
     menu.exec(sender.viewport().mapToGlobal(point))
 
