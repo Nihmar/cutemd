@@ -1045,6 +1045,14 @@ class EditorTab(QWidget):
             len(html) if html else 0,
             self.editor.firstVisibleBlock().blockNumber(),
         )
+        # Footnote debug
+        if html:
+            refs = html.count("footnote-ref")
+            defs = html.count("footnote-item")
+            if refs > 0 or defs > 0:
+                _LOG.debug("FOOTNOTE refs=%d defs=%d", refs, defs)
+            elif "[^" in self._cached_text:
+                _LOG.debug("FOOTNOTE source has [^] but no footnote HTML — parser may be skipping")
         self._preview_busy = False
         # Cancel spinner if it hasn't fired yet.
         if hasattr(self, "_spinner_timer"):
@@ -1259,9 +1267,6 @@ class EditorTab(QWidget):
                 ratio = min(px_y, sb_px_range) / sb_px_range
                 sb.setValue(int(ratio * sb.maximum()))
         self._syncing_scroll -= 1
-        _LOG.debug("SYNC line=%-4d px=%d/%d first=%d",
-                   target_line, px_y, total_h,
-                   self.editor.firstVisibleBlock().blockNumber())
 
         self._pending_sync_anchor = ""
 
