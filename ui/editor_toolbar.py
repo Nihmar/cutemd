@@ -18,6 +18,7 @@ class EditorToolbar(QWidget):
     image_requested = Signal()
     toggle_search = Signal()         # toggles the find bar
     detach_preview = Signal()        # detach/reattach the preview pane
+    insert_table_requested = Signal()  # open insert-table dialog
 
     def __init__(
         self,
@@ -68,7 +69,10 @@ class EditorToolbar(QWidget):
             b.setAutoRaise(True)
             b.setIconSize(QSize(18, 18))
             b.setFixedSize(30, 28)
-            b.clicked.connect(lambda checked=False, s=syntax: self.format_requested.emit(s))
+            if icon_name == "table":
+                b.clicked.connect(self.insert_table_requested.emit)
+            else:
+                b.clicked.connect(lambda checked=False, s=syntax: self.format_requested.emit(s))
             layout.addWidget(b)
             self._buttons.append((b, icon_name))
 

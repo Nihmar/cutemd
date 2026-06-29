@@ -490,6 +490,7 @@ class MainWindow(QMainWindow):
             lambda name, color, size=18: self._icon_provider.make(name, color, size),
         )
         self._editor_toolbar.format_requested.connect(self._insert_md)
+        self._editor_toolbar.insert_table_requested.connect(self._on_insert_table)
         self._editor_toolbar.image_requested.connect(self._on_insert_image)
         self._editor_toolbar.toggle_search.connect(self._on_toggle_search)
         self._editor_toolbar.detach_preview.connect(self._on_detach_preview)
