@@ -521,10 +521,11 @@ class SettingsDialog(QDialog):
             card_lay.addWidget(hint_att)
             att_row = QHBoxLayout()
             self._attachments_dir_edit = QLineEdit()
-            self._attachments_dir_edit.setText(
-                folder_settings.load().get("attachments_dir", "attachments")
+            val = folder_settings.load().get("attachments_dir", "")
+            self._attachments_dir_edit.setText(val)
+            self._attachments_dir_edit.setPlaceholderText(
+                self.tr("vault root (default)")
             )
-            self._attachments_dir_edit.setPlaceholderText(self.tr("attachments"))
             att_row.addWidget(self._attachments_dir_edit)
             browse_att = QPushButton("...")
             browse_att.setFixedWidth(40)

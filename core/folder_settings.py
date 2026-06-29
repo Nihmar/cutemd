@@ -28,15 +28,16 @@ class FolderSettings:
         return self._config_path
 
     def attachments_dir(self) -> Path:
-        """Return the configured attachments directory (created on demand).
+        """Return the configured attachments directory.
 
-        Resolves relative paths against the opened folder.
-        Defaults to ``"attachments"`` unless overridden in settings.json.
+        If no attachments folder is configured, returns the vault root.
+        Otherwise resolves the relative path, creates it on demand.
         """
-        name = str(self._values.get("attachments_dir", "attachments")).strip()
+        name = str(self._values.get("attachments_dir", "")).strip()
         if not name or ".." in name:
-            name = "attachments"
+            return self._folder
         target = (self._folder / name).resolve()
+        # Only create if user explicitly configured it.
         target.mkdir(parents=True, exist_ok=True)
         return target
 
