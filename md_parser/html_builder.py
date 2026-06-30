@@ -8,7 +8,7 @@ from html import unescape as _unescape_html
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from markdown.image_utils import (
+from md_parser.image_utils import (
     SizeProvider,
     add_img_dimensions,
     build_file_index,
@@ -21,7 +21,7 @@ from core.logging import setup_logging
 
 _LOG = setup_logging("cutemd.html_builder")
 from core.frontmatter import strip_frontmatter  # noqa: F401 — re-exported
-from markdown.tools import BLOCK_OPEN_TYPES, add_heading_ids
+from md_parser.tools import BLOCK_OPEN_TYPES, add_heading_ids
 
 if TYPE_CHECKING:
     from markdown_it import MarkdownIt

@@ -162,7 +162,7 @@ def build_line_anchor_map(md: MarkdownIt, text: str) -> list[int]:
 
     Returns a list of ``anchor_index`` values, one per line of *text*.
     """
-    from markdown.tools import BLOCK_OPEN_TYPES
+    from md_parser.tools import BLOCK_OPEN_TYPES
 
     tokens = md.parse(text)
     entries: list[tuple[int, int, int]] = []

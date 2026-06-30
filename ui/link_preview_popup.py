@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from markdown.document_renderers import (
+from md_parser.document_renderers import (
     docx_to_html,
     epub_to_html,
     pptx_to_html,

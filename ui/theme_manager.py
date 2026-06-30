@@ -42,7 +42,7 @@ class ThemeManager(QObject):
 
     def apply(self, theme_id: str) -> None:
         """Apply *theme_id* globally: palette, QSS, pygments style."""
-        from markdown.tools import set_pygments_style
+        from md_parser.tools import set_pygments_style
 
         self._theme_id = theme_id
         self._current = self.resolve(theme_id)

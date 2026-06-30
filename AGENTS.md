@@ -21,11 +21,11 @@ Never commit without asking. Include `Fixes #<number>` in the commit message bod
 
 | Package | Qt imports? | Inbound from |
 |---|---|---|
-| `markdown/` | ❌ No | `ui/` only |
-| `core/` | ❌ No | `ui/`, `markdown/` |
+| `md_parser/` | ❌ No | `ui/` only |
+| `core/` | ❌ No | `ui/`, `md_parser/` |
 | `ui/` | ✅ Yes | (none import this) |
 
-- `markdown/tools.py` exposes `set_pygments_style(name)` — call from UI layer on theme change, never `ui.<anything>` from `markdown/`.
+- `md_parser/tools.py` exposes `set_pygments_style(name)` — call from UI layer on theme change, never `ui.<anything>` from `md_parser/`.
 - `core/updater.py` — pure update-checking logic (`check_for_update()`, `download_release()`). Uses `requests`.
 - `core/services/` — `link_resolver.py`, `anchor_map.py`, `file_io.py`, `folder_setup.py`, `recent_folders.py`.
 - `main.py` — entry point; `__version__` is source of truth (read via `__import__("main").__version__` everywhere else).
@@ -39,7 +39,7 @@ Never commit without asking. Include `Fixes #<number>` in the commit message bod
 
 ## Copy-code button
 
-`markdown/html_builder.py:_inject_copy_buttons()` injects `<a href="http://cutemd-copy/BASE64">` before each `<pre><code>`. `ui/preview_browser.py:_on_anchor_clicked()` intercepts `http://cutemd-copy/` → `base64.urlsafe_b64decode` → `clipboard.setText()`. Set `setOpenLinks(False)` on the browser.
+`md_parser/html_builder.py:_inject_copy_buttons()` injects `<a href="http://cutemd-copy/BASE64">` before each `<pre><code>`. `ui/preview_browser.py:_on_anchor_clicked()` intercepts `http://cutemd-copy/` → `base64.urlsafe_b64decode` → `clipboard.setText()`. Set `setOpenLinks(False)` on the browser.
 
 ## Missing file creation on link/wikilink click
 

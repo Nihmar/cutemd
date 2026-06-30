@@ -13,11 +13,11 @@ def _get_md():
     """Lazily build a MarkdownIt parser in the worker thread."""
     from markdown_it import MarkdownIt
     from mdit_py_plugins.dollarmath import dollarmath_plugin
-    from markdown.math_renderers import (
+    from md_parser.math_renderers import (
         render_math_block, render_math_block_label,
         render_math_inline, render_math_inline_double,
     )
-    from markdown.tools import highlight_code
+    from md_parser.tools import highlight_code
 
     md = (
         MarkdownIt("commonmark", {"highlight": highlight_code})
@@ -50,7 +50,7 @@ class PreviewWorker(QObject):
             if self._md is None:
                 self._md = _get_md()
 
-            from markdown.html_builder import build_html
+            from md_parser.html_builder import build_html
 
             render_params = dict(params)
             render_params["md"] = self._md

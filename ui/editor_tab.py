@@ -55,7 +55,7 @@ from core.file_utils import read_file_with_encoding
 from core.link_resolution import build_line_anchor_map, resolve_link_target
 from core.logging import setup_logging
 from core.spell_checker import SpellChecker
-from markdown.html_builder import (
+from md_parser.html_builder import (
     preprocess_tags,
     preprocess_wikilink_images,
     preprocess_wikilinks,

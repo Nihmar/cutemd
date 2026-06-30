@@ -1,5 +1,7 @@
 """Main window for the Markdown editor."""
 
+from __future__ import annotations
+
 import re
 from pathlib import Path
 from typing import Any
@@ -888,13 +890,13 @@ class MainWindow(QMainWindow):
         from markdown_it import MarkdownIt
         from mdit_py_plugins.dollarmath import dollarmath_plugin
         from mdit_py_plugins.footnote import footnote_plugin
-        from markdown.math_renderers import (
+        from md_parser.math_renderers import (
             render_math_block,
             render_math_block_label,
             render_math_inline,
             render_math_inline_double,
         )
-        from markdown.tools import highlight_code
+        from md_parser.tools import highlight_code
         self._md = (
             MarkdownIt("commonmark", {"highlight": highlight_code})
             .enable(["table", "strikethrough"])
@@ -1307,7 +1309,7 @@ class MainWindow(QMainWindow):
         _LOG.debug("DIAG _apply_theme: theme_id=%s is_dark=%s pygments=%s",
                    self._theme_id, self._current_theme.is_dark,
                    self._current_theme.pygments_style)
-        from markdown.tools import set_pygments_style
+        from md_parser.tools import set_pygments_style
 
         set_pygments_style(self._current_theme.pygments_style)
 

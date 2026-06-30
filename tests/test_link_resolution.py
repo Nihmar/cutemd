@@ -3,11 +3,11 @@
 from core.link_resolution import build_line_anchor_map
 from markdown_it import MarkdownIt
 from mdit_py_plugins.dollarmath import dollarmath_plugin
-from markdown.math_renderers import (
+from md_parser.math_renderers import (
     render_math_inline, render_math_inline_double,
     render_math_block, render_math_block_label,
 )
-from markdown.tools import highlight_code
+from md_parser.tools import highlight_code
 
 
 def _make_parser():

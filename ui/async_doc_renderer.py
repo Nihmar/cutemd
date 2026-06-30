@@ -57,28 +57,28 @@ class AsyncDocRenderer(QThread):
 
 
 def _render_xlsx(path: Path) -> str:
-    from markdown.document_renderers import xlsx_to_html
+    from md_parser.document_renderers import xlsx_to_html
     # Use empty CSS so table styling comes only from _XLSX_TABLE_CSS
     return xlsx_to_html(path, "")
 
 
 def _render_docx(path: Path) -> str:
-    from markdown.document_renderers import docx_to_html
+    from md_parser.document_renderers import docx_to_html
     return docx_to_html(path, "")
 
 
 def _render_pptx(path: Path) -> str:
-    from markdown.document_renderers import pptx_to_html
+    from md_parser.document_renderers import pptx_to_html
     return pptx_to_html(path, "")
 
 
 def _render_cbz(path: Path) -> str:
-    from markdown.document_renderers import cbz_to_html
+    from md_parser.document_renderers import cbz_to_html
     return cbz_to_html(path, "")
 
 
 def _render_epub(path: Path) -> str:
-    from markdown.document_renderers import epub_to_html
+    from md_parser.document_renderers import epub_to_html
     return epub_to_html(path, "")
 
 
