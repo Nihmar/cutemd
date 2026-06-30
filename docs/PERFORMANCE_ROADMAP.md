@@ -1,5 +1,8 @@
 # Performance Analysis & Optimization Roadmap
 
+> **Status: 13/19 items implemented (68%)** — branch `perf/performance-roadmap`
+> Last updated: 2026-06-30
+
 ## Methodology
 
 Each subsystem was profiled by reading its source code, identifying
@@ -486,39 +489,39 @@ SyncThread → sync_folder
 
 ## 12. Implementation Priority
 
-### Phase 1 — Quick Wins (minimal risk, high impact)
+### Phase 1 — Quick Wins (minimal risk, high impact) ✅ 8/9
 
-| # | Item | Est. savings | Effort |
-|---|---|---|---|
-| 1 | Spell-check word cache (LRU on `check()`, thread-safe) | 1–3 ms/keystroke | Small |
-| 2 | Cache QSS substitute per theme | 10–30 ms/switch | Trivial |
-| 3 | Deferred spell highlight (50 ms debounce) | 1–3 ms/keystroke | Small |
-| 4 | Don't re-highlight invisible tabs on theme switch | 20–50 ms/switch | Trivial |
-| 5 | `lazy="loading"` on preview images | 50–200 ms/render | Trivial |
-| 6 | Skip regex on non-matching first char | 0.1–0.5 ms/line | Trivial |
-| 7 | Cache link stat() results (2 sec TTL) | 50–200 ms/scan | Small |
-| 8 | `AA_ShareOpenGLContexts` before QApplication | GPU mem/tab creation | Trivial |
-| 9 | Single filesystem walk for tree + tags + backlinks | 100–500 ms/startup | Medium |
+| # | Item | Status |
+|---|------|--------|
+| 1 | Spell-check word cache (LRU on `check()`, thread-safe) | ✅ Done |
+| 2 | Cache QSS substitute per theme | ✅ Done |
+| 3 | Deferred spell highlight (50 ms debounce) | ✅ Done (debounced timer, no thread) |
+| 4 | Don't re-highlight invisible tabs on theme switch | ✅ Done |
+| 5 | `lazy="loading"` on preview images | ✅ Done |
+| 6 | Skip regex on non-matching first char | ✅ Done |
+| 7 | Cache link stat() results (2 sec TTL) | ✅ Already present |
+| 8 | `AA_ShareOpenGLContexts` before QApplication | ✅ Already present |
+| 9 | Single filesystem walk for tree + tags + backlinks | ✅ Done (VaultScanner shared rglob) |
 
-### Phase 2 — Structural Improvements (medium risk, high impact)
+### Phase 2 — Structural Improvements (medium risk, high impact) ✅ 4/5
 
-| # | Item | Est. savings | Effort |
-|---|---|---|---|
-| 10 | Lazy MarkdownIt parser (background thread) | 25–50 ms/startup | Medium |
-| 11 | Lazy SpellChecker import | 20–50 ms/startup | Small |
-| 12 | Tab sleep via LifecycleState (Frozen/Discarded) | 50–100 MB/tab | Medium |
-| 13 | Body-only preview patch via `runJavaScript` | 20–200 ms/render | Medium |
-| 14 | Search index (inverted index on folder open) | 10–100× search speed | Large |
+| # | Item | Status |
+|---|------|--------|
+| 10 | Lazy MarkdownIt parser | ✅ Done (lazy construction in _get_or_create_md) |
+| 11 | Lazy SpellChecker import | ✅ Done (import enchant deferred) |
+| 12 | Tab sleep via LifecycleState (Frozen/Discarded) | ✅ Done |
+| 13 | Body-only preview patch via `runJavaScript` | ✅ Done |
+| 14 | Search index (inverted index on folder open) | ⏭️ Skipped (Large effort) |
 
-### Phase 3 — Deep Changes (higher risk, transformative impact)
+### Phase 3 — Deep Changes (higher risk, transformative impact) ✅ 3/5
 
-| # | Item | Est. savings | Effort |
-|---|---|---|---|
-| 15 | Incremental MD→HTML preview (re-render changed blocks only) | 5–30 ms/keystroke | Large |
-| 16 | Ripgrep backend for find-in-files | 10–50× faster search | Medium |
-| 17 | Parallel WebDAV transfers | 2–4× faster sync | Medium |
-| 18 | Hardware-accelerated editor scroll (QScroller) | Noticeably smoother | Small |
-| 19 | Virtual DOM for large preview docs | 50–100 MB/render | Large |
+| # | Item | Status |
+|---|------|--------|
+| 15 | Incremental MD→HTML preview (re-render changed blocks only) | ⏭️ Skipped (Large) |
+| 16 | Ripgrep backend for find-in-files | ✅ Done |
+| 17 | Parallel WebDAV transfers | ✅ Done (ThreadPoolExecutor + HTTP pooling) |
+| 18 | Hardware-accelerated editor scroll (QScroller) | ✅ Done (TouchGesture) |
+| 19 | Virtual DOM for large preview docs | ⏭️ Skipped (Large) |
 
 ---
 
