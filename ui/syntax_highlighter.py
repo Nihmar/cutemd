@@ -2,7 +2,7 @@
 
 import re
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
 
 from core.logging import setup_logging
@@ -74,6 +74,14 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         )
         self._spell_fmt.setUnderlineColor(Qt.GlobalColor.red)
         self._needs_rehighlight = False
+
+        # Debounced spell check — only runs when the user stops typing.
+        self._spell_deferred = True  # skip spell check until enable_spell()
+        self._spell_timer = QTimer()
+        self._spell_timer.setSingleShot(True)
+        self._spell_timer.setInterval(50)
+        self._spell_timer.timeout.connect(self._flush_spell)
+
         self._build_formats()
 
     # ------------------------------------------------------------------
@@ -204,10 +212,12 @@ class MarkdownHighlighter(QSyntaxHighlighter):
 
         self.setCurrentBlockState(self.STATE_NORMAL)
 
-        # Spell-check first — only sets underline style, won't touch foreground.
-        # Applying it before syntax patterns lets the patterns overwrite the
-        # default foreground / bold / italic while preserving the red underline.
-        self._spell_check_block(text)
+        # Spell-check: runs on first highlightBlock after _spell_deferred
+        # is False, then defers for 50ms (no spell while user is typing).
+        if not self._spell_deferred:
+            self._spell_check_block(text)
+            self._spell_deferred = True
+            self._spell_timer.start()
 
         # Syntax patterns (applied after spell-check so they win on colour).
         # Footnote definitions — whole-line pattern, before other inline rules.
@@ -258,6 +268,17 @@ class MarkdownHighlighter(QSyntaxHighlighter):
                 _LOG.debug("spell err: %r (langs=%s)", word, self._spell_checker.langs)
         if errors:
             _LOG.debug("spell block %d: %d errors", self.currentBlock().blockNumber(), errors)
+
+    def _flush_spell(self) -> None:
+        """Debounce timer fired — re-enable spell check and rehighlight."""
+        self._spell_deferred = False
+        self.rehighlight()
+
+    def enable_spell(self) -> None:
+        """Enable spell checking (call after the window is shown)."""
+        if self._spell_deferred:
+            self._spell_deferred = False
+            self.rehighlight()
 
     def _fmt_frontmatter(self, text: str) -> None:
         """Highlight YAML key: value pairs in the frontmatter block."""
