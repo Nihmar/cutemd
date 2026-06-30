@@ -917,8 +917,9 @@ class MainWindow(QMainWindow):
         self._tabs.setCurrentIndex(idx)
         self._connect_edit_actions(tab)
 
-        # Enable spell check if the window is already visible.
-        tab._highlighter.enable_spell()
+        # Enable spell check on new tabs if window is already visible.
+        if self.isVisible():
+            tab._highlighter.enable_spell()
 
         # Propagate the configured images directory to every new tab.
         if self._folder_settings is not None:
