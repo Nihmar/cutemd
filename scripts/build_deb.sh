@@ -58,7 +58,7 @@ uv run python -m PyInstaller \
     --optimize 2 \
     --noupx \
     --noconfirm \
-    --collect-all markdown \
+    --collect-submodules markdown \
     --add-data "ui/icons:ui/icons" \
     --add-data "ui/style.qss:ui" \
     --add-data "ui/preview_styles.css:ui" \
