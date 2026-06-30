@@ -848,15 +848,18 @@ class EditorTab(QWidget):
     def set_spell_check_langs(self, langs: list[str]) -> None:
         _LOG.debug("set_spell_check_langs: %s", langs)
         self._spell_checker.set_langs(langs)
+        self._highlighter.set_spell_langs(langs)
         self._highlighter.rehighlight()
 
     def load_custom_dict(self, folder_path: Path) -> None:
         """Load the per-folder custom dictionary into the spell checker."""
         self._spell_checker.load_custom_dict(folder_path)
+        self._highlighter.load_custom_dict(folder_path)
 
     def add_custom_word(self, word: str) -> None:
         """Add a word to the custom dictionary and re-highlight."""
         self._spell_checker.add_word(word)
+        self._highlighter.add_word(word)
         self._highlighter.rehighlight()
 
     # ------------------------------------------------------------------
