@@ -45,11 +45,12 @@ rm -rf "$DIST_DIR" "$BUILD_DIR" "$PROJECT_DIR/__pycache__"
 # ── PyInstaller build ────────────────────────────────────────────────
 
 echo "==> Installing PyInstaller …"
-uv pip install pyinstaller
+uv python pin 3.13
+uv run python -m pip install pyinstaller
 
 echo "==> Building executable with PyInstaller (optimised for speed) …"
 cd "$PROJECT_DIR"
-uv run pyinstaller \
+uv run python -m PyInstaller \
     --name "$APP" \
     --onedir \
     --windowed \

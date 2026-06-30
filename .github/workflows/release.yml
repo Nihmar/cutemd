@@ -37,6 +37,8 @@ jobs:
 
   build-windows:
     runs-on: windows-latest
+    env:
+      UV_PYTHON: "3.13"
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
@@ -45,7 +47,13 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
         with:
           cache-suffix: ${{ github.job }}
+      - run: uv python pin 3.13
       - run: uv sync --dev
+      - name: Show Python version
+        shell: bash
+        run: |
+          echo "system python: $(python --version 2>&1)"
+          echo "uv python: $(uv run python --version 2>&1)"
       - name: Install Inno Setup
         run: choco install innosetup --no-progress
       - name: Build .exe + installer
@@ -68,6 +76,7 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
         with:
           cache-suffix: ${{ github.job }}
+      - run: uv python pin 3.13
       - run: uv sync --dev
       - name: Build .deb
         run: bash scripts/build_deb.sh
@@ -86,6 +95,7 @@ jobs:
       - uses: astral-sh/setup-uv@v8.2.0
         with:
           cache-suffix: ${{ github.job }}
+      - run: uv python pin 3.13
       - run: uv sync --dev
       - name: Install rpm-build
         run: sudo apt-get update -qq && sudo apt-get install -y -qq rpm

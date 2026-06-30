@@ -17,12 +17,14 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 echo "==> Cleaning previous builds …"
 rm -rf "$PROJECT_DIR/dist" "$PROJECT_DIR/build" "$PROJECT_DIR/__pycache__"
 
-echo "==> Installing PyInstaller …"
-uv pip install pyinstaller
+echo "==> Installing PyInstaller in project venv …"
+cd "$PROJECT_DIR"
+source .venv/Scripts/activate
+echo "Python: $(python --version)"
+pip install pyinstaller
 
 echo "==> Building Windows executable (optimised for speed) …"
-cd "$PROJECT_DIR"
-uv run pyinstaller \
+pyinstaller \
     --name "$APP" \
     --onedir \
     --windowed \
