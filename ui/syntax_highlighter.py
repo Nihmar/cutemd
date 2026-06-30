@@ -81,6 +81,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         self._spell_timer.setSingleShot(True)
         self._spell_timer.setInterval(50)
         self._spell_timer.timeout.connect(self._flush_spell)
+        self._rehighlighting_for_spell = False
 
         self._build_formats()
 
@@ -216,8 +217,9 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         # is False, then defers for 50ms (no spell while user is typing).
         if not self._spell_deferred:
             self._spell_check_block(text)
-            self._spell_deferred = True
-            self._spell_timer.start()
+            if not self._rehighlighting_for_spell:
+                self._spell_deferred = True
+                self._spell_timer.start()
 
         # Syntax patterns (applied after spell-check so they win on colour).
         # Footnote definitions — whole-line pattern, before other inline rules.
@@ -272,7 +274,9 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     def _flush_spell(self) -> None:
         """Debounce timer fired — re-enable spell check and rehighlight."""
         self._spell_deferred = False
+        self._rehighlighting_for_spell = True
         self.rehighlight()
+        self._rehighlighting_for_spell = False
 
     def enable_spell(self) -> None:
         """Enable spell checking (call after the window is shown)."""
