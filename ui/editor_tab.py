@@ -262,6 +262,7 @@ class EditorTab(QWidget):
         # Preview → Editor: 30fps polling — JS stores position in _cutemd_line,
         # Python reads it. Much lighter than URL navigation per frame.
         self._preview_poll_timer = QTimer(self)
+        self._preview_poll_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._preview_poll_timer.setInterval(33)  # ~30fps
         self._preview_poll_timer.timeout.connect(self._poll_preview_line)
 
@@ -1233,6 +1234,7 @@ class EditorTab(QWidget):
 
         if not hasattr(self, "_editor_scroll_timer"):
             self._editor_scroll_timer = QTimer(self)
+            self._editor_scroll_timer.setTimerType(Qt.TimerType.PreciseTimer)
             self._editor_scroll_timer.setSingleShot(True)
             self._editor_scroll_timer.setInterval(50)
             self._editor_scroll_timer.timeout.connect(self._do_editor_scroll_preview)

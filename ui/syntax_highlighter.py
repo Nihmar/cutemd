@@ -78,6 +78,7 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         # Debounced spell check — only runs when the user stops typing.
         self._spell_deferred = True  # skip spell check until enable_spell()
         self._spell_timer = QTimer()
+        self._spell_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._spell_timer.setSingleShot(True)
         self._spell_timer.setInterval(50)
         self._spell_timer.timeout.connect(self._flush_spell)

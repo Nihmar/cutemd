@@ -308,3 +308,19 @@ QToolTip {
     font-weight: bold;
     padding: 4px;
 }
+
+/* === Metadata panel =============================================== */
+
+#metadataContent {
+    background: ${BASE};
+}
+
+#metadataRow {
+    min-height: 24px;
+    padding: 0 6px;
+    border-radius: 3px;
+}
+#metadataRow:hover {
+    background: ${HIGHLIGHT};
+    color: ${HIGHLIGHTED_TEXT};
+}

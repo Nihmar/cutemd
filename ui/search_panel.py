@@ -12,9 +12,10 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -22,8 +23,6 @@ from PySide6.QtWidgets import (
 from core.logging import setup_logging
 
 _LOG = setup_logging("cutemd.search_panel")
-
-from ui.widgets import CuteListWidget
 
 _RG_AVAILABLE: bool | None = None  # cached availability check
 
@@ -50,12 +49,14 @@ def _rg_search(folder: Path, pattern: str, flags: int, regex_mode: bool) -> list
     args.append(pattern)
     args.append(str(folder))
     try:
-        proc = subprocess.run(args, capture_output=True, text=True, timeout=30)
+        proc = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return []
     results: list[tuple[Path, int, str]] = []
+    if proc.stdout is None:
+        return results
     for line in proc.stdout.splitlines():
-        parts = line.split(":", 2)
+        parts = line.rsplit(":", 2)
         if len(parts) >= 3:
             try:
                 file_path = Path(parts[0])
@@ -142,6 +143,8 @@ class SearchPanel(QWidget):
         self._query: str = ""
         self._flags: int = 0
         self._compiled_pattern: re.Pattern[str] | None = None
+        self._result_count: int = 0
+        self._file_items: dict[Path, QTreeWidgetItem] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -181,7 +184,10 @@ class SearchPanel(QWidget):
         self._count_label = QLabel()
 
         # --- Results ---
-        self._search_results = CuteListWidget()
+        self._search_results = QTreeWidget()
+        self._search_results.setHeaderHidden(True)
+        self._search_results.setIndentation(16)
+        self._search_results.setRootIsDecorated(True)
         self._search_results.itemDoubleClicked.connect(self._on_search_result_clicked)
         self._search_results.installEventFilter(self)
 
@@ -198,6 +204,7 @@ class SearchPanel(QWidget):
 
         # Chunked search timer
         self._timer = QTimer(self)
+        self._timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._timer.setInterval(_CHUNK_INTERVAL)
         self._timer.timeout.connect(self._process_chunk)
 
@@ -206,6 +213,8 @@ class SearchPanel(QWidget):
         self._timer.stop()
         self._generator = None
         self._search_results.clear()
+        self._file_items.clear()
+        self._result_count = 0
         self._search_input.clear()
 
     # ------------------------------------------------------------------
@@ -216,6 +225,8 @@ class SearchPanel(QWidget):
         self._timer.stop()
         self._generator = None
         self._search_results.clear()
+        self._file_items.clear()
+        self._result_count = 0
 
         self._query = text
         if not text or self._folder_path is None:
@@ -254,19 +265,15 @@ class SearchPanel(QWidget):
         if _check_rg() and self._generator is not None:
             self._timer.stop()
             self._generator = None
+            self._search_results.clear()
+            self._file_items.clear()
+            self._result_count = 0
             results = _rg_search(
                 self._folder_path, query, self._flags,
                 self._search_regex_cb.isChecked(),
             )
             for file_path, line_num, line_text in results:
-                try:
-                    rel = file_path.relative_to(self._folder_path)
-                except ValueError:
-                    rel = file_path
-                item_text = f"{rel}:{line_num}: {line_text}"
-                item = QListWidgetItem(item_text)
-                item.setData(Qt.ItemDataRole.UserRole, (file_path, line_num))
-                self._search_results.addItem(item)
+                self._add_result(file_path, line_num, line_text)
             self._update_count()
             return
 
@@ -276,7 +283,6 @@ class SearchPanel(QWidget):
             return
 
         pattern = self._compiled_pattern
-        results = self._search_results
 
         for _ in range(_CHUNK_SIZE):
             try:
@@ -289,8 +295,6 @@ class SearchPanel(QWidget):
 
             if ".trash" in md_path.parts or ".cutemd" in md_path.parts:
                 continue
-                _LOG.debug("_process_chunk: found %d matches", results.count())
-                return
 
             try:
                 content = md_path.read_text(encoding="utf-8")
@@ -299,22 +303,37 @@ class SearchPanel(QWidget):
 
             for line_num, line in enumerate(content.splitlines(), 1):
                 if pattern.search(line):
-                    rel = md_path.relative_to(self._folder_path)  # type: ignore[arg-type]
-                    item_text = f"{rel}:{line_num}: {line.strip()[:120]}"
-                    item = QListWidgetItem(item_text)
-                    item.setData(Qt.ItemDataRole.UserRole, (md_path, line_num))
-                    results.addItem(item)
+                    self._add_result(md_path, line_num, line.strip()[:120])
 
         self._update_count()
-        _LOG.debug("_process_chunk: found %d matches", results.count())
+        _LOG.debug("_process_chunk: found %d matches", self._result_count)
+
+    def _add_result(self, file_path: Path, line_num: int, line_text: str) -> None:
+        """Add a single search result as a child item under a file group."""
+        tree = self._search_results
+        key = file_path.resolve()
+        if key not in self._file_items:
+            try:
+                rel = file_path.relative_to(self._folder_path)
+            except ValueError:
+                rel = file_path
+            parent = QTreeWidgetItem(tree)
+            parent.setText(0, str(rel))
+            parent.setData(0, Qt.ItemDataRole.UserRole, (file_path, 0))
+            parent.setFlags(parent.flags() | Qt.ItemFlag.ItemIsAutoTristate)
+            self._file_items[key] = parent
+        parent = self._file_items[key]
+        child = QTreeWidgetItem(parent)
+        child.setText(0, f"{line_num}: {line_text}")
+        child.setData(0, Qt.ItemDataRole.UserRole, (file_path, line_num))
+        self._result_count += 1
 
     def _update_count(self) -> None:
-        count = self._search_results.count()
-        self._count_label.setText(self.tr("{} matches").format(count))
+        self._count_label.setText(self.tr("{} matches").format(self._result_count))
 
-    def _on_search_result_clicked(self, item: QListWidgetItem) -> None:
-        location = item.data(Qt.ItemDataRole.UserRole)
-        if location:
+    def _on_search_result_clicked(self, item: QTreeWidgetItem) -> None:
+        location = item.data(0, Qt.ItemDataRole.UserRole)
+        if location and location[1] > 0:
             self.file_activated.emit(location[0], location[1])
 
     def eventFilter(self, obj: object, event: QEvent) -> bool:
@@ -322,7 +341,7 @@ class SearchPanel(QWidget):
             if obj is self._search_results:
                 if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                     item = self._search_results.currentItem()
-                    if item:
+                    if item and item.data(0, Qt.ItemDataRole.UserRole) is not None:
                         self._on_search_result_clicked(item)
                     return True
                 if event.key() == Qt.Key.Key_Escape:
@@ -332,8 +351,9 @@ class SearchPanel(QWidget):
             elif obj is self._search_input:
                 if event.key() == Qt.Key.Key_Down:
                     self._search_results.setFocus()
-                    if self._search_results.count() > 0:
-                        self._search_results.setCurrentRow(0)
+                    if self._search_results.topLevelItemCount() > 0:
+                        top = self._search_results.topLevelItem(0)
+                        self._search_results.setCurrentItem(top)
                     return True
         return super().eventFilter(obj, event)
 
@@ -356,8 +376,8 @@ class SearchPanel(QWidget):
             )
             return
 
-        location = item.data(Qt.ItemDataRole.UserRole)
-        if not location:
+        location = item.data(0, Qt.ItemDataRole.UserRole)
+        if not location or location[1] == 0:
             return
 
         file_path, line_num = location
@@ -400,9 +420,8 @@ class SearchPanel(QWidget):
             return
 
         # Update the result item text
-        rel = file_path.relative_to(self._folder_path)  # type: ignore[arg-type]
-        item.setText(f"{rel}:{line_num}: {new_line.strip()[:120]}")
-        item.setData(Qt.ItemDataRole.UserRole, None)  # mark as replaced
+        item.setText(0, f"{line_num}: {new_line.strip()[:120]}")
+        item.setData(0, Qt.ItemDataRole.UserRole, None)  # mark as replaced
 
     def _replace_all_in_files(self) -> None:
         """Replace all occurrences across all files in the search results."""
@@ -411,7 +430,7 @@ class SearchPanel(QWidget):
         if not query:
             return
 
-        count = self._search_results.count()
+        count = self._result_count
         if count == 0:
             return
 
@@ -430,17 +449,22 @@ class SearchPanel(QWidget):
 
         flags = re.IGNORECASE if not self._search_case_cb.isChecked() else 0
 
-        # Collect all results grouped by file
+        # Collect all results grouped by file from the tree
         file_results: dict[Path, list[int]] = {}
-        for i in range(self._search_results.count()):
-            item = self._search_results.item(i)
-            if item is None:
+        tree = self._search_results
+        for i in range(tree.topLevelItemCount()):
+            parent = tree.topLevelItem(i)
+            if parent is None:
                 continue
-            location = item.data(Qt.ItemDataRole.UserRole)
-            if location is None:
-                continue
-            file_path, line_num = location
-            file_results.setdefault(file_path, []).append(line_num)
+            for j in range(parent.childCount()):
+                child = parent.child(j)
+                if child is None:
+                    continue
+                loc = child.data(0, Qt.ItemDataRole.UserRole)
+                if loc is None or loc[1] == 0:
+                    continue
+                file_path, line_num = loc
+                file_results.setdefault(file_path, []).append(line_num)
 
         # Run replace in background thread.
         self._replace_thread = QThread(self)
@@ -471,11 +495,11 @@ class SearchPanel(QWidget):
     def _get_affected_files(self) -> set[Path]:
         """Return the set of unique file paths in the results."""
         files: set[Path] = set()
-        for i in range(self._search_results.count()):
-            item = self._search_results.item(i)
-            if item is None:
-                continue
-            location = item.data(Qt.ItemDataRole.UserRole)
-            if location:
-                files.add(location[0])
+        tree = self._search_results
+        for i in range(tree.topLevelItemCount()):
+            parent = tree.topLevelItem(i)
+            if parent is not None:
+                loc = parent.data(0, Qt.ItemDataRole.UserRole)
+                if loc:
+                    files.add(loc[0])
         return files

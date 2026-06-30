@@ -154,6 +154,7 @@ class TagsPanel(QWidget):
         # item creation during bulk tag loads.
         self._tag_buffer: list[tuple[str, list[str]]] = []
         self._tag_batch_timer = QTimer(self)
+        self._tag_batch_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self._tag_batch_timer.setInterval(5)
         self._tag_batch_timer.timeout.connect(self._flush_tag_batch)
 
