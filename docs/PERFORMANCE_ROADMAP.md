@@ -73,6 +73,13 @@ main.py → QApplication → MainWindow.__init__
    caches.  A synthetic render pass on a hidden widget primes the
    cache before the window becomes visible.
 
+7. **Share OpenGL contexts** — call
+   `QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)` **before**
+   creating the `QApplication` instance.  Without this attribute,
+   every `QWebEngineView` allocates a separate GL context, wasting
+   GPU memory and slowing down tab creation.  This is a one-line
+   change with zero risk.
+
 ---
 
 ## 2.  Editor — Typing Latency
@@ -167,29 +174,39 @@ textChanged → 300 ms debounce → _update_preview
    done — `self._last_rendered_hash`).  For larger documents, use a
    two-level hash: first 100 lines + total hash.
 
-2. **Virtual DOM / content slicing** — for very large documents
+2. **Body-only patch via `runJavaScript`** — instead of `setHtml()`
+   which tears down and recreates the entire WebEngine page
+   context, use `page.runJavaScript("document.body.innerHTML = `...`")"
+   to update only the `<body>` content.  This eliminates the
+   WebEngine re-init overhead while keeping the JS engine, CSSOM,
+   and GPU textures alive.  The HTML string must be properly
+   escaped for backtick-template injection.  This is a Phase 2
+   optimisation (medium effort, high impact).
+
+3. **Virtual DOM / content slicing** — for very large documents
    (>5000 lines), split the HTML into chunks and use
    `IntersectionObserver` in JS to only attach visible sections to
    the DOM.  Requires custom JS injection and a scroll handler.
+   This is a Phase 3 technique that builds on body-only patching.
 
-3. **WebEngine view recycling** — creating a new QWebEngineView
+4. **WebEngine view recycling** — creating a new QWebEngineView
    is expensive (~50 ms).  When detaching/re-attaching preview,
    reuse the same view instead of destroying and creating one.
 
-4. **Lazy image loading** — inject `loading="lazy"` on all `<img>`
+5. **Lazy image loading** — inject `loading="lazy"` on all `<img>`
    tags so the browser defers image decode.  Also, use
    `decoding="async"`.
 
-5. **Throttle scroll sync** — the 33 ms poll timer for scroll sync
+6. **Throttle scroll sync** — the 33 ms poll timer for scroll sync
    runs JavaScript `scrollY` on every tick.  Increase to 100 ms and
    use `requestAnimationFrame` on the JS side to batch sync updates.
 
-6. **Worker thread for render** — already done via `PreviewWorker +
+7. **Worker thread for render** — already done via `PreviewWorker +
    QThreadPool`.  Verify that the thread pool size is 1 (serial
    renders avoid race conditions).  Consider a render cache:
    maintain the last 3 rendered results so switching tabs is instant.
 
-7. **CSS inlining vs. external** — the preview CSS is dumped inline
+8. **CSS inlining vs. external** — the preview CSS is dumped inline
    as a `<style>` block in every HTML.  For repeated renders of the
    same tab, this is wasteful.  Use a `<link>` to a `data:` URI
    or a cached file.  (Already done for KaTeX CSS/JS.)
@@ -230,9 +247,13 @@ _set_folder → FileTreePanel.set_root_path
    `fileChanged` signals.
 
 3. **Lazy tree population** — `QFileSystemModel` fetches file
-   icons and metadata lazily.  Ensure `setRootPath` uses the
-   `QFileSystemModel.DontWatchForChanges` flag during initial
-   population, then enable watching after.
+   icons and metadata lazily.  For the initial directory population,
+   call `setResolveSymlinks(False)` to reduce stat calls, then use
+   a manual `QFileSystemWatcher` after the initial scan completes
+   (instead of relying on `QFileSystemModel`'s built-in watcher,
+   which adds overhead during bulk loading).  Note:
+   `QFileSystemModel.DontWatchForChanges` does **not** exist in
+   Qt6/PySide6.
 
 4. **Debounce scans** — rapid file changes (git checkout, bulk
    rename) trigger multiple re-scans.  Use a 500 ms debounce on
@@ -285,9 +306,14 @@ But the regex `finditer` is Python-level and iterates all characters.
 
 ### 6.2  Proposed fixes
 
-1. **Word cache** — maintain an `functools.lru_cache(maxsize=2000)`
-   on `SpellChecker.check()`.  Words repeat across blocks (common
-   words, function words).  This eliminates 60–80% of dict lookups.
+1. **Word cache** — maintain an LRU cache (max 2000 entries) on
+   `SpellChecker.check()`.  Words repeat across blocks (common
+   words, function words), eliminating 60–80% of dict lookups.
+   **Thread-safety note**: `functools.lru_cache` is **not**
+   thread-safe.  If `_spell_check_block` runs in a background
+   thread, use `cachetools.LRUCache` protected by a
+   `threading.Lock`, or a `queue.Queue`-based design that
+   serialises all `check()` calls to the same thread.
 
 2. **Deferred spell highlight** — already covered in §2.2.3.
 
@@ -312,10 +338,19 @@ But the regex `finditer` is Python-level and iterates all characters.
 
 ### 7.2  Proposed fixes
 
-1. **Tab sleep** — when a tab is not the current tab, drop its
-   QWebEngineView from the widget tree (un-parent it, hide it,
-   set an empty page to free Chromium memory).  Restore on tab
-   switch.  This is the single biggest memory win.
+1. **Tab sleep via LifecycleState** — when a tab is not the current
+   tab, use Qt6's built-in page lifecycle API to suspend or discard
+   the WebEngine page:
+   ```python
+   # Suspend JS timers, network activity (fast restore):
+   page.setLifecycleState(QWebEnginePage.LifecycleState.Frozen)
+   # Free GPU memory, discard render tree (slower restore):
+   page.setLifecycleState(QWebEnginePage.LifecycleState.Discarded)
+   ```
+   This is the same mechanism Chrome uses for background tabs.
+   It is far more robust than manually un-parenting the widget.
+   Restore by setting back to `LifecycleState.Active` on tab switch.
+   This is the single biggest memory win.
 
 2. **Limit undo history** — `QTextDocument::setMaximumBlockCount`
    or `QUndoStack::setUndoLimit`.  Already partially done via
@@ -455,33 +490,35 @@ SyncThread → sync_folder
 
 | # | Item | Est. savings | Effort |
 |---|---|---|---|
-| 1 | Spell-check word cache (LRU on `check()`) | 1–3 ms/keystroke | Small |
+| 1 | Spell-check word cache (LRU on `check()`, thread-safe) | 1–3 ms/keystroke | Small |
 | 2 | Cache QSS substitute per theme | 10–30 ms/switch | Trivial |
 | 3 | Deferred spell highlight (50 ms debounce) | 1–3 ms/keystroke | Small |
 | 4 | Don't re-highlight invisible tabs on theme switch | 20–50 ms/switch | Trivial |
 | 5 | `lazy="loading"` on preview images | 50–200 ms/render | Trivial |
 | 6 | Skip regex on non-matching first char | 0.1–0.5 ms/line | Trivial |
 | 7 | Cache link stat() results (2 sec TTL) | 50–200 ms/scan | Small |
+| 8 | `AA_ShareOpenGLContexts` before QApplication | GPU mem/tab creation | Trivial |
+| 9 | Single filesystem walk for tree + tags + backlinks | 100–500 ms/startup | Medium |
 
 ### Phase 2 — Structural Improvements (medium risk, high impact)
 
 | # | Item | Est. savings | Effort |
 |---|---|---|---|
-| 8 | Lazy MarkdownIt parser (background thread) | 25–50 ms/startup | Medium |
-| 9 | Lazy SpellChecker import | 20–50 ms/startup | Small |
-| 10 | Single filesystem walk for tree + tags + backlinks | 100–500 ms/startup | Medium |
-| 11 | Tab sleep (drop WebEngineView on inactive tabs) | 50–100 MB/tab | Medium |
-| 12 | Search index (inverted index on folder open) | 10–100× search speed | Large |
+| 10 | Lazy MarkdownIt parser (background thread) | 25–50 ms/startup | Medium |
+| 11 | Lazy SpellChecker import | 20–50 ms/startup | Small |
+| 12 | Tab sleep via LifecycleState (Frozen/Discarded) | 50–100 MB/tab | Medium |
+| 13 | Body-only preview patch via `runJavaScript` | 20–200 ms/render | Medium |
+| 14 | Search index (inverted index on folder open) | 10–100× search speed | Large |
 
 ### Phase 3 — Deep Changes (higher risk, transformative impact)
 
 | # | Item | Est. savings | Effort |
 |---|---|---|---|
-| 13 | Incremental MD→HTML preview (only re-render changed blocks) | 5–30 ms/keystroke | Large |
-| 14 | Ripgrep backend for find-in-files | 10–50× faster search | Medium |
-| 15 | Parallel WebDAV transfers | 2–4× faster sync | Medium |
-| 16 | Hardware-accelerated editor scroll (QScroller) | Noticeably smoother | Small |
-| 17 | Virtual DOM for large preview docs | 50–100 MB/render | Large |
+| 15 | Incremental MD→HTML preview (re-render changed blocks only) | 5–30 ms/keystroke | Large |
+| 16 | Ripgrep backend for find-in-files | 10–50× faster search | Medium |
+| 17 | Parallel WebDAV transfers | 2–4× faster sync | Medium |
+| 18 | Hardware-accelerated editor scroll (QScroller) | Noticeably smoother | Small |
+| 19 | Virtual DOM for large preview docs | 50–100 MB/render | Large |
 
 ---
 
@@ -505,7 +542,9 @@ To validate the impact of each optimisation, add:
 | Change | Risk | Mitigation |
 |---|---|---|
 | Lazy MarkdownIt | Medium — first preview blank | Show "Loading…" placeholder |
-| Tab sleep | Medium — WebEngine re-attach | Thorough test on tab switch |
+| Tab sleep (LifecycleState) | Low — Qt6 built-in API | None needed; mechanism inherited from Chromium |
 | Single filesystem walk | Low — refactor only | Keep old code as fallback |
 | Incremental preview | High — complex diff logic | Start with hash-skip only |
 | Search index | Low — additive feature | Fallback to linear scan if index stale |
+| Body-only preview patch | Medium — JS escaping | Unit-test HTML escaping; fallback to `setHtml()` |
+| AA_ShareOpenGLContexts | None — one-line change before QApplication | Revert if GPU driver incompatibility detected |

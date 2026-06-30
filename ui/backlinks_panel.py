@@ -68,7 +68,14 @@ class BacklinkScanner(QThread):
         _LOG.debug("BacklinkScanner: scanning in %s for %s",
                    self._folder_path, self._current_file.name)
         try:
-            for md_file in sorted(self._folder_path.rglob("*.md")):
+            # Single walk for both .md and .markdown files.
+            md_files = sorted(
+                p for p in self._folder_path.rglob("*")
+                if p.is_file() and p.suffix.lower() in (".md", ".markdown")
+                    and ".trash" not in p.parts
+                    and ".cutemd" not in p.parts
+            )
+            for md_file in md_files:
                 if self.isInterruptionRequested():
                     _LOG.debug("BacklinkScanner: interrupted")
                     return
@@ -87,22 +94,6 @@ class BacklinkScanner(QThread):
                 if self._has_backlink(text, md_file.parent):
                     _LOG.debug("BacklinkScanner: found %s \u2192 %s",
                                md_file.name, self._current_file.name)
-                    self.backlink_found.emit(str(md_file))
-
-            # Also walk .markdown files
-            for md_file in sorted(self._folder_path.rglob("*.markdown")):
-                if self.isInterruptionRequested():
-                    return
-                try:
-                    if md_file.resolve() == self._current_file:
-                        continue
-                except OSError:
-                    continue
-                try:
-                    text = md_file.read_text(encoding="utf-8", errors="ignore")
-                except OSError:
-                    continue
-                if self._has_backlink(text, md_file.parent):
                     self.backlink_found.emit(str(md_file))
 
         except Exception:

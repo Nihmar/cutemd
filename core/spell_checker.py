@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+from collections import OrderedDict
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from core.logging import setup_logging
@@ -40,12 +42,16 @@ class SpellChecker:
     simultaneous dictionaries (e.g. en_US + it_IT) plus a per-folder
     custom word list stored in ``.cutemd/custom_dict.txt``."""
 
+    _CHECK_CACHE_SIZE = 2000
+
     def __init__(self, langs: list[str] | None = None) -> None:
         self._dicts: list[Any] = []
         self._available = False
         self._langs: list[str] = []
         self._custom_words: set[str] = set()
         self._custom_dict_path: Path | None = None
+        self._check_cache: OrderedDict[str, bool] = OrderedDict()
+        self._cache_lock = Lock()
         self._reload(langs or [])
 
     @property
@@ -64,6 +70,7 @@ class SpellChecker:
         self._available = False
         self._dicts = []
         self._langs = []
+        self._invalidate_cache()
         try:
             import enchant
         except ImportError:
@@ -96,13 +103,35 @@ class SpellChecker:
             _LOG.debug("spell checker loaded: langs=%s", self._langs)
 
     def check(self, word: str) -> bool:
-        """Return True if *word* is correctly spelled (hunspell OR custom dict)."""
-        # Always accept words in the custom dictionary.
+        """Return True if *word* is correctly spelled (hunspell OR custom dict).
+
+        Uses a thread-safe LRU cache to avoid repeated dictionary lookups.
+        """
+        # Always accept words in the custom dictionary (no cache — rarely called).
         if word in self._custom_words:
             return True
         if not self._available:
             return True
-        return any(d.check(word) for d in self._dicts)
+
+        with self._cache_lock:
+            cached = self._check_cache.get(word)
+            if cached is not None:
+                # Move to end (most recently used).
+                self._check_cache.move_to_end(word)
+                return cached
+
+        result = any(d.check(word) for d in self._dicts)
+        with self._cache_lock:
+            self._check_cache[word] = result
+            self._check_cache.move_to_end(word)
+            if len(self._check_cache) > self._CHECK_CACHE_SIZE:
+                self._check_cache.popitem(last=False)
+        return result
+
+    def _invalidate_cache(self) -> None:
+        """Clear the check cache (called when dictionaries change)."""
+        with self._cache_lock:
+            self._check_cache.clear()
 
     def suggest(self, word: str) -> list[str]:
         if not self._available:
@@ -122,6 +151,7 @@ class SpellChecker:
         Words are stored one-per-line, case-sensitive, UTF-8.
         """
         self._custom_words = set()
+        self._invalidate_cache()
         path = folder_path / ".cutemd" / "custom_dict.txt"
         self._custom_dict_path = path
         if not path.is_file():
@@ -140,6 +170,7 @@ class SpellChecker:
         if word in self._custom_words:
             return
         self._custom_words.add(word)
+        self._invalidate_cache()
         if self._custom_dict_path is None:
             _LOG.debug("add_word(%r): no custom dict path set", word)
             return

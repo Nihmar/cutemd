@@ -798,8 +798,8 @@ class MainWindow(QMainWindow):
         if self._folder_path is None:
             return []
         files = []
-        for pattern in ("*.md", "*.markdown"):
-            for p in self._folder_path.rglob(pattern):
+        for p in self._folder_path.rglob("*"):
+            if p.is_file() and p.suffix.lower() in (".md", ".markdown"):
                 try:
                     rel = p.relative_to(self._folder_path)
                     files.append(str(rel.with_suffix("")))  # strip extension
@@ -911,6 +911,7 @@ class MainWindow(QMainWindow):
         _LOG.debug("_on_tab_changed: index=%d", index)
         tab = self._current_tab()
         if tab:
+            tab.highlight_if_needed()
             self._connect_edit_actions(tab)
             tab._emit_status()
             self._update_window_title()
@@ -1188,6 +1189,7 @@ class MainWindow(QMainWindow):
         bg_color = pal.color(QPalette.ColorRole.Base).name()
         fg_color = pal.color(QPalette.ColorRole.Text).name()
         mid_color = pal.color(QPalette.ColorRole.Mid).name()
+        current_tab = self._tabs.currentWidget()
         for i in range(self._tabs.count()):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab):
@@ -1197,6 +1199,7 @@ class MainWindow(QMainWindow):
                     theme_bg=bg_color,
                     theme_fg=fg_color,
                     theme_mid=mid_color,
+                    defer_rehighlight=(tab is not current_tab),
                 )
 
     def _on_settings(self) -> None:

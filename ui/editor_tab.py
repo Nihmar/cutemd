@@ -313,6 +313,7 @@ class EditorTab(QWidget):
         theme_bg: str = "",
         theme_fg: str = "",
         theme_mid: str = "",
+        defer_rehighlight: bool = False,
     ) -> None:
         _LOG.debug(
             "DIAG set_theme: theme=%s old=%s pygments=%s old_pygments=%s bg=%s",
@@ -339,13 +340,20 @@ class EditorTab(QWidget):
             if theme_mid:
                 self._theme_mid = theme_mid
             self._last_rendered_hash = 0
-            self._highlighter.set_theme(theme)
+            if defer_rehighlight:
+                self._highlighter.set_theme_deferred(theme)
+            else:
+                self._highlighter.set_theme(theme)
             self._link_mgr.popup.set_theme(theme)
             _LOG.debug(
                 "DIAG set_theme: calling _update_preview, cached_text_len=%d",
                 len(self._cached_text),
             )
             self._update_preview()
+
+    def highlight_if_needed(self) -> None:
+        """Apply any pending syntax-highlighter theme rehighlight."""
+        self._highlighter.ensure_rehighlighted()
 
     def set_preview_visible(self, visible: bool) -> None:
         _LOG.debug("set_preview_visible: %s", visible)

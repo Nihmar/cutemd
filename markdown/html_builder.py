@@ -34,6 +34,16 @@ _TABLE_TAG_RE = re.compile(r"<table\b([^>]*)>", re.IGNORECASE)
 _TABLE_BORDER_ATTR_RE = re.compile(r'\s+border="[^"]*"', re.IGNORECASE)
 
 _IMG_FILE_URL_RE = re.compile(r'<img\s[^>]*\bsrc="(file:///[^"]+)"[^>]*>')
+# <img> tags that already have a loading attribute (skip those).
+_IMG_LAZY_RE = re.compile(
+    r'<img(\s(?![^>]*\bloading=)[^>]*?)(\s*/)?>', re.IGNORECASE
+)
+
+def _add_lazy_loading(m: re.Match) -> str:
+    """Inject loading='lazy' decoding='async' before the closing > or />."""
+    attrs = m.group(1)  # everything between <img and >
+    self_close = m.group(2) or ""  # " /" for self-closing, "" otherwise
+    return f"<img{attrs} loading=\"lazy\" decoding=\"async\"{self_close}>"
 
 # Inline #tag (not at line start to avoid matching headings)
 _INLINE_TAG_RE = re.compile(r"(?<=\s)#([\w\u0080-\uFFFF][\w\u0080-\uFFFF-]*)")
@@ -248,6 +258,9 @@ def build_html(
     body_html = _TABLE_TAG_RE.sub(_fix_table_tag, body_html)
     body_html = _IMG_FILE_URL_RE.sub(r'<a href="\1">\g<0></a>', body_html)
     body_html = _inject_copy_buttons(body_html)
+
+    # Add lazy loading and async decode to all <img> tags.
+    body_html = _IMG_LAZY_RE.sub(_add_lazy_loading, body_html)
 
     # Inject Table of Contents at the top of the preview
     if toc_enabled:

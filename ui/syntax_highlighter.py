@@ -73,16 +73,41 @@ class MarkdownHighlighter(QSyntaxHighlighter):
             QTextCharFormat.UnderlineStyle.SpellCheckUnderline
         )
         self._spell_fmt.setUnderlineColor(Qt.GlobalColor.red)
+        self._needs_rehighlight = False
         self._build_formats()
 
     # ------------------------------------------------------------------
     # Theme support
     # ------------------------------------------------------------------
     def set_theme(self, theme: str) -> None:
-        """Switch between 'light' and 'dark' highlighting colors."""
+        """Switch between 'light' and 'dark' highlighting colors.
+
+        If *theme* differs from current, rebuild formats and rehighlight.
+        The ``_needs_rehighlight`` flag supports deferred application
+        for tabs that are not currently visible.
+        """
         if theme != self._theme:
             self._theme = theme
             self._build_formats()
+            self.rehighlight()
+            self._needs_rehighlight = False
+
+    def set_theme_deferred(self, theme: str) -> None:
+        """Update theme formats without triggering ``rehighlight()``.
+
+        Useful when the editor tab is not currently visible — the
+        actual rehighlight is deferred until ``ensure_rehighlighted()``
+        is called.
+        """
+        if theme != self._theme:
+            self._theme = theme
+            self._build_formats()
+            self._needs_rehighlight = True
+
+    def ensure_rehighlighted(self) -> None:
+        """Apply any pending theme rehighlight."""
+        if self._needs_rehighlight:
+            self._needs_rehighlight = False
             self.rehighlight()
 
     def _build_formats(self) -> None:
@@ -186,27 +211,33 @@ class MarkdownHighlighter(QSyntaxHighlighter):
 
         # Syntax patterns (applied after spell-check so they win on colour).
         # Footnote definitions — whole-line pattern, before other inline rules.
-        self._apply_rule(self.FOOTNOTE_DEF_RE, text, self.footnote_def_fmt)
+        if text and text.lstrip()[:1] == '[':
+            self._apply_rule(self.FOOTNOTE_DEF_RE, text, self.footnote_def_fmt)
 
         doc_large = (
             self.document() is not None
             and self.document().blockCount() > self._LARGE_DOC_BLOCKS
         )
+        first_ch = text.lstrip()[:1] if text else ''
         if doc_large:
-            self._apply_rule(self.HEADING_RE, text, self.heading_fmt)
-            self._apply_rule(self.LIST_RE, text, self.list_fmt)
+            if first_ch == '#':
+                self._apply_rule(self.HEADING_RE, text, self.heading_fmt)
+            if first_ch in ('-', '*', '+') or (first_ch and first_ch.isdigit()):
+                self._apply_rule(self.LIST_RE, text, self.list_fmt)
         else:
-            self._apply_rule(self.HEADING_RE, text, self.heading_fmt)
+            if first_ch == '#':
+                self._apply_rule(self.HEADING_RE, text, self.heading_fmt)
             self._apply_rule(self.BOLD_RE, text, self.bold_fmt)
             self._apply_rule(self.ITALIC_RE, text, self.italic_fmt)
             self._apply_rule(self.INLINE_CODE_RE, text, self.inline_code_fmt)
             self._apply_rule(self.MATH_INLINE_RE, text, self.math_fmt)
             self._apply_rule(self.LINK_RE, text, self.link_fmt)
             self._apply_rule(self.WIKILINK_RE, text, self.wikilink_fmt)
-            self._apply_rule(self.FOOTNOTE_REF_RE, text, self.footnote_ref_fmt)
-            self._apply_rule(self.LIST_RE, text, self.list_fmt)
+            if first_ch in ('-', '*', '+') or (first_ch and first_ch.isdigit()):
+                self._apply_rule(self.LIST_RE, text, self.list_fmt)
         self._apply_rule(self.FOOTNOTE_REF_RE, text, self.footnote_ref_fmt)
-        self._apply_rule(self.BLOCKQUOTE_RE, text, self.blockquote_fmt)
+        if first_ch == '>':
+            self._apply_rule(self.BLOCKQUOTE_RE, text, self.blockquote_fmt)
 
     _WORD_RE = re.compile(r"\b\w{3,}\b", re.UNICODE)
 

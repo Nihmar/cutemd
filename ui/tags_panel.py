@@ -72,13 +72,17 @@ class TagScanner(QThread):
     def run(self) -> None:
         _LOG.debug("TagScanner: scanning %s", self._folder_path)
         try:
-            for md_file in sorted(self._folder_path.rglob("*.md")):
+            # Single walk for both .md and .markdown files.
+            md_files = sorted(
+                p for p in self._folder_path.rglob("*")
+                if p.is_file() and p.suffix.lower() in (".md", ".markdown")
+                    and ".trash" not in p.parts
+                    and ".cutemd" not in p.parts
+            )
+            for md_file in md_files:
                 if self.isInterruptionRequested():
                     _LOG.debug("TagScanner: interrupted")
                     return
-                # Skip trashed and history files
-                if ".trash" in md_file.parts or ".cutemd" in md_file.parts:
-                    continue
                 try:
                     text = md_file.read_text(encoding="utf-8", errors="ignore")
                 except OSError:
@@ -94,22 +98,6 @@ class TagScanner(QThread):
                 for t in _collect_inline_tags(text):
                     tags.add(t)
 
-                for tag in sorted(tags):
-                    self.tag_found.emit(tag, str(md_file))
-
-            # Also scan .markdown files
-            for md_file in sorted(self._folder_path.rglob("*.markdown")):
-                if self.isInterruptionRequested():
-                    return
-                try:
-                    text = md_file.read_text(encoding="utf-8", errors="ignore")
-                except OSError:
-                    continue
-                tags: set[str] = set()
-                for t in _parse_yaml_tags(text):
-                    tags.add(t)
-                for t in _collect_inline_tags(text):
-                    tags.add(t)
                 for tag in sorted(tags):
                     self.tag_found.emit(tag, str(md_file))
 

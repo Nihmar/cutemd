@@ -9,6 +9,8 @@ from PySide6.QtWidgets import QApplication
 
 _LOG = setup_logging("cutemd.theme")
 _STYLE_TEMPLATE: str | None = None
+_QSS_CACHE: dict[int, str] = {}
+_QSS_CACHE_MAX = 16  # one entry per theme palette, bounded
 
 
 def _load_template() -> str:
@@ -20,13 +22,28 @@ def _load_template() -> str:
 
 
 def load_qss(pal: QPalette | None = None) -> str:
-    """Return the QSS with palette colours resolved."""
+    """Return the QSS with palette colours resolved (cached per palette)."""
     _LOG.debug("load_qss: %s", resolve_path("ui", "style.qss"))
     if pal is None:
         app = QCoreApplication.instance()
         if app is None:
             return _load_template()
         pal = app.palette()  # type: ignore[attr-defined]
+
+    cache_key = (
+        hash(tuple(pal.color(role).name() for role in [
+            QPalette.ColorRole.Window, QPalette.ColorRole.WindowText,
+            QPalette.ColorRole.Base, QPalette.ColorRole.AlternateBase,
+            QPalette.ColorRole.Text, QPalette.ColorRole.Button,
+            QPalette.ColorRole.ButtonText, QPalette.ColorRole.Highlight,
+            QPalette.ColorRole.HighlightedText, QPalette.ColorRole.Mid,
+            QPalette.ColorRole.Midlight, QPalette.ColorRole.Dark,
+            QPalette.ColorRole.Link, QPalette.ColorRole.ToolTipBase,
+            QPalette.ColorRole.ToolTipText,
+        ]))
+    )
+    if cache_key in _QSS_CACHE:
+        return _QSS_CACHE[cache_key]
 
     def c(role: QPalette.ColorRole) -> str:
         return pal.color(role).name()  # type: ignore[attr-defined]
@@ -52,6 +69,9 @@ def load_qss(pal: QPalette | None = None) -> str:
     qss = _load_template()
     for key, value in mapping.items():
         qss = qss.replace("${" + key + "}", value)
+    _QSS_CACHE[cache_key] = qss
+    if len(_QSS_CACHE) > _QSS_CACHE_MAX:
+        _QSS_CACHE.pop(next(iter(_QSS_CACHE)))
     return qss
 
 
