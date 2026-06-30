@@ -44,7 +44,7 @@ class SpellChecker:
 
     _CHECK_CACHE_SIZE = 2000
 
-    def __init__(self, langs: list[str] | None = None) -> None:
+    def __init__(self, langs: list[str] | None = None, *, lazy: bool = True) -> None:
         self._dicts: list[Any] = []
         self._available = False
         self._langs: list[str] = []
@@ -52,19 +52,33 @@ class SpellChecker:
         self._custom_dict_path: Path | None = None
         self._check_cache: OrderedDict[str, bool] = OrderedDict()
         self._cache_lock = Lock()
-        self._reload(langs or [])
+        self._loaded = False
+        self._pending_langs: list[str] = list(langs) if langs else []
+        if not lazy:
+            self._ensure_loaded()
 
     @property
     def available(self) -> bool:
+        self._ensure_loaded()
         return self._available
 
     @property
     def langs(self) -> list[str]:
+        self._ensure_loaded()
         return list(self._langs)
 
     def set_langs(self, langs: list[str]) -> None:
-        if langs != self._langs:
-            self._reload(langs)
+        if langs != self._langs and langs != self._pending_langs:
+            self._pending_langs = list(langs)
+            if self._loaded:
+                self._reload(langs)
+
+    def _ensure_loaded(self) -> None:
+        """Perform the lazy import + dictionary load if not done yet."""
+        if self._loaded:
+            return
+        self._loaded = True
+        self._reload(self._pending_langs)
 
     def _reload(self, langs: list[str]) -> None:
         self._available = False
@@ -110,6 +124,7 @@ class SpellChecker:
         # Always accept words in the custom dictionary (no cache — rarely called).
         if word in self._custom_words:
             return True
+        self._ensure_loaded()
         if not self._available:
             return True
 
@@ -134,6 +149,7 @@ class SpellChecker:
             self._check_cache.clear()
 
     def suggest(self, word: str) -> list[str]:
+        self._ensure_loaded()
         if not self._available:
             return []
         seen: set[str] = set()

@@ -27,6 +27,7 @@ from PySide6.QtGui import (
     QTextCursor,
     QWheelEvent,
 )
+from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -74,6 +75,7 @@ from ui.preview_worker import PreviewWorker
 from ui.syntax_highlighter import MarkdownHighlighter
 
 _LOG = setup_logging("cutemd.editor_tab")
+_BODY_RE = re.compile(r"<body[^>]*>(.*?)</body>", re.DOTALL)
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +138,7 @@ class EditorTab(QWidget):
         self._line_anchor_map_hash: int = 0
         self._frontmatter_offset: int = 0  # lines stripped by frontmatter removal
         self._last_rendered_hash: int = 0
+        self._preview_initialized = False  # set to True after first setHtml()
         self._pending_render_hash: int = 0
         self._pending_sync_anchor: str = ""
         self._sync_retries = 0
@@ -355,6 +358,20 @@ class EditorTab(QWidget):
         """Apply any pending syntax-highlighter theme rehighlight."""
         self._highlighter.ensure_rehighlighted()
 
+    def freeze_preview(self) -> None:
+        """Suspend JavaScript timers and network activity in the preview.
+
+        Call when the tab is no longer the active tab.  Restore with
+        ``activate_preview()``.
+        """
+        page = self.preview.page()
+        page.setLifecycleState(QWebEnginePage.LifecycleState.Frozen)
+
+    def activate_preview(self) -> None:
+        """Restore the preview to active state after being frozen."""
+        page = self.preview.page()
+        page.setLifecycleState(QWebEnginePage.LifecycleState.Active)
+
     def set_preview_visible(self, visible: bool) -> None:
         _LOG.debug("set_preview_visible: %s", visible)
         if visible == self._preview_visible:
@@ -426,6 +443,7 @@ class EditorTab(QWidget):
         self._preview_font_family = family
         self._preview_font_size = size
         self._last_rendered_hash = 0
+        self._preview_initialized = False
         self._update_preview()
 
     # ------------------------------------------------------------------
@@ -454,6 +472,7 @@ class EditorTab(QWidget):
             return
         self._preview_font_size = new_size
         self._last_rendered_hash = 0
+        self._preview_initialized = False
         self._update_preview()
 
     def editor_font_size(self) -> int:
@@ -469,6 +488,7 @@ class EditorTab(QWidget):
     def load_file(self, path: Path) -> None:
         _LOG.debug("load_file: %s", path)
         self._last_rendered_hash = 0
+        self._preview_initialized = False
         ext = path.suffix.lower()
         _LOG.debug(
             "load_file: ext=%s _DOC_EXTS=%s hit=%s",
@@ -768,6 +788,7 @@ class EditorTab(QWidget):
         """Set the configured images directory (from folder settings)."""
         if d != self._attachments_dir:
             self._last_rendered_hash = 0
+            self._preview_initialized = False
         self._attachments_dir = d
         self.preview.set_attachments_dir(d)
         self._refresh_link_highlights()
@@ -812,6 +833,7 @@ class EditorTab(QWidget):
         if self._toc_in_preview != enabled:
             self._toc_in_preview = enabled
             self._last_rendered_hash = 0
+            self._preview_initialized = False
             self._update_preview()
 
     def set_spell_check_langs(self, langs: list[str]) -> None:
@@ -1075,9 +1097,28 @@ class EditorTab(QWidget):
         self._syncing_scroll -= 1
 
     def _deferred_set_html(self, html: str) -> None:
-        _LOG.debug("SET_HTML len=%d editor_line=%d",
+        _LOG.debug("SET_HTML len=%d editor_line=%d initialized=%s",
                    len(html),
-                   self.editor.firstVisibleBlock().blockNumber())
+                   self.editor.firstVisibleBlock().blockNumber(),
+                   self._preview_initialized)
+
+        if self._preview_initialized:
+            # Fast path: patch only the body content via runJavaScript.
+            # This avoids tearing down and rebuilding the WebEngine page context.
+            m = _BODY_RE.search(html)
+            if m:
+                import json
+                body_content = m.group(1)
+                escaped = json.dumps(body_content)
+                self.preview.page().runJavaScript(
+                    f"document.body.innerHTML = {escaped};"
+                )
+                self._finalize_preview_update()
+                return
+            # Fallback: if body extraction fails, do a full setHtml.
+            self._preview_initialized = False
+
+        # Full render: setHtml() establishes the page context (head, CSS, scripts).
         # Disconnect any stale loadFinished handler from a previous load.
         try:
             self.preview.loadFinished.disconnect()
@@ -1097,9 +1138,14 @@ class EditorTab(QWidget):
 
         self.preview.loadFinished.connect(on_load)
         self.preview.setHtml(html)
+        self._preview_initialized = True
 
+        # Post-render steps for the setHtml path (anchor map, scroll, pending).
+        self._finalize_preview_update()
+
+    def _finalize_preview_update(self) -> None:
+        """Post-render steps shared by both setHtml and runJavaScript paths."""
         # Compute anchor map from the rendered text (on main thread).
-        # Use the *preprocessed* text that was sent to the worker.
         if self._cached_text:
             rendered_text = strip_frontmatter(self._cached_text)
             rendered_text = preprocess_tags(

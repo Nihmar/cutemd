@@ -103,6 +103,7 @@ class MainWindow(QMainWindow):
         self._folder_settings: FolderSettings | None = None
         self._files_to_open = files_to_open
         self._preview_visible = True
+        self._prev_tab_index = -1
 
         # Settings manager (centralized QSettings wrapper)
         self._s = AppSettings(self)
@@ -174,30 +175,8 @@ class MainWindow(QMainWindow):
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
 
-        # --- Markdown parser (shared across all tabs) ---
-        from markdown_it import MarkdownIt
-        from mdit_py_plugins.dollarmath import dollarmath_plugin
-        from mdit_py_plugins.footnote import footnote_plugin
-
-        from markdown.math_renderers import (
-            render_math_block,
-            render_math_block_label,
-            render_math_inline,
-            render_math_inline_double,
-        )
-        from markdown.tools import highlight_code
-
-        self._md = (
-            MarkdownIt("commonmark", {"highlight": highlight_code})
-            .enable(["table", "strikethrough"])
-            .use(dollarmath_plugin)
-            .use(footnote_plugin)
-        )
-        self._md.renderer.rules["math_inline"] = render_math_inline  # pyright: ignore[reportAttributeAccessIssue]
-        self._md.renderer.rules["math_inline_double"] = render_math_inline_double  # pyright: ignore[reportAttributeAccessIssue]
-        self._md.renderer.rules["math_block"] = render_math_block  # pyright: ignore[reportAttributeAccessIssue]
-        self._md.renderer.rules["math_block_label"] = render_math_block_label  # pyright: ignore[reportAttributeAccessIssue]
-        _LOG.debug("__init__: markdown parser ready")
+        # --- Markdown parser (lazily constructed on first tab) ---
+        self._md: "MarkdownIt | None" = None
 
         # --- UI ---
         self.setWindowTitle(self.tr("CuteMD - Markdown Editor"))
@@ -807,9 +786,42 @@ class MainWindow(QMainWindow):
                     pass
         return sorted(set(files))
 
+    def _get_or_create_md(self) -> MarkdownIt:
+        """Lazily construct the MarkdownIt parser on first access.
+
+        This defers the ~25-50ms parser construction from app startup
+        to the first tab creation, which happens after the window is
+        shown and the event loop is running.
+        """
+        if self._md is not None:
+            return self._md
+        from markdown_it import MarkdownIt
+        from mdit_py_plugins.dollarmath import dollarmath_plugin
+        from mdit_py_plugins.footnote import footnote_plugin
+        from markdown.math_renderers import (
+            render_math_block,
+            render_math_block_label,
+            render_math_inline,
+            render_math_inline_double,
+        )
+        from markdown.tools import highlight_code
+        self._md = (
+            MarkdownIt("commonmark", {"highlight": highlight_code})
+            .enable(["table", "strikethrough"])
+            .use(dollarmath_plugin)
+            .use(footnote_plugin)
+        )
+        self._md.renderer.rules["math_inline"] = render_math_inline  # pyright: ignore[reportAttributeAccessIssue]
+        self._md.renderer.rules["math_inline_double"] = render_math_inline_double  # pyright: ignore[reportAttributeAccessIssue]
+        self._md.renderer.rules["math_block"] = render_math_block  # pyright: ignore[reportAttributeAccessIssue]
+        self._md.renderer.rules["math_block_label"] = render_math_block_label  # pyright: ignore[reportAttributeAccessIssue]
+        _LOG.debug("markdown parser ready (lazy)")
+        return self._md
+
     def _add_tab(self) -> EditorTab:
+        md = self._get_or_create_md()
         tab = EditorTab(
-            self._md,
+            md,
             self._preview_css,
             "dark" if self._current_theme.is_dark else "light",
             editor_font_family=self._editor_font_family,
@@ -909,8 +921,16 @@ class MainWindow(QMainWindow):
 
     def _on_tab_changed(self, index: int) -> None:
         _LOG.debug("_on_tab_changed: index=%d", index)
+        # Freeze the previously active tab's preview to save GPU memory.
+        if self._prev_tab_index >= 0 and self._prev_tab_index != index:
+            prev_tab = self._tabs.widget(self._prev_tab_index)
+            if isinstance(prev_tab, EditorTab):
+                prev_tab.freeze_preview()
+        self._prev_tab_index = index
+
         tab = self._current_tab()
         if tab:
+            tab.activate_preview()
             tab.highlight_if_needed()
             self._connect_edit_actions(tab)
             tab._emit_status()
