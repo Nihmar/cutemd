@@ -2,7 +2,7 @@
 
 import re
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont, QSyntaxHighlighter, QTextCharFormat
 
 from core.logging import setup_logging
@@ -29,69 +29,6 @@ def _make_format(
     if font_family:
         fmt.setFontFamilies([font_family])
     return fmt
-
-
-_WORD_RE = re.compile(r"\b\w{3,}\b", re.UNICODE)
-
-
-class _SpellWorker(QObject):
-    """Background-thread spell checker — owns its own SpellChecker.
-
-    The worker lives in a dedicated QThread.  The highlighter sends
-    block text via ``check_block_requested`` and receives misspelled
-    word positions via ``result_ready``.
-    """
-
-    check_block_requested = Signal(int, str, object)  # block_num, text, skip set
-    set_langs_requested = Signal(list)
-    load_dict_requested = Signal(object)  # Path
-    add_word_requested = Signal(str)
-
-    result_ready = Signal(int, list)  # block_num, [(start, length), ...]
-
-    def __init__(self, parent: QObject | None = None) -> None:
-        super().__init__(parent)
-        self._checker = None
-        self.check_block_requested.connect(self._do_check)
-        self.set_langs_requested.connect(self._do_set_langs)
-        self.load_dict_requested.connect(self._do_load_dict)
-        self.add_word_requested.connect(self._do_add_word)
-
-    def _get_checker(self):
-        if self._checker is None:
-            from core.spell_checker import SpellChecker
-            self._checker = SpellChecker(lazy=True)
-        return self._checker
-
-    def _do_check(self, block_num: int, text: str, skip: object) -> None:
-        checker = self._get_checker()
-        if not checker.available:
-            return
-        errors: list[tuple[int, int]] = []
-        for m in _WORD_RE.finditer(text):
-            word = m.group(0)
-            start = m.start()
-            if start in skip:
-                continue
-            if not checker.check(word):
-                errors.append((start, m.end() - start))
-        if errors:
-            self.result_ready.emit(block_num, errors)
-
-    def _do_set_langs(self, langs: list[str]) -> None:
-        self._get_checker().set_langs(langs)
-
-    def _do_load_dict(self, folder_path: object) -> None:
-        from pathlib import Path
-        if isinstance(folder_path, Path):
-            self._get_checker().load_custom_dict(folder_path)
-
-    def _do_add_word(self, word: str) -> None:
-        self._get_checker().add_word(word)
-
-    @property
-    def available(self) -> bool:
-        return self._checker is not None and self._checker.available
 
 
 class MarkdownHighlighter(QSyntaxHighlighter):
@@ -130,29 +67,13 @@ class MarkdownHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None, spell_checker=None) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._theme = "dark"
+        self._spell_checker = spell_checker
         self._spell_fmt = QTextCharFormat()
         self._spell_fmt.setUnderlineStyle(
             QTextCharFormat.UnderlineStyle.SpellCheckUnderline
         )
         self._spell_fmt.setUnderlineColor(Qt.GlobalColor.red)
         self._needs_rehighlight = False
-
-        # Async spell-check worker (background thread).
-        self._spell_worker = _SpellWorker()
-        self._spell_thread = QThread()
-        self._spell_worker.moveToThread(self._spell_thread)
-        self._spell_worker.result_ready.connect(self._on_spell_result)
-        self._spell_thread.start()
-        self._pending_spell: dict[int, list[tuple[int, int]]] = {}
-        self._applying_spell: set[int] = set()
-
-        # If a main-thread SpellChecker was provided, forward its config.
-        # Only forward langs (don't call .available — that triggers import).
-        if spell_checker is not None:
-            pending = getattr(spell_checker, '_pending_langs', [])
-            if pending:
-                self._spell_worker.set_langs_requested.emit(pending)
-
         self._build_formats()
 
     # ------------------------------------------------------------------
@@ -283,20 +204,10 @@ class MarkdownHighlighter(QSyntaxHighlighter):
 
         self.setCurrentBlockState(self.STATE_NORMAL)
 
-        # --- Spell check (async, via background worker) ---
-        block_num = self.currentBlock().blockNumber()
-        if block_num in self._applying_spell:
-            # Re-render triggered by _on_spell_result — apply pending underlines.
-            self._applying_spell.discard(block_num)
-            errors = self._pending_spell.pop(block_num, [])
-            for start, length in errors:
-                self.setFormat(start, length, self._spell_fmt)
-            # Fall through to syntax patterns — they must be re-applied too.
-        elif self._spell_worker.available:
-            # Dispatch spell check to background thread.
-            checker = self._spell_worker._checker
-            skip = checker.skip_regions(text) if checker else set()
-            self._spell_worker.check_block_requested.emit(block_num, text, skip)
+        # Spell-check first — only sets underline style, won't touch foreground.
+        # Applying it before syntax patterns lets the patterns overwrite the
+        # default foreground / bold / italic while preserving the red underline.
+        self._spell_check_block(text)
 
         # Syntax patterns (applied after spell-check so they win on colour).
         # Footnote definitions — whole-line pattern, before other inline rules.
@@ -328,44 +239,25 @@ class MarkdownHighlighter(QSyntaxHighlighter):
         if first_ch == '>':
             self._apply_rule(self.BLOCKQUOTE_RE, text, self.blockquote_fmt)
 
-    # ------------------------------------------------------------------
-    # Async spell-check callbacks
-    # ------------------------------------------------------------------
-    def _on_spell_result(self, block_number: int, errors: list) -> None:
-        """Called in GUI thread — apply spell underlines via rehighlightBlock."""
-        if not errors:
-            return
-        self._pending_spell[block_number] = errors
-        self._applying_spell.add(block_number)
-        block = self.document().findBlockByNumber(block_number)
-        if block.isValid():
-            self.rehighlightBlock(block)
-
-    def set_spell_langs(self, langs: list[str]) -> None:
-        """Forward language change to the background worker."""
-        self._spell_worker.set_langs_requested.emit(langs)
-
-    def load_custom_dict(self, folder_path) -> None:
-        """Forward custom-dict load to the background worker."""
-        self._spell_worker.load_dict_requested.emit(folder_path)
-
-    def add_word(self, word: str) -> None:
-        """Forward word addition to the background worker."""
-        self._spell_worker.add_word_requested.emit(word)
-
-    def stop_spell_worker(self) -> None:
-        """Stop the background spell-check thread."""
-        self._spell_thread.quit()
-        self._spell_thread.wait(2000)
-
-    # ------------------------------------------------------------------
-    # Legacy — kept for reference, no longer called from highlightBlock.
-    # ------------------------------------------------------------------
     _WORD_RE = re.compile(r"\b\w{3,}\b", re.UNICODE)
 
     def _spell_check_block(self, text: str) -> None:
-        """Deprecated — spell check is now async via _SpellWorker."""
-        pass
+        if self._spell_checker is None or not self._spell_checker.available:
+            return
+        skip = self._spell_checker.skip_regions(text)
+        errors = 0
+        for m in self._WORD_RE.finditer(text):
+            word = m.group(0)
+            start = m.start()
+            if start in skip:
+                continue
+            ok = self._spell_checker.check(word)
+            if not ok:
+                self.setFormat(start, m.end() - start, self._spell_fmt)
+                errors += 1
+                _LOG.debug("spell err: %r (langs=%s)", word, self._spell_checker.langs)
+        if errors:
+            _LOG.debug("spell block %d: %d errors", self.currentBlock().blockNumber(), errors)
 
     def _fmt_frontmatter(self, text: str) -> None:
         """Highlight YAML key: value pairs in the frontmatter block."""
