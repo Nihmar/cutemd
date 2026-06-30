@@ -192,6 +192,14 @@ class EditorTab(QWidget):
         self.editor.setTabStopDistance(40)
         self.editor.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.editor.setCursorWidth(cursor_width)
+        # Kinetic scrolling via QScroller for touchpad/mouse-wheel inertia.
+        # TouchGesture only activates on touch devices / two-finger scroll,
+        # leaving left-click text selection unaffected.
+        from PySide6.QtWidgets import QScroller
+        QScroller.grabGesture(
+            self.editor.viewport(),
+            QScroller.ScrollerGestureType.TouchGesture,
+        )
         self.editor.textChanged.connect(self._on_text_changed)
         self.editor.textChanged.connect(self._invalidate_text_cache)
         self.editor.textChanged.connect(self._update_word_count)

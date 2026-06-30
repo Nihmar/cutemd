@@ -20,7 +20,51 @@ from PySide6.QtWidgets import (
 )
 
 from core.logging import setup_logging
+
+_LOG = setup_logging("cutemd.search_panel")
+
 from ui.widgets import CuteListWidget
+
+_RG_AVAILABLE: bool | None = None  # cached availability check
+
+
+def _check_rg() -> bool:
+    """Return True if ripgrep is available on the system PATH."""
+    global _RG_AVAILABLE
+    if _RG_AVAILABLE is None:
+        import shutil
+        _RG_AVAILABLE = shutil.which("rg") is not None
+        if _RG_AVAILABLE:
+            _LOG.debug("ripgrep (rg) found — using for find-in-files")
+    return _RG_AVAILABLE
+
+
+def _rg_search(folder: Path, pattern: str, flags: int, regex_mode: bool) -> list[tuple[Path, int, str]]:
+    """Run ripgrep and return [(file_path, line_num, line_text), ...]."""
+    import subprocess
+    args = ["rg", "--line-number", "--no-heading", "--color", "never", "-g", "*.md"]
+    if flags & re.IGNORECASE:
+        args.append("-i")
+    if not regex_mode:
+        args.append("-F")  # fixed-string search
+    args.append(pattern)
+    args.append(str(folder))
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, timeout=30)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return []
+    results: list[tuple[Path, int, str]] = []
+    for line in proc.stdout.splitlines():
+        parts = line.split(":", 2)
+        if len(parts) >= 3:
+            try:
+                file_path = Path(parts[0])
+                line_num = int(parts[1])
+                line_text = parts[2].strip()[:120]
+                results.append((file_path, line_num, line_text))
+            except (ValueError, OSError):
+                continue
+    return results
 
 _CHUNK_SIZE = 20
 _CHUNK_INTERVAL = 10  # ms
@@ -198,17 +242,36 @@ class SearchPanel(QWidget):
     def _process_chunk(self) -> None:
         """Process one chunk of files from the rglob generator.
 
-        This method is called periodically by a QTimer. It pulls up to
-        ``_CHUNK_SIZE`` files from the generator, reads each one, and
-        performs a regex search (with ``re.escape`` for literal matching)
-        across every line. Matches are accumulated into the results
-        ``CuteListWidget`` as ``QListWidgetItem`` items, each storing the
-        file path and line number in ``UserRole`` data. Once the generator
-        is exhausted the timer stops and the count label is updated.
+        Uses ripgrep (rg) if available on the system — otherwise falls
+        back to a chunked Python regex scan.
         """
-        _LOG.debug("_process_chunk: searching")
         query = self._query
-        if not query or self._generator is None:
+        if not query or self._folder_path is None:
+            self._timer.stop()
+            return
+
+        # Fast path: ripgrep backend.
+        if _check_rg() and self._generator is not None:
+            self._timer.stop()
+            self._generator = None
+            results = _rg_search(
+                self._folder_path, query, self._flags,
+                self._search_regex_cb.isChecked(),
+            )
+            for file_path, line_num, line_text in results:
+                try:
+                    rel = file_path.relative_to(self._folder_path)
+                except ValueError:
+                    rel = file_path
+                item_text = f"{rel}:{line_num}: {line_text}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.ItemDataRole.UserRole, (file_path, line_num))
+                self._search_results.addItem(item)
+            self._update_count()
+            return
+
+        # Fallback: chunked Python scan.
+        if self._generator is None:
             self._timer.stop()
             return
 
