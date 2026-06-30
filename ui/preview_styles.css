@@ -299,3 +299,13 @@ body.dark .footnote-backref {
 .footnote-item p {
     display: inline;
 }
+
+/* ---------- Virtual DOM / content slicing ---------- */
+/* For large documents, content-visibility:auto lets Chromium skip
+   layout and paint for off-screen block-level elements.  The
+   contain-intrinsic-size provides an estimated height so the
+   scrollbar stays accurate. */
+p, pre, blockquote, table, ul, ol, .math-block, .footnotes li {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 500px;
+}

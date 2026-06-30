@@ -8,7 +8,7 @@ note filenames as children.
 import re
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
@@ -150,14 +150,24 @@ class TagsPanel(QWidget):
         self._scan_thread: TagScanner | None = None
         self._tag_items: dict[str, QTreeWidgetItem] = {}
         self._tag_counts: dict[str, int] = {}
+        # Batch processing — avoids flooding the event loop with tree
+        # item creation during bulk tag loads.
+        self._tag_buffer: list[tuple[str, list[str]]] = []
+        self._tag_batch_timer = QTimer(self)
+        self._tag_batch_timer.setInterval(5)
+        self._tag_batch_timer.timeout.connect(self._flush_tag_batch)
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def start_scan(self, scanner: VaultScanner) -> None:
-        """Connect to *scanner* and rebuild tags from its output."""
+        """Connect to *scanner* and rebuild tags from its output.
+        Tags are extracted in the scanner's worker thread — only the
+        result list is sent via signal, not the full file content."""
         _LOG.debug("start_scan: connecting to VaultScanner")
+        self._tag_batch_timer.stop()
+        self._tag_buffer.clear()
         self._tree.clear()
         self._tag_items.clear()
         self._tag_counts.clear()
@@ -165,12 +175,14 @@ class TagsPanel(QWidget):
         self._status_label.show()
 
         self._scanner = scanner
-        scanner.file_content.connect(self._on_file_content)
+        scanner.file_tags.connect(self._on_file_tags)
         scanner.scan_complete.connect(self._on_scan_complete)
 
     def clear(self) -> None:
         """Cancel any scan and clear the panel."""
         _LOG.debug("clear")
+        self._tag_batch_timer.stop()
+        self._tag_buffer.clear()
         self._cancel_scan()
         self._tree.clear()
         self._tag_items.clear()
@@ -211,34 +223,51 @@ class TagsPanel(QWidget):
         """Disconnect from any active scanner."""
         if hasattr(self, '_scanner') and self._scanner is not None:
             try:
-                self._scanner.file_content.disconnect(self._on_file_content)
+                self._scanner.file_tags.disconnect(self._on_file_tags)
                 self._scanner.scan_complete.disconnect(self._on_scan_complete)
             except (RuntimeError, TypeError):
                 pass
             self._scanner = None
 
-    def _on_file_content(self, filepath: Path, text: str) -> None:
-        """Extract tags from a single file's content."""
-        tags: set[str] = set()
-        for t in _parse_yaml_tags(text):
-            tags.add(t)
-        for t in _collect_inline_tags(text):
-            tags.add(t)
-        fp_str = str(filepath)
-        for tag in sorted(tags):
-            if tag not in self._tag_items:
-                item = QTreeWidgetItem(self._tree, [tag])
-                item.setData(0, Qt.ItemDataRole.UserRole, "")
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-                self._tag_items[tag] = item
-                self._tag_counts[tag] = 0
-            parent = self._tag_items[tag]
-            child = QTreeWidgetItem(parent, [filepath.name])
-            child.setData(0, Qt.ItemDataRole.UserRole, fp_str)
-            child.setToolTip(0, fp_str)
-            self._tag_counts[tag] += 1
+    def _on_file_tags(self, filepath: Path, tags: list[str]) -> None:
+        """Buffer tags from the scanner — actual tree population is
+        deferred to ``_flush_tag_batch`` which runs via a 5ms timer,
+        allowing paint events to interleave."""
+        self._tag_buffer.append((str(filepath), tags))
+        if not self._tag_batch_timer.isActive():
+            self._tag_batch_timer.start()
+
+    def _flush_tag_batch(self) -> None:
+        """Process one batch of buffered tags into the tree widget.
+        Processes up to 20 items per tick so the event loop has time
+        to paint between batches."""
+        batch = min(20, len(self._tag_buffer))
+        for _ in range(batch):
+            if not self._tag_buffer:
+                break
+            fp_str, tags = self._tag_buffer.pop(0)
+            for tag in tags:
+                if tag not in self._tag_items:
+                    item = QTreeWidgetItem(self._tree, [tag])
+                    item.setData(0, Qt.ItemDataRole.UserRole, "")
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                    self._tag_items[tag] = item
+                    self._tag_counts[tag] = 0
+                self._tag_counts[tag] = self._tag_counts.get(tag, 0) + 1
+                child = QTreeWidgetItem(self._tag_items[tag])
+                child.setText(0, fp_str)
+                child.setData(0, Qt.ItemDataRole.UserRole, fp_str)
+                child.setToolTip(0, fp_str)
+        if not self._tag_buffer:
+            self._tag_batch_timer.stop()
 
     def _on_scan_complete(self) -> None:
+        """Flush remaining buffered tags and stop the batch timer."""
+        self._tag_batch_timer.stop()
+        while self._tag_buffer:
+            self._flush_tag_batch()
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
         total_tags = len(self._tag_items)
         total_files = sum(self._tag_counts.values())
         if total_tags == 0:

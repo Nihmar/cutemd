@@ -70,12 +70,19 @@ from ui.link_manager import LinkManager
 from ui.link_preview_popup import LinkPreviewPopup
 from ui.markdown_completer import MarkdownAutoCompleter
 from ui.pdf_viewer import PdfViewer
-from ui.preview_browser import PreviewWebEngineView, get_image_size
 from ui.preview_worker import PreviewWorker
 from ui.syntax_highlighter import MarkdownHighlighter
 
 _LOG = setup_logging("cutemd.editor_tab")
 _BODY_RE = re.compile(r"<body[^>]*>(.*?)</body>", re.DOTALL)
+_GET_IMAGE_SIZE_CACHE: object = None
+
+def _get_image_size():
+    global _GET_IMAGE_SIZE_CACHE
+    if _GET_IMAGE_SIZE_CACHE is None:
+        from ui.preview_browser import get_image_size  # lazy import
+        _GET_IMAGE_SIZE_CACHE = get_image_size
+    return _GET_IMAGE_SIZE_CACHE
 
 
 # ---------------------------------------------------------------------------
@@ -138,6 +145,7 @@ class EditorTab(QWidget):
         self._line_anchor_map_hash: int = 0
         self._frontmatter_offset: int = 0  # lines stripped by frontmatter removal
         self._last_rendered_hash: int = 0
+        self._last_head_hash: int = 0  # hash of first ~half of the document
         self._preview_initialized = False  # set to True after first setHtml()
         self._pending_render_hash: int = 0
         self._pending_sync_anchor: str = ""
@@ -225,17 +233,14 @@ class EditorTab(QWidget):
         self._link_style = (smart_editing or {}).get("link_style", "md")
 
         # --- Preview stack ---
-        self.preview = PreviewWebEngineView()
-        self.preview.setReadOnly(True)
-        self.preview.setOpenLinks(False)
-        self.preview.setOpenExternalLinks(False)
-        self.preview.file_link_clicked.connect(
-            lambda target: self.file_link_clicked.emit(target, "")
-        )
-        self.preview.checkbox_toggled.connect(self._on_checkbox_toggled)
-        if self._attachments_dir is not None:
-            self.preview.set_attachments_dir(self._attachments_dir)
-        self._preview_viewport = self.preview  # QWebEngineView is its own viewport
+        self._preview_real = None
+        self._preview_initialized = False
+        # QWebEngineView is created lazily on first _ensure_preview() call
+        # to avoid loading Chromium DLLs (~70 MB on Windows) during startup.
+        self._loading_preview = QLabel(self.tr("Preview\u2026"))
+        self._loading_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.preview = self._loading_preview
+        self._preview_viewport = self._loading_preview
         self._preview_viewport.installEventFilter(self)
 
         self._image_viewer = ImageViewer()
@@ -255,6 +260,34 @@ class EditorTab(QWidget):
         self._loading_label.setText(self.tr("Rendering\u2026"))
         self._preview_stack.addWidget(self._loading_label)  # 3
         self._preview_stack.installEventFilter(self)
+
+    def _ensure_preview(self) -> None:
+        """Lazily create the real QWebEngineView, replacing the placeholder."""
+        if self._preview_real is not None:
+            return
+        from ui.preview_browser import PreviewWebEngineView
+        real = PreviewWebEngineView()
+        real.setReadOnly(True)
+        real.setOpenLinks(False)
+        real.setOpenExternalLinks(False)
+        real.file_link_clicked.connect(
+            lambda target: self.file_link_clicked.emit(target, "")
+        )
+        real.checkbox_toggled.connect(self._on_checkbox_toggled)
+        if self._attachments_dir is not None:
+            real.set_attachments_dir(self._attachments_dir)
+        self._preview_real = real
+        self.preview = real
+        self._preview_viewport = real
+        self._preview_viewport.installEventFilter(self)
+        # Swap the placeholder widget (index 0) with the real one.
+        self._preview_stack.insertWidget(0, real)
+        self._preview_stack.removeWidget(self._loading_preview)
+        self._preview_stack.setCurrentIndex(0)
+
+        # Replay any deferred settings.
+        if hasattr(self, "_theme_bg") and self._theme_bg:
+            real.set_page_background(self._theme_bg)
 
         # --- Scroll sync ---
         # Editor → Preview
@@ -340,6 +373,7 @@ class EditorTab(QWidget):
         )
         colors_changed = theme_bg and theme_bg != getattr(self, "_theme_bg", "")
         if theme_changed or pygments_changed or colors_changed:
+            self._ensure_preview()
             self._theme = theme
             if pygments_style:
                 self._pygments_style = pygments_style
@@ -373,11 +407,15 @@ class EditorTab(QWidget):
         Call when the tab is no longer the active tab.  Restore with
         ``activate_preview()``.
         """
+        if self._preview_real is None:
+            return  # not yet created — nothing to freeze
         page = self.preview.page()
         page.setLifecycleState(QWebEnginePage.LifecycleState.Frozen)
 
     def activate_preview(self) -> None:
         """Restore the preview to active state after being frozen."""
+        if self._preview_real is None:
+            return  # not yet created — nothing to activate
         page = self.preview.page()
         page.setLifecycleState(QWebEnginePage.LifecycleState.Active)
 
@@ -495,7 +533,9 @@ class EditorTab(QWidget):
     # ------------------------------------------------------------------
 
     def load_file(self, path: Path) -> None:
-        _LOG.debug("load_file: %s", path)
+        import time as _time
+        _t0 = _time.perf_counter()
+        _LOG.debug("load_file: %s st_size=%d", path, path.stat().st_size)
         self._last_rendered_hash = 0
         self._preview_initialized = False
         ext = path.suffix.lower()
@@ -532,8 +572,29 @@ class EditorTab(QWidget):
         self._saved_text = text
         self._file_path = path
         self._file_encoding = encoding
-        _LOG.debug("load_file: size=%d encoding=%s", len(text), encoding)
+
+        # Detect large file BEFORE setPlainText so we can skip highlighting.
+        self._large_file = path.stat().st_size > LARGE_FILE_THRESHOLD
+        lines = text.count("\n") + 1
+        _LOG.debug("load_file: size=%d lines=%d large=%s", len(text), lines, self._large_file)
+        if self._large_file:
+            self._highlighter.setDocument(None)
+
+        # Block expensive textChanged handlers during bulk load:
+        # toPlainText() + split() are O(n) and waste CPU during init.
+        self.editor.textChanged.disconnect(self._on_text_changed)
+        self.editor.textChanged.disconnect(self._invalidate_text_cache)
+        self.editor.textChanged.disconnect(self._update_word_count)
+
+        _t1 = _time.perf_counter()
         self.editor.setPlainText(text)
+        _dt_set = (_time.perf_counter() - _t1) * 1000
+
+        self.editor.textChanged.connect(self._on_text_changed)
+        self.editor.textChanged.connect(self._invalidate_text_cache)
+        self.editor.textChanged.connect(self._update_word_count)
+        _LOG.debug("load_file: setPlainText dt=%.0fms", _dt_set)
+
         self._dirty = False
         self._is_binary_preview = False
         self.editor.setReadOnly(False)
@@ -542,18 +603,31 @@ class EditorTab(QWidget):
         self.title_changed.emit()
         self.encoding_changed.emit(encoding)
 
-        if ext in self._MD_EXTS:
-            self._highlighter.setDocument(self.editor.document())
-        else:
+        if not self._large_file and ext in self._MD_EXTS:
+            if self._highlighter.document() is not self.editor.document():
+                self._highlighter.setDocument(self.editor.document())
+        elif not self._large_file and ext not in self._MD_EXTS:
             self._highlighter.setDocument(None)
 
-        # Detect large file and disable expensive features
-        self._large_file = path.stat().st_size > LARGE_FILE_THRESHOLD
-        if self._large_file:
-            self._highlighter.setDocument(None)
-            self._preview_stack.setCurrentIndex(0)
+        # Manual handlers (textChanged was blocked during setPlainText).
+        _t2 = _time.perf_counter()
+        self._invalidate_text_cache()
+        _dt_cache = (_time.perf_counter() - _t2) * 1000
+        _LOG.debug("load_file: invalidate_text_cache dt=%.0fms", _dt_cache)
 
-        self._refresh_link_highlights()
+        _t3 = _time.perf_counter()
+        self._update_word_count()
+        _dt_wc = (_time.perf_counter() - _t3) * 1000
+        _LOG.debug("load_file: update_word_count dt=%.0fms", _dt_wc)
+
+        self._on_text_changed()
+
+        if not self._large_file:
+            self._refresh_link_highlights()
+
+        _dt_total = (_time.perf_counter() - _t0) * 1000
+        _LOG.debug("load_file: done total dt=%.0fms (setPlainText=%.0fms cache=%.0fms words=%.0fms)",
+                   _dt_total, _dt_set, _dt_cache, _dt_wc)
 
     def _load_image(self, path: Path) -> None:
         self.editor.setPlainText(self.tr("Image preview \u2014 {}").format(path.name))
@@ -799,6 +873,7 @@ class EditorTab(QWidget):
             self._last_rendered_hash = 0
             self._preview_initialized = False
         self._attachments_dir = d
+        self._ensure_preview()
         self.preview.set_attachments_dir(d)
         self._refresh_link_highlights()
 
@@ -977,6 +1052,7 @@ class EditorTab(QWidget):
         unnecessary re-renders when typing quickly. Hash-based change
         detection prevents re-rendering identical content.
         """
+        self._ensure_preview()
         _LOG.debug(
             "DIAG _update_preview: visible=%s binary=%s large=%s text_len=%d",
             self._preview_visible,
@@ -1035,6 +1111,25 @@ class EditorTab(QWidget):
             return
         self._pending_render_hash = params_hash
 
+        # Two-level hash: the first ~half of the document.  When this
+        # matches the previous render, the structural DOM at the top
+        # is unchanged and the body-only runJavaScript patch is safe.
+        lines = text.split("\n")
+        mid = max(1, len(lines) // 2)
+        head_text = "\n".join(lines[:mid])
+        head_hash = hash((
+            head_text,
+            self._preview_css,
+            self._theme,
+            self._preview_font_family,
+            self._preview_font_size,
+            str(base_dir),
+            max(pw, 200),
+            getattr(self, "_pygments_style", ""),
+            getattr(self, "_theme_bg", ""),
+        ))
+        self._pending_head_hash = head_hash
+
         # Collect render params.
         # Note: "md" is NOT passed — the worker creates its own parser
         # because MarkdownIt doesn't survive cross-thread signal marshaling.
@@ -1046,7 +1141,7 @@ class EditorTab(QWidget):
             "font_size": self._preview_font_size,
             "base_dir": base_dir,
             "max_width": max(pw, 200),
-            "get_image_size": get_image_size,
+            "get_image_size": _get_image_size(),
             "attachments_dir": self._attachments_dir,
             "theme_bg": getattr(self, "_theme_bg", ""),
             "theme_fg": getattr(self, "_theme_fg", ""),
@@ -1106,14 +1201,22 @@ class EditorTab(QWidget):
         self._syncing_scroll -= 1
 
     def _deferred_set_html(self, html: str) -> None:
-        _LOG.debug("SET_HTML len=%d editor_line=%d initialized=%s",
+        self._ensure_preview()
+        _LOG.debug("SET_HTML len=%d editor_line=%d initialized=%s head_match=%s",
                    len(html),
                    self.editor.firstVisibleBlock().blockNumber(),
-                   self._preview_initialized)
+                   self._preview_initialized,
+                   getattr(self, "_pending_head_hash", 0) == self._last_head_hash)
 
-        if self._preview_initialized:
-            # Fast path: patch only the body content via runJavaScript.
-            # This avoids tearing down and rebuilding the WebEngine page context.
+        # When the head (first half) of the document is unchanged, a
+        # body-only runJavaScript patch preserves scroll position and
+        # avoids the full WebEngine page teardown.
+        head_stable = (
+            self._preview_initialized
+            and getattr(self, "_pending_head_hash", 0) == self._last_head_hash
+        )
+
+        if head_stable:
             m = _BODY_RE.search(html)
             if m:
                 import json
@@ -1168,6 +1271,7 @@ class EditorTab(QWidget):
         # Track rendered state to skip redundant future renders.
         if not self._preview_pending:
             self._last_rendered_hash = self._pending_render_hash
+            self._last_head_hash = getattr(self, "_pending_head_hash", 0)
 
         self._pending_sync_anchor = self._last_anchor
         self._sync_retries = 0

@@ -284,6 +284,13 @@ class FileTreePanel(QWidget):
             if sys.platform == "linux":
                 subprocess.Popen(["xdg-open", path_str])
 
+    def _copy_to_clipboard(self, text: str) -> None:
+        """Copy *text* to the system clipboard."""
+        try:
+            QApplication.clipboard().setText(text)
+        except Exception:
+            pass
+
     def _on_context_menu(self, point) -> None:
         _LOG.debug("_on_context_menu")
         index = self._tree.indexAt(point)
@@ -308,6 +315,11 @@ class FileTreePanel(QWidget):
             act_explorer.triggered.connect(
                 lambda: self._open_path(path)
             )
+            menu.addSeparator()
+            act_copy = menu.addAction(self.tr("Copy location"))
+            act_copy.triggered.connect(
+                lambda checked=False, fp=str(p.resolve()): QApplication.clipboard().setText(fp)
+            )
         else:
             act_new_tab = menu.addAction(self.tr("Open in new tab"))
             act_new_tab.triggered.connect(lambda: self.file_open_new_tab.emit(str(p)))
@@ -330,7 +342,7 @@ class FileTreePanel(QWidget):
             menu.addSeparator()
             act_copy = menu.addAction(self.tr("Copy location"))
             act_copy.triggered.connect(
-                lambda fp=str(p.resolve()): QApplication.clipboard().setText(fp)
+                lambda checked=False, fp=str(p.resolve()): QApplication.clipboard().setText(fp)
             )
 
         menu.exec(self._tree.viewport().mapToGlobal(point))
