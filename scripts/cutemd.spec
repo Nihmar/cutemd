@@ -26,9 +26,10 @@ cp -a %{_sourcedir}/* .
 %build
 curl -LsSf https://astral.sh/uv/install.sh | sh -s -- --no-modify-path
 export PATH="$HOME/.local/bin:$PATH"
+uv python pin 3.13
 uv sync
 uv pip install pyinstaller
-uv run pyinstaller \
+uv run python -m PyInstaller \
     --name cutemd \
     --onedir \
     --windowed \
@@ -36,6 +37,7 @@ uv run pyinstaller \
     --optimize 2 \
     --noupx \
     --noconfirm \
+    --collect-all markdown \
     --add-data "ui/icons:ui/icons" \
     --add-data "ui/style.qss:ui" \
     --add-data "ui/preview_styles.css:ui" \

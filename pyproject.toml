@@ -1,6 +1,6 @@
 [project]
 name = "cutemd"
-version = "1.5.5"
+version = "1.5.6"
 description = "A non-WYSIWYG Markdown editor"
 readme = "README.md"
 requires-python = ">=3.11"

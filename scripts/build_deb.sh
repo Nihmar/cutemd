@@ -46,7 +46,7 @@ rm -rf "$DIST_DIR" "$BUILD_DIR" "$PROJECT_DIR/__pycache__"
 
 echo "==> Installing PyInstaller …"
 uv python pin 3.13
-uv run python -m pip install pyinstaller
+uv pip install pyinstaller
 
 echo "==> Building executable with PyInstaller (optimised for speed) …"
 cd "$PROJECT_DIR"
@@ -58,6 +58,7 @@ uv run python -m PyInstaller \
     --optimize 2 \
     --noupx \
     --noconfirm \
+    --collect-all markdown \
     --add-data "ui/icons:ui/icons" \
     --add-data "ui/style.qss:ui" \
     --add-data "ui/preview_styles.css:ui" \

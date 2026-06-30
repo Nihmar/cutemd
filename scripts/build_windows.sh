@@ -21,7 +21,7 @@ echo "==> Installing PyInstaller in project venv …"
 cd "$PROJECT_DIR"
 source .venv/Scripts/activate
 echo "Python: $(python --version)"
-pip install pyinstaller
+uv pip install pyinstaller
 
 echo "==> Building Windows executable (optimised for speed) …"
 pyinstaller \
@@ -32,6 +32,7 @@ pyinstaller \
     --optimize 2 \
     --noupx \
     --noconfirm \
+    --collect-all markdown \
     --add-data "ui/icons;ui/icons" \
     --add-data "ui/style.qss;ui" \
     --add-data "ui/preview_styles.css;ui" \
