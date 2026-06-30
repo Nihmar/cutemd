@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.logging import setup_logging
+from core.vault_scanner import VaultScanner
 
 _LOG = setup_logging("cutemd.tags")
 from core.frontmatter import parse_frontmatter, _FRONTMATTER_RE
@@ -154,22 +155,18 @@ class TagsPanel(QWidget):
     # Public API
     # ------------------------------------------------------------------
 
-    def start_scan(self, folder_path: Path) -> None:
-        """Cancel any running scan and start a new one."""
-        _LOG.debug("start_scan: %s", folder_path)
-        self._cancel_scan()
-
+    def start_scan(self, scanner: VaultScanner) -> None:
+        """Connect to *scanner* and rebuild tags from its output."""
+        _LOG.debug("start_scan: connecting to VaultScanner")
         self._tree.clear()
         self._tag_items.clear()
         self._tag_counts.clear()
         self._status_label.setText(self.tr("Scanning\u2026"))
         self._status_label.show()
 
-        self._scan_thread = TagScanner(folder_path, self)
-        self._scan_thread.tag_found.connect(self._on_tag_found)
-        self._scan_thread.scan_complete.connect(self._on_scan_complete)
-        self._scan_thread.finished.connect(self._on_scan_finished)
-        self._scan_thread.start()
+        self._scanner = scanner
+        scanner.file_content.connect(self._on_file_content)
+        scanner.scan_complete.connect(self._on_scan_complete)
 
     def clear(self) -> None:
         """Cancel any scan and clear the panel."""
@@ -211,31 +208,35 @@ class TagsPanel(QWidget):
                     item.setHidden(True)
 
     def _cancel_scan(self) -> None:
-        if self._scan_thread is not None:
+        """Disconnect from any active scanner."""
+        if hasattr(self, '_scanner') and self._scanner is not None:
             try:
-                if self._scan_thread.isRunning():
-                    _LOG.debug("_cancel_scan: interrupting running scan")
-                    self._scan_thread.requestInterruption()
-                    self._scan_thread.wait(2000)
-            except RuntimeError:
-                pass  # C++ object already deleted
-        self._scan_thread = None
+                self._scanner.file_content.disconnect(self._on_file_content)
+                self._scanner.scan_complete.disconnect(self._on_scan_complete)
+            except (RuntimeError, TypeError):
+                pass
+            self._scanner = None
 
-    def _on_tag_found(self, tag: str, filepath: str) -> None:
-        _LOG.debug("_on_tag_found: %s → %s", tag, Path(filepath).name)
-        if tag not in self._tag_items:
-            item = QTreeWidgetItem(self._tree, [tag])
-            item.setData(0, Qt.ItemDataRole.UserRole, "")  # tag node, not clickable
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            # Collapsed by default (will expand on click or filter)
-            self._tag_items[tag] = item
-            self._tag_counts[tag] = 0
-
-        parent = self._tag_items[tag]
-        child = QTreeWidgetItem(parent, [Path(filepath).name])
-        child.setData(0, Qt.ItemDataRole.UserRole, filepath)
-        child.setToolTip(0, filepath)
-        self._tag_counts[tag] += 1
+    def _on_file_content(self, filepath: Path, text: str) -> None:
+        """Extract tags from a single file's content."""
+        tags: set[str] = set()
+        for t in _parse_yaml_tags(text):
+            tags.add(t)
+        for t in _collect_inline_tags(text):
+            tags.add(t)
+        fp_str = str(filepath)
+        for tag in sorted(tags):
+            if tag not in self._tag_items:
+                item = QTreeWidgetItem(self._tree, [tag])
+                item.setData(0, Qt.ItemDataRole.UserRole, "")
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
+                self._tag_items[tag] = item
+                self._tag_counts[tag] = 0
+            parent = self._tag_items[tag]
+            child = QTreeWidgetItem(parent, [filepath.name])
+            child.setData(0, Qt.ItemDataRole.UserRole, fp_str)
+            child.setToolTip(0, fp_str)
+            self._tag_counts[tag] += 1
 
     def _on_scan_complete(self) -> None:
         total_tags = len(self._tag_items)
@@ -248,7 +249,6 @@ class TagsPanel(QWidget):
             )
         _LOG.debug("_on_scan_complete: %d tags, %d notes",
                    total_tags, total_files)
-        self._scan_thread = None
         # Emit tag names so the editor completer can pick them up
         self.tags_updated.emit(sorted(self._tag_items.keys()))
 

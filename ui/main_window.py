@@ -46,6 +46,7 @@ from core.folder_settings import FolderSettings
 from core.logging import setup_logging
 from core.paths import resolve_path
 from core.file_utils import default_folder_config, update_recent_folders
+from core.vault_scanner import VaultScanner
 from core.link_resolution import resolve_link_target
 from core.webdav.sync import sync_folder
 from ui.qss_loader import load_qss
@@ -171,6 +172,9 @@ class MainWindow(QMainWindow):
         self._tags_timer.setSingleShot(True)
         self._tags_timer.setInterval(1000)
         self._tags_timer.timeout.connect(self._do_tags_scan)
+
+        # Shared vault scanner — one thread, one rglob, feeds tags + backlinks.
+        self._vault_scanner: VaultScanner | None = None
 
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
@@ -754,11 +758,11 @@ class MainWindow(QMainWindow):
         self._tags_timer.start()
 
     def _do_tags_scan(self) -> None:
-        """Execute the pending tags scan."""
+        """Execute the pending tags scan via the shared vault scanner."""
         if self._folder_path is None:
             return
         _LOG.debug("_do_tags_scan")
-        self._tags_panel.start_scan(self._folder_path)
+        self._start_vault_scan(full=False)  # incremental — uses mtime cache
 
     def _on_tag_note_activated(self, filepath: str) -> None:
         """Open a note from the tags panel in a new tab."""
@@ -773,29 +777,53 @@ class MainWindow(QMainWindow):
         self._update_window_title()
 
     def _on_tags_updated(self, tags: list[str]) -> None:
-        """Propagate updated tag and file lists to all editor tab completers."""
+        """Propagate updated tag list to all editor tab completers."""
         _LOG.debug("_on_tags_updated: %d tags", len(tags))
-        # Collect file list too
-        files = self._collect_vault_files()
         for i in range(self._tabs.count()):
             tab = self._tabs.widget(i)
             if isinstance(tab, EditorTab) and hasattr(tab, "_completer"):
                 tab._completer.set_tag_list(tags)
-                tab._completer.set_file_list(files)
 
-    def _collect_vault_files(self) -> list[str]:
-        """Return relative paths of all .md/.markdown files in the vault."""
+    def _start_vault_scan(self, full: bool = False) -> None:
+        """Start (or restart) the shared vault scanner.
+
+        If *full* is True the mtime cache is cleared so every file is
+        re-emitted.  Otherwise only files with changed mtime are emitted.
+        """
         if self._folder_path is None:
-            return []
-        files = []
-        for p in self._folder_path.rglob("*"):
-            if p.is_file() and p.suffix.lower() in (".md", ".markdown"):
-                try:
-                    rel = p.relative_to(self._folder_path)
-                    files.append(str(rel.with_suffix("")))  # strip extension
-                except ValueError:
-                    pass
-        return sorted(set(files))
+            return
+        if self._vault_scanner is not None and self._vault_scanner.isRunning():
+            self._vault_scanner.requestInterruption()
+            self._vault_scanner.wait(2000)
+        self._vault_scanner = VaultScanner(self._folder_path)
+        if full:
+            self._vault_scanner.invalidate()
+        # Wire tags panel.
+        self._tags_panel.start_scan(self._vault_scanner)
+        # Collect file list for completer.
+        self._vault_scanner.file_found.connect(self._on_vault_file_found)
+        self._vault_scanner.scan_complete.connect(self._on_vault_scan_complete)
+        self._vault_scanner.start()
+
+    def _on_vault_file_found(self, filepath: Path) -> None:
+        """Collect file paths for the editor completer."""
+        if not hasattr(self, '_vault_files'):
+            self._vault_files: list[str] = []
+        try:
+            rel = filepath.relative_to(self._folder_path)  # type: ignore[arg-type]
+            self._vault_files.append(str(rel.with_suffix("")))
+        except ValueError:
+            pass
+
+    def _on_vault_scan_complete(self) -> None:
+        """Push collected file list to all tab completers."""
+        files = sorted(set(getattr(self, '_vault_files', [])))
+        if files:
+            for i in range(self._tabs.count()):
+                tab = self._tabs.widget(i)
+                if isinstance(tab, EditorTab) and hasattr(tab, "_completer"):
+                    tab._completer.set_file_list(files)
+        self._vault_files = []
 
     def _get_or_create_md(self) -> MarkdownIt:
         """Lazily construct the MarkdownIt parser on first access.
@@ -1910,15 +1938,8 @@ class MainWindow(QMainWindow):
         self._s.set_last_folder(path)
         self._update_auto_sync_timer()
         self._update_menu_state()
-        # Initial tags and file list for autocomplete
-        self._trigger_tags_scan()
-        # Immediately propagate file list (tags will follow when scan completes)
-        files = self._collect_vault_files()
-        if files:
-            for i in range(self._tabs.count()):
-                tab = self._tabs.widget(i)
-                if isinstance(tab, EditorTab) and hasattr(tab, "_completer"):
-                    tab._completer.set_file_list(files)
+        # Create shared vault scanner and wire it to tags + file list.
+        self._start_vault_scan(full=True)
 
     def _restore_last_folder(self) -> None:
         """Decide what to show on startup (called via QTimer.singleShot(0)).
