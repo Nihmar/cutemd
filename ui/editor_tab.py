@@ -343,6 +343,7 @@ class EditorTab(QWidget):
             if theme_mid:
                 self._theme_mid = theme_mid
             self._last_rendered_hash = 0
+            self._preview_initialized = False  # theme changed → rebuild full page
             if defer_rehighlight:
                 self._highlighter.set_theme_deferred(theme)
             else:
