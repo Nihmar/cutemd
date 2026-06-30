@@ -95,6 +95,11 @@ class WebDAVClient:
         self._session = requests.Session()
         self._session.auth = (username, password)
         self._timeout = timeout
+        # Enable HTTP/1.1 keep-alive and connection pooling.
+        from requests.adapters import HTTPAdapter
+        adapter = HTTPAdapter(pool_connections=4, pool_maxsize=4, max_retries=1)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
 
     def test_connection(self) -> tuple[bool, str]:
         url = self._base + "/"
@@ -477,6 +482,11 @@ def sync_folder(
     all_items = sorted(all_paths)
     total = len(all_items)
 
+    # Phase 1: classify all items, collect transfers.
+    # Deferred transfers: (rel, local_file, remote_dt, local_ns, remote_ns, is_upload)
+    transfers: list[tuple[str, Path | None, datetime | None, int, int, bool]] = []
+    dirs_to_create: set[str] = set()
+
     for idx, rel in enumerate(all_items, 1):
         local_file = local_entries.get(rel)
         remote_info = remote.get(rel)
@@ -492,11 +502,6 @@ def sync_folder(
         recorded = sync_state.get(rel, 0)
 
         if remote_dt is None and remote_info is not None:
-            _LOG.debug(
-                "%-40s  no parseable remote mtime \u2014 using recorded=%d",
-                rel,
-                recorded,
-            )
             remote_ns = recorded
 
         if not local_file and not remote_info:
@@ -517,29 +522,11 @@ def sync_folder(
             elif local_file:
                 parts = rel.split("/")[:-1]
                 for i in range(1, len(parts) + 1):
-                    client.mkdir("/".join(parts[:i]))
-                if client.upload(local_file, rel):
-                    _record_upload(client, local_file, rel, local_ns, new_state)
-                    result.uploaded.append(rel)
-                    if progress_callback:
-                        progress_callback(
-                            f"[{idx}/{total}] Uploaded      {_fmt_rel(rel)}"
-                        )
-                else:
-                    result.errors.append(translate("WebDAV", "Upload failed: {}").format(rel))
+                    dirs_to_create.add("/".join(parts[:i]))
+                transfers.append((rel, local_file, None, local_ns, 0, True))
             elif remote_info:
-                local_path = local_root / rel
-                local_path.parent.mkdir(parents=True, exist_ok=True)
-                if client.download(rel, local_path):
-                    _set_file_mtime(local_path, remote_dt)
-                    new_state[rel] = remote_ns
-                    result.downloaded.append(rel)
-                    if progress_callback:
-                        progress_callback(
-                            translate("WebDAV", "[{}/{}] Downloaded    {}").format(idx, total, _fmt_rel(rel))
-                        )
-                else:
-                    result.errors.append(translate("WebDAV", "Download failed: {}").format(rel))
+                dirs_to_create.add(str(Path(rel).parent))
+                transfers.append((rel, None, remote_dt, 0, remote_ns, False))
             continue
 
         if local_file and not remote_info:
@@ -561,40 +548,13 @@ def sync_folder(
         local_changed = local_ns != recorded
         remote_changed = _to_sec_ns(remote_ns) != _to_sec_ns(recorded)
 
-        _LOG.debug(
-            "%-40s  local_ns=%d  remote_ns=%d  recorded=%d  "
-            "local_changed=%s  remote_changed=%s",
-            rel,
-            local_ns,
-            remote_ns,
-            recorded,
-            local_changed,
-            remote_changed,
-        )
-
         if not local_changed and not remote_changed:
             new_state[rel] = recorded
             result.unchanged.append(rel)
-
         elif local_changed and not remote_changed:
-            if client.upload(local_file, rel):
-                _record_upload(client, local_file, rel, local_ns, new_state)
-                result.uploaded.append(rel)
-                if progress_callback:
-                    progress_callback(translate("WebDAV", "[{}/{}] Uploaded      {}").format(idx, total, _fmt_rel(rel)))
-            else:
-                result.errors.append(translate("WebDAV", "Upload failed: {}").format(rel))
-
+            transfers.append((rel, local_file, None, local_ns, 0, True))
         elif remote_changed and not local_changed:
-            if client.download(rel, local_file):
-                _set_file_mtime(local_file, remote_dt)
-                new_state[rel] = remote_ns
-                result.downloaded.append(rel)
-                if progress_callback:
-                    progress_callback(translate("WebDAV", "[{}/{}] Downloaded    {}").format(idx, total, _fmt_rel(rel)))
-            else:
-                result.errors.append(translate("WebDAV", "Download failed: {}").format(rel))
-
+            transfers.append((rel, local_file, remote_dt, 0, remote_ns, False))
         else:
             # Both changed — collect conflict for interactive resolution.
             conflict = ConflictedFile(rel_path=rel)
@@ -607,7 +567,6 @@ def sync_folder(
                 conflict.remote_size = remote_info.get("size", 0)
                 if remote_dt:
                     conflict.remote_mtime_str = remote_dt.strftime("%Y-%m-%d %H:%M:%S")
-            # For text files, read content for diff view
             if local_file and not _is_binary_ext(rel):
                 try:
                     conflict.local_text = local_file.read_text(encoding="utf-8")
@@ -615,13 +574,69 @@ def sync_folder(
                     pass
             result.conflicts.append(conflict)
             result.conflicts_skipped.append(rel)
-            new_state[rel] = local_ns  # keep local mtime for now
+            new_state[rel] = local_ns
             if progress_callback:
                 progress_callback(
                     translate("WebDAV", "[{}/{}] Conflict      {}").format(
                         idx, total, _fmt_rel(rel)
                     )
                 )
+
+    # Phase 2: create directories (sequential — order matters).
+    for d in sorted(dirs_to_create):
+        if d and d != ".":
+            client.mkdir(d)
+
+    # Phase 3: parallel uploads and downloads.
+    if transfers:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        transfer_count = len(transfers)
+        if progress_callback:
+            progress_callback(translate("WebDAV", "Transferring {} files...").format(transfer_count))
+        completed = 0
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures: dict = {}
+            for rel, local_file, remote_dt, local_ns, remote_ns, is_upload in transfers:
+                if is_upload and local_file is not None:
+                    futures[executor.submit(client.upload, local_file, rel)] = (
+                        rel, local_file, None, local_ns, True
+                    )
+                elif local_file is not None:
+                    local_file.parent.mkdir(parents=True, exist_ok=True)
+                    futures[executor.submit(client.download, rel, local_file)] = (
+                        rel, local_file, remote_dt, remote_ns, False
+                    )
+                elif not is_upload:
+                    local_path = local_root / rel
+                    local_path.parent.mkdir(parents=True, exist_ok=True)
+                    futures[executor.submit(client.download, rel, local_path)] = (
+                        rel, local_path, remote_dt, remote_ns, False
+                    )
+            for future in as_completed(futures):
+                rel, lf, rdt, rns, is_up = futures[future]
+                completed += 1
+                try:
+                    ok = future.result()
+                except Exception:
+                    ok = False
+                if ok:
+                    if is_up and lf is not None:
+                        _record_upload(client, lf, rel, rns, new_state)
+                        result.uploaded.append(rel)
+                    elif lf is not None:
+                        _set_file_mtime(lf, rdt)
+                        new_state[rel] = rns
+                        result.downloaded.append(rel)
+                else:
+                    result.errors.append(
+                        translate("WebDAV", "{} failed: {}").format(
+                            "Upload" if is_up else "Download", rel
+                        )
+                    )
+                if progress_callback and completed % 5 == 0:
+                    progress_callback(
+                        translate("WebDAV", "Transferred {}/{}").format(completed, transfer_count)
+                    )
 
     _save_sync_state(local_root, new_state)
 
