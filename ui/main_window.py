@@ -1318,6 +1318,7 @@ class MainWindow(QMainWindow):
             app.setStyleSheet(load_qss(pal))
 
         self._recolor_toolbar_icons()
+        self._tree_panel.refresh_icons()
         # Extract the actual background/text colors from the palette for the preview.
         from PySide6.QtGui import QPalette
         bg_color = pal.color(QPalette.ColorRole.Base).name()

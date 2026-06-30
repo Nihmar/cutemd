@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QDir, QSize, QSortFilterProxyModel, Qt, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QColor, QDesktopServices, QIcon, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -22,8 +22,19 @@ from PySide6.QtWidgets import (
 from core.logging import setup_logging
 from core.trash import permanent_delete as trash_permanent_delete
 from core.trash import trash_file
+from ui.icon_provider import IconProvider
 
 _LOG = setup_logging("cutemd.file_tree")
+
+_ICON_PROVIDER = IconProvider()
+_FOLDER_ICON: QIcon | None = None
+_FILE_ICON: QIcon | None = None
+
+
+def _tree_icon(name: str, size: int = 16) -> QIcon:
+    """Return a cached icon tinted with the application's WindowText color."""
+    color = QApplication.palette().color(QPalette.ColorRole.WindowText)
+    return _ICON_PROVIDER.make(name, color, size)
 
 
 class _FileTreeView(QTreeView):
@@ -146,6 +157,12 @@ class _DotFileFilterProxy(QSortFilterProxyModel):
         if role == Qt.ItemDataRole.ToolTipRole:
             src_idx = self.mapToSource(index)
             return self.sourceModel().fileName(src_idx)
+        if role == Qt.ItemDataRole.DecorationRole:
+            src_idx = self.mapToSource(index)
+            model = self.sourceModel()
+            if model.isDir(src_idx):
+                return _tree_icon("folder")
+            return _tree_icon("file")
         return super().data(index, role)
 
     def filterAcceptsRow(self, source_row: int, source_parent) -> bool:
@@ -257,6 +274,10 @@ class FileTreePanel(QWidget):
 
     def set_show_hidden_files(self, show: bool) -> None:
         self._proxy.set_show_hidden(show)
+
+    def refresh_icons(self) -> None:
+        """Force the tree to re-request icons (call after theme change)."""
+        self._proxy.invalidateFilter()
 
     # ------------------------------------------------------------------
     # Slots
