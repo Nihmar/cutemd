@@ -23,7 +23,11 @@ d3e4615 perf: Phase 1 quick wins — cache, lazy load, single filesystem walk
 
 ## Remaining items
 
-(None — all 19 items implemented.)
+| # | Item | Effort |
+|---|------|--------|
+| 14 | Search index (inverted index on folder open) | Large |
+| 15 | Incremental MD→HTML preview | Large |
+| 19 | Virtual DOM for large preview docs | Large |
 
 ## Key files modified
 
@@ -31,16 +35,13 @@ d3e4615 perf: Phase 1 quick wins — cache, lazy load, single filesystem walk
 |------|-------------|
 | `core/spell_checker.py` | LRU cache on check(), lazy import enchant |
 | `core/vault_scanner.py` | NEW — shared background rglob for tags + file list |
-| `core/search_index.py` | NEW — inverted word→file index, queried by SearchPanel for plain-text searches |
-| `core/vault_scanner.py` | Feeds SearchIndex during scan, optional SearchIndex param |
 | `core/webdav/sync.py` | HTTPAdapter pooling, parallel transfers via ThreadPoolExecutor |
 | `markdown/html_builder.py` | loading="lazy" decoding="async" on <img> tags |
 | `ui/backlinks_panel.py` | Single rglob instead of two (md + markdown) |
-| `ui/editor_tab.py` | freeze/activate_preview, body-only runJavaScript with head-stable hash, QScroller, deferred spell wiring |
-| `ui/main_window.py` | Lazy MarkdownIt, Ctrl+Tab shortcuts, VaultScanner integration, SearchIndex wiring, deferred spell |
-| `ui/preview_styles.css` | content-visibility:auto for large-document virtual DOM |
+| `ui/editor_tab.py` | freeze/activate_preview, body-only runJavaScript, QScroller, deferred spell wiring |
+| `ui/main_window.py` | Lazy MarkdownIt, Ctrl+Tab shortcuts, VaultScanner integration, deferred spell |
 | `ui/qss_loader.py` | QSS cache per palette |
-| `ui/search_panel.py` | Ripgrep backend, inverted-index pre-filtering, set_search_index() |
+| `ui/search_panel.py` | Ripgrep backend, fixed missing _LOG |
 | `ui/spell_highlighter.py` | Simplified (logic moved to syntax_highlighter) |
 | `ui/syntax_highlighter.py` | First-char short-circuit, deferred theme rehighlight, debounced spell check |
 | `ui/tags_panel.py` | Uses VaultScanner instead of own TagScanner thread |

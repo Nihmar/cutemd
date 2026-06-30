@@ -47,7 +47,6 @@ from core.logging import setup_logging
 from core.paths import resolve_path
 from core.file_utils import default_folder_config, update_recent_folders
 from core.vault_scanner import VaultScanner
-from core.search_index import SearchIndex
 from core.link_resolution import resolve_link_target
 from core.webdav.sync import sync_folder
 from ui.qss_loader import load_qss
@@ -177,9 +176,6 @@ class MainWindow(QMainWindow):
         # Shared vault scanner — one thread, one rglob, feeds tags + backlinks.
         self._vault_scanner: VaultScanner | None = None
 
-        # Search index — built incrementally from VaultScanner, queried by SearchPanel.
-        self._search_index: SearchIndex | None = None
-
         # Load custom CSS once
         self._preview_css = _CSS_PATH.read_text() if _CSS_PATH.exists() else ""
 
@@ -213,10 +209,8 @@ class MainWindow(QMainWindow):
         # Menu bar visibility
         self._apply_menu_bar_visibility()
 
-        # Restore last folder (or prompt on first run) — small delay so
-        # the window has time to paint its initial layout before we start
-        # blocking I/O operations (notably slow on Windows with large files).
-        QTimer.singleShot(50, self._restore_last_folder)
+        # Restore last folder (or prompt on first run)
+        QTimer.singleShot(0, self._restore_last_folder)
         # Check for updates a few seconds after startup (if enabled)
         QTimer.singleShot(4000, lambda: self._check_for_updates(silent=True))
 
@@ -800,16 +794,13 @@ class MainWindow(QMainWindow):
 
         If *full* is True the mtime cache is cleared so every file is
         re-emitted.  Otherwise only files with changed mtime are emitted.
-        Does NOT block — if a previous scan is still running, the new
-        one replaces it without waiting.
         """
         if self._folder_path is None:
             return
         if self._vault_scanner is not None and self._vault_scanner.isRunning():
             self._vault_scanner.requestInterruption()
-        self._vault_scanner = VaultScanner(
-            self._folder_path, search_index=self._search_index
-        )
+            self._vault_scanner.wait(2000)
+        self._vault_scanner = VaultScanner(self._folder_path)
         if full:
             self._vault_scanner.invalidate()
         # Wire tags panel.
@@ -1904,12 +1895,9 @@ class MainWindow(QMainWindow):
         settings are applied *before* the UI is populated, so the user sees
         the correct appearance immediately.
         """
-        import time as _time
-        _t0 = _time.perf_counter()
         self._folder_path = path
         _LOG.debug("_set_folder: %s", path)
         self._folder_settings = FolderSettings(path)
-        _dt_settings = (_time.perf_counter() - _t0) * 1000
         # Seed with global defaults if .cutemd/settings.json doesn't exist yet
         if not self._folder_settings.config_path.is_file():
             global_cfg = default_folder_config(
@@ -1950,31 +1938,20 @@ class MainWindow(QMainWindow):
         for i in range(self._tabs.count() - 1, -1, -1):
             self._tabs.removeTab(i)
         self._add_tab()
-        _dt1 = (_time.perf_counter() - _t0) * 1000
-        _LOG.debug("_set_folder: dt_up_to_tree=%.0fms", _dt1)
-        # Defer tree population + vault scan by 500ms so the editor has
-        # time to load and the window can paint before signal flooding.
         self._search_panel.set_folder(path)
-        # Create/recreate the search index for this folder.
-        self._search_index = SearchIndex()
-        self._search_panel.set_search_index(self._search_index)
         self._add_recent_folder(path)
         self._s.set_last_folder(path)
         self._update_auto_sync_timer()
         self._update_menu_state()
-        QTimer.singleShot(500, lambda: self._defer_folder_population(path))
+        # Defer tree+tags population by 2s so the editor is usable first.
+        QTimer.singleShot(2000, lambda: self._defer_folder_population(path))
 
     def _defer_folder_population(self, path: Path) -> None:
-        """Populate tree + vault scanner after a delay (called by timer)."""
-        import time as _time
-        _t0 = _time.perf_counter()
         self._tree_panel.set_root_path(path)
         self._tree_panel.set_trash_config(
             self._s.trash_enabled(), self._folder_path
         )
         self._start_vault_scan(full=True)
-        _dt = (_time.perf_counter() - _t0) * 1000
-        _LOG.debug("_defer_folder_population: done total=%.0fms", _dt)
 
     def _restore_last_folder(self) -> None:
         """Decide what to show on startup (called via QTimer.singleShot(0)).
@@ -2087,8 +2064,6 @@ class MainWindow(QMainWindow):
         self._add_tab()
         self._tree_panel.set_root_path("")
         self._search_panel.set_folder(None)
-        self._search_panel.set_search_index(None)
-        self._search_index = None
         self._backlinks_panel.clear()
         self._tags_panel.clear()
         self._tags_timer.stop()

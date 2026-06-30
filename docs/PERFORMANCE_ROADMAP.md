@@ -1,6 +1,6 @@
 # Performance Analysis & Optimization Roadmap
 
-> **Status: 19/19 items implemented (100%)** — branch `perf/performance-roadmap`
+> **Status: 13/19 items implemented (68%)** — branch `perf/performance-roadmap`
 > Last updated: 2026-06-30
 
 ## Methodology
@@ -503,7 +503,7 @@ SyncThread → sync_folder
 | 8 | `AA_ShareOpenGLContexts` before QApplication | ✅ Already present |
 | 9 | Single filesystem walk for tree + tags + backlinks | ✅ Done (VaultScanner shared rglob) |
 
-### Phase 2 — Structural Improvements (medium risk, high impact) ✅ 5/5
+### Phase 2 — Structural Improvements (medium risk, high impact) ✅ 4/5
 
 | # | Item | Status |
 |---|------|--------|
@@ -511,17 +511,17 @@ SyncThread → sync_folder
 | 11 | Lazy SpellChecker import | ✅ Done (import enchant deferred) |
 | 12 | Tab sleep via LifecycleState (Frozen/Discarded) | ✅ Done |
 | 13 | Body-only preview patch via `runJavaScript` | ✅ Done |
-| 14 | Search index (inverted index on folder open) | ✅ Done (SearchIndex class, VaultScanner + SearchPanel integ.) |
+| 14 | Search index (inverted index on folder open) | ⏭️ Skipped (Large effort) |
 
-### Phase 3 — Deep Changes (higher risk, transformative impact) ✅ 5/5
+### Phase 3 — Deep Changes (higher risk, transformative impact) ✅ 3/5
 
 | # | Item | Status |
 |---|------|--------|
-| 15 | Incremental MD→HTML preview (re-render changed blocks only) | ✅ Done (two-level hash, head-stable body patch) |
+| 15 | Incremental MD→HTML preview (re-render changed blocks only) | ⏭️ Skipped (Large) |
 | 16 | Ripgrep backend for find-in-files | ✅ Done |
 | 17 | Parallel WebDAV transfers | ✅ Done (ThreadPoolExecutor + HTTP pooling) |
 | 18 | Hardware-accelerated editor scroll (QScroller) | ✅ Done (TouchGesture) |
-| 19 | Virtual DOM for large preview docs | ✅ Done (content-visibility:auto CSS) |
+| 19 | Virtual DOM for large preview docs | ⏭️ Skipped (Large) |
 
 ---
 
@@ -551,4 +551,3 @@ To validate the impact of each optimisation, add:
 | Search index | Low — additive feature | Fallback to linear scan if index stale |
 | Body-only preview patch | Medium — JS escaping | Unit-test HTML escaping; fallback to `setHtml()` |
 | AA_ShareOpenGLContexts | None — one-line change before QApplication | Revert if GPU driver incompatibility detected |
-| Virtual DOM (content-visibility) | Low — CSS-only | `content-visibility:auto` degrades gracefully on older browsers |
