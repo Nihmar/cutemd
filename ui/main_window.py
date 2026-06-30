@@ -233,11 +233,6 @@ class MainWindow(QMainWindow):
                     left = sizes[0]
                     mid = max(total - left - rw, 100)
                     self._splitter.setSizes([left, mid, rw])
-        # Enable spell checking now that the window is visible.
-        for i in range(self._tabs.count()):
-            tab = self._tabs.widget(i)
-            if isinstance(tab, EditorTab):
-                tab._highlighter.enable_spell()
 
     def _on_splitter_moved(self, pos: int, index: int) -> None:
         """Save left and right panel widths when user drags the splitter."""
@@ -916,9 +911,6 @@ class MainWindow(QMainWindow):
         self._tabs.setTabToolTip(idx, tab.tooltip())
         self._tabs.setCurrentIndex(idx)
         self._connect_edit_actions(tab)
-
-        # Enable spell check if the window is already visible.
-        tab._highlighter.enable_spell()
 
         # Propagate the configured images directory to every new tab.
         if self._folder_settings is not None:
