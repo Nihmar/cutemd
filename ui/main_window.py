@@ -462,6 +462,17 @@ class MainWindow(QMainWindow):
         self._tabs.tabCloseRequested.connect(self._on_tab_close_requested)
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
+        # Ctrl+Tab / Ctrl+Shift+Tab — QTabWidget's built-in handling only
+        # works when the tab bar has focus.  Add explicit application-wide
+        # shortcuts so tab switching works from the editor too.
+        from PySide6.QtGui import QKeySequence, QShortcut
+        self._next_tab_sc = QShortcut(QKeySequence("Ctrl+Tab"), self)
+        self._next_tab_sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._next_tab_sc.activated.connect(self._on_next_tab)
+        self._prev_tab_sc = QShortcut(QKeySequence("Ctrl+Shift+Tab"), self)
+        self._prev_tab_sc.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._prev_tab_sc.activated.connect(self._on_prev_tab)
+
         # Window state manager (geometry + session persistence)
         self._window_state = WindowStateManager(self._s, self._tabs)
 
@@ -919,18 +930,38 @@ class MainWindow(QMainWindow):
         self.act_undo.triggered.connect(tab.editor.undo)
         self.act_redo.triggered.connect(tab.editor.redo)
 
+    def _on_next_tab(self) -> None:
+        """Switch to the next tab (wrapping around)."""
+        count = self._tabs.count()
+        if count > 1:
+            idx = (self._tabs.currentIndex() + 1) % count
+            self._tabs.setCurrentIndex(idx)
+
+    def _on_prev_tab(self) -> None:
+        """Switch to the previous tab (wrapping around)."""
+        count = self._tabs.count()
+        if count > 1:
+            idx = (self._tabs.currentIndex() - 1) % count
+            self._tabs.setCurrentIndex(idx)
+
     def _on_tab_changed(self, index: int) -> None:
         _LOG.debug("_on_tab_changed: index=%d", index)
         # Freeze the previously active tab's preview to save GPU memory.
         if self._prev_tab_index >= 0 and self._prev_tab_index != index:
             prev_tab = self._tabs.widget(self._prev_tab_index)
             if isinstance(prev_tab, EditorTab):
-                prev_tab.freeze_preview()
+                try:
+                    prev_tab.freeze_preview()
+                except Exception:
+                    _LOG.debug("freeze_preview failed", exc_info=True)
         self._prev_tab_index = index
 
         tab = self._current_tab()
         if tab:
-            tab.activate_preview()
+            try:
+                tab.activate_preview()
+            except Exception:
+                _LOG.debug("activate_preview failed", exc_info=True)
             tab.highlight_if_needed()
             self._connect_edit_actions(tab)
             tab._emit_status()
