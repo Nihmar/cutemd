@@ -548,6 +548,20 @@ class EditorTab(QWidget):
         else:
             self._highlighter.setDocument(None)
 
+    def reload_from_disk(self) -> None:
+        """Re-read the current file from disk and update the editor."""
+        if not self._file_path or not self._file_path.is_file():
+            return
+        text, encoding = read_file_with_encoding(self._file_path)
+        if text is None:
+            return
+        self._saved_text = text
+        self._file_encoding = encoding
+        self.editor.setPlainText(text)
+        self._dirty = False
+        self._last_rendered_hash = 0
+        self._schedule_preview_update()
+
         # Detect large file and disable expensive features
         self._large_file = path.stat().st_size > LARGE_FILE_THRESHOLD
         if self._large_file:

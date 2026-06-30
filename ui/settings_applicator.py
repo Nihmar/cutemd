@@ -230,6 +230,13 @@ class SettingsApplicator:
         w._s.set_history_enabled(dlg.selected_history_enabled())
         w._s.set_history_max_snapshots(dlg.selected_history_max_snapshots())
 
+        # Task keyword
+        new_kw = dlg.selected_task_keyword()
+        if new_kw != w._s.task_keyword():
+            w._s.set_task_keyword(new_kw)
+            w._tasks_panel.set_keyword(new_kw)
+            w._tasks_panel.schedule_scan(full=True)
+
         # Propagate to tree panel
         if w._folder_settings is not None:
             w._tree_panel.set_trash_config(

@@ -64,6 +64,7 @@ from ui.settings_manager import AppSettings
 from ui.settings_applicator import SettingsApplicator
 from ui.shortcut_manager import ShortcutManager
 from ui.tags_panel import TagsPanel
+from ui.tasks_panel import TasksPanel
 from ui.theme_manager import ThemeManager
 from ui.themes import get_theme, system_theme
 from ui.side_panel_manager import SidePanelManager
@@ -369,6 +370,11 @@ class MainWindow(QMainWindow):
         )
         lt_layout.addWidget(self._side_tags_btn)
 
+        self._side_tasks_btn = _side_btn(
+            "list-task", self.tr("Toggle tasks"), slot=self._on_side_tasks_toggled
+        )
+        lt_layout.addWidget(self._side_tasks_btn)
+
         self._side_toc_btn = _side_btn(
             "toc", self.tr("Table of Contents"), slot=self._on_side_toc_toggled
         )
@@ -441,6 +447,12 @@ class MainWindow(QMainWindow):
         self._tags_panel.tag_note_activated.connect(self._on_tag_note_activated)
         self._tags_panel.tags_updated.connect(self._on_tags_updated)
         self._left_stack.addWidget(self._tags_panel)
+
+        # --- Tasks panel (left stack, index 3) ---
+        self._tasks_panel = TasksPanel()
+        self._tasks_panel.task_activated.connect(self._on_task_activated)
+        self._tasks_panel.file_modified.connect(self._on_task_file_modified)
+        self._left_stack.addWidget(self._tasks_panel)
 
         # Wrap left stack in a vertical splitter (for future panels)
         self._left_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -533,7 +545,7 @@ class MainWindow(QMainWindow):
         self._side_panel = SidePanelManager(
             self, self._splitter, self._left_stack,
             self._side_tree_btn, self._side_search_btn, self._side_toc_btn,
-            self._side_tags_btn,
+            self._side_tags_btn, self._side_tasks_btn,
             right_dock=None,
         )
 
@@ -689,6 +701,16 @@ class MainWindow(QMainWindow):
         else:
             self._side_panel.hide_left_panel()
 
+    def _on_side_tasks_toggled(self, checked: bool) -> None:
+        """Toggle the tasks panel in the left stack."""
+        if checked:
+            self._side_panel._uncheck_others(self._side_tasks_btn)
+            self._left_stack.setCurrentIndex(3)
+            if not self._side_panel.is_left_panel_open():
+                self._side_panel.show_left_panel()
+        else:
+            self._side_panel.hide_left_panel()
+
     def _rebuild_toc(self) -> None:
         """Rebuild the table of contents from the current tab's editor content."""
         tab = self._current_tab()
@@ -780,6 +802,30 @@ class MainWindow(QMainWindow):
         tab.load_file(p)
         self._refresh_tab_title(tab)
         self._update_window_title()
+
+    def _on_task_activated(self, file_path: Path, line_num: int) -> None:
+        """Open a file from the tasks panel at the task line."""
+        self._open_file_at_line((file_path, line_num))
+        self._refresh_tab_title(self._current_tab())
+        self._update_window_title()
+
+    def _on_task_file_modified(self, file_path: Path) -> None:
+        """Reload editor tabs when a task is toggled from the panel."""
+        for i in range(self._tabs.count()):
+            tab = self._tabs.widget(i)
+            if isinstance(tab, EditorTab) and tab.file_path == file_path:
+                tab.reload_from_disk()
+                break
+
+    # ------------------------------------------------------------------
+    # Tasks
+    # ------------------------------------------------------------------
+
+    def _trigger_tasks_scan(self) -> None:
+        """Schedule a debounced tasks scan (called on save events)."""
+        if self._folder_path is None:
+            return
+        self._tasks_panel.schedule_scan()
 
     def _on_tags_updated(self, tags: list[str]) -> None:
         """Propagate updated tag list to all editor tab completers."""
@@ -1349,6 +1395,7 @@ class MainWindow(QMainWindow):
             current_trash_enabled=self._s.trash_enabled(),
             current_history_enabled=self._s.history_enabled(),
             current_history_max_snapshots=self._s.history_max_snapshots(),
+            current_task_keyword=self._s.task_keyword(),
         )
         if dlg.exec() != SettingsDialog.DialogCode.Accepted:
             return
@@ -1939,6 +1986,8 @@ class MainWindow(QMainWindow):
             self._tabs.removeTab(i)
         self._add_tab()
         self._search_panel.set_folder(path)
+        self._tasks_panel.set_keyword(self._s.task_keyword())
+        self._tasks_panel.set_folder(path)
         self._add_recent_folder(path)
         self._s.set_last_folder(path)
         self._update_auto_sync_timer()
@@ -2067,6 +2116,7 @@ class MainWindow(QMainWindow):
         self._backlinks_panel.clear()
         self._tags_panel.clear()
         self._tags_timer.stop()
+        self._tasks_panel.clear()
         self._s.remove_last_folder()
         self._auto_sync_timer.stop()
         self._update_menu_state()
@@ -2353,6 +2403,7 @@ class MainWindow(QMainWindow):
                 if tab.file_path:
                     self._tree_panel.select_file(tab.file_path)
                     self._trigger_tags_scan()
+                    self._trigger_tasks_scan()
                     self._save_history_snapshot(tab.file_path)
                 self._update_metadata(tab)
                 # Sync-on-save for manual saves

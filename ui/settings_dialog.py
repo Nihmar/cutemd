@@ -141,6 +141,7 @@ class SettingsDialog(QDialog):
         current_trash_enabled: bool = True,
         current_history_enabled: bool = True,
         current_history_max_snapshots: int = 50,
+        current_task_keyword: str = "#task_todo",
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle(self.tr("Settings"))
@@ -332,6 +333,16 @@ class SettingsDialog(QDialog):
                 self._dict_buttons[hunspell_code] = btn
 
             gen_lay.addWidget(card)
+
+        # Task keyword
+        gen_lay.addSpacing(12)
+        card, card_lay = self._make_card()
+        card_lay.addWidget(self._section_label(self.tr("TASKS")))
+        self._task_kw_edit = QLineEdit(current_task_keyword)
+        card_lay.addLayout(
+            self._field_row(self.tr("Task keyword"), self._task_kw_edit)
+        )
+        gen_lay.addWidget(card)
 
         gen_lay.addStretch()
         self._stack.addWidget(gen_scroll)
@@ -1353,6 +1364,11 @@ class SettingsDialog(QDialog):
         if hasattr(self, "_history_max_snapshots_spin") and self._history_max_snapshots_spin is not None:
             return self._history_max_snapshots_spin.value()
         return 50
+
+    def selected_task_keyword(self) -> str:
+        if hasattr(self, "_task_kw_edit") and self._task_kw_edit is not None:
+            return self._task_kw_edit.text()
+        return "#task_todo"
 
     def selected_spell_check_langs(self) -> str:
         if hasattr(self, "_spell_check_lang_cbs"):

@@ -371,3 +371,13 @@ class AppSettings(QObject):
 
     def set_history_max_snapshots(self, value: int) -> None:
         self._s.setValue("history_max_snapshots", value)
+
+    # ------------------------------------------------------------------
+    # Task keyword
+    # ------------------------------------------------------------------
+    def task_keyword(self, default: str = "#task_todo") -> str:
+        val = self._s.value("task_keyword", default)
+        return str(val) if isinstance(val, str) else default
+
+    def set_task_keyword(self, value: str) -> None:
+        self._s.setValue("task_keyword", value)
